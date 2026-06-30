@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -22,33 +21,21 @@ import (
 	"github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	bifrost "github.com/maximhq/bifrost/core"
-	"github.com/maximhq/bifrost/core/mcp"
-	mcputils "github.com/maximhq/bifrost/core/mcp/utils"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework"
 	"github.com/maximhq/bifrost/framework/configstore"
 	configstoreTables "github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/maximhq/bifrost/framework/encrypt"
 	"github.com/maximhq/bifrost/framework/envutils"
-	"github.com/maximhq/bifrost/framework/featureflags"
 	"github.com/maximhq/bifrost/framework/kvstore"
 	"github.com/maximhq/bifrost/framework/logstore"
-	"github.com/maximhq/bifrost/framework/mcp_headers"
-	"github.com/maximhq/bifrost/framework/mcpcatalog"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
-	"github.com/maximhq/bifrost/framework/oauth2"
-	"github.com/maximhq/bifrost/framework/objectstore"
 	plugins "github.com/maximhq/bifrost/framework/plugins"
 	"github.com/maximhq/bifrost/framework/vectorstore"
 	"github.com/maximhq/bifrost/plugins/compat"
 	"github.com/maximhq/bifrost/plugins/governance"
 	"github.com/maximhq/bifrost/plugins/governance/complexity"
 	"github.com/maximhq/bifrost/plugins/logging"
-	"github.com/maximhq/bifrost/plugins/maxim"
-	"github.com/maximhq/bifrost/plugins/otel"
-	"github.com/maximhq/bifrost/plugins/prompts"
-	"github.com/maximhq/bifrost/plugins/semanticcache"
-	"github.com/maximhq/bifrost/plugins/telemetry"
 	"gorm.io/gorm"
 )
 
@@ -70,26 +57,15 @@ type HandlerStore interface {
 	// GetStreamChunkInterceptor returns the interceptor for streaming chunks.
 	// Returns nil if no plugins are loaded or streaming interception is not needed.
 	GetStreamChunkInterceptor() StreamChunkInterceptor
-	// GetAsyncJobExecutor returns the cached async job executor.
-	// Returns nil if LogsStore or governance plugin is not configured.
-	GetAsyncJobExecutor() *logstore.AsyncJobExecutor
-	// GetAsyncJobResultTTL returns the default TTL for async job results in seconds.
-	GetAsyncJobResultTTL() int
 	// GetKVStore returns the shared in-memory kvstore instance.
 	// Returns nil if not initialized.
 	GetKVStore() *kvstore.Store
-	// GetMCPHeaderCombinedAllowlist returns the combined allowlist for MCP headers
-	GetMCPHeaderCombinedAllowlist() schemas.WhiteList
 	// ShouldAllowPerRequestStorageOverride returns whether per-request overrides for content storage are permitted
 	ShouldAllowPerRequestStorageOverride() bool
 	// ShouldAllowPerRequestRawOverride returns whether per-request overrides for raw request/response visibility are permitted
 	ShouldAllowPerRequestRawOverride() bool
 	// ShouldAllowDirectKeys returns whether callers may bypass the registered key pool via x-bf-direct-key header
 	ShouldAllowDirectKeys() bool
-	// GetMCPExternalClientURL returns the configured external base URL Bifrost uses as the
-	// redirect_uri when acting as an OAuth client to upstream MCP servers, or empty string
-	// if not configured (falls back to dynamic Host-header-based URL).
-	GetMCPExternalClientURL() string
 }
 
 // Retry backoff constants for validation
@@ -122,14 +98,9 @@ func getWeight(w *float64) float64 {
 // BuiltinPluginNames is the canonical list of built-in plugin names.
 // It is the single source of truth — update here when adding or removing a built-in plugin.
 var builtinPluginNames = []string{
-	telemetry.PluginName,
-	prompts.PluginName,
 	logging.PluginName,
 	governance.PluginName,
-	otel.PluginName,
-	semanticcache.PluginName,
 	compat.PluginName,
-	maxim.PluginName,
 }
 
 func GetBuiltinPluginNames() []string {
@@ -152,7 +123,7 @@ type ServerConfig struct {
 }
 
 // ConfigData represents the configuration data for the Bifrost HTTP transport.
-// It contains the client configuration, provider configurations, MCP configuration,
+// It contains the client configuration, provider configurations,
 // vector store configuration, config store configuration, and logs store configuration.
 type ConfigData struct {
 	// Version controls how empty arrays in allow-list fields are interpreted when loading
@@ -169,104 +140,14 @@ type ConfigData struct {
 	AuthConfig        *configstore.AuthConfig               `json:"auth_config,omitempty"`
 	Providers         map[string]configstore.ProviderConfig `json:"providers"`
 	FrameworkConfig   *framework.FrameworkConfig            `json:"framework,omitempty"`
-	MCP               *schemas.MCPConfig                    `json:"mcp,omitempty"`
 	Governance        *configstore.GovernanceConfig         `json:"governance,omitempty"`
 	VectorStoreConfig *vectorstore.Config                   `json:"vector_store,omitempty"`
 	ConfigStoreConfig *configstore.Config                   `json:"config_store,omitempty"`
 	LogsStoreConfig   *logstore.Config                      `json:"logs_store,omitempty"`
 	Plugins           []*schemas.PluginConfig               `json:"plugins,omitempty"`
-	WebSocket         *schemas.WebSocketConfig              `json:"websocket,omitempty"`
-	FeatureFlags      *FeatureFlagsFileConfig               `json:"feature_flags,omitempty"`
 
 	presentSections           map[string]bool
 	presentGovernanceSections map[string]bool
-	SkillsRegistry            *SkillsRegistryConfig `json:"skills_registry,omitempty"`
-}
-
-// SkillsRegistryConfig defines declarative skill definitions in config.json.
-type SkillsRegistryConfig struct {
-	Enabled *bool                 `json:"enabled,omitempty"`
-	Skills  []SkillsRegistryEntry `json:"skills,omitempty"`
-}
-
-// SkillsRegistryEntry describes a single skill to reconcile from config.json.
-type SkillsRegistryEntry struct {
-	Name             string                 `json:"name"`
-	Description      string                 `json:"description"`
-	License          string                 `json:"license,omitempty"`
-	Compatibility    string                 `json:"compatibility,omitempty"`
-	AllowedTools     string                 `json:"allowed_tools,omitempty"`
-	ExtraFrontmatter map[string]interface{} `json:"extra_frontmatter,omitempty"`
-	Metadata         map[string]string      `json:"metadata,omitempty"`
-	SkillMDBody      string                 `json:"skill_md_body"`
-	Version          string                 `json:"version"`
-	Files            []SkillsRegistryFile   `json:"files,omitempty"`
-}
-
-// SkillsRegistryFile describes a file attached to a config-defined skill.
-type SkillsRegistryFile struct {
-	Path       string `json:"path"`
-	SourceType string `json:"source_type"`
-	// Source-type-specific fields
-	URL     string `json:"url,omitempty"`     // for source_type "url"
-	Content string `json:"content,omitempty"` // for source_type "text"
-	DataURL string `json:"dataurl,omitempty"` // for source_type "dataurl"
-}
-
-// FeatureFlagsFileConfig is the config.json / Helm shape for feature flag
-// boot overrides. Values declared here win over DB overrides and are
-// rendered as "locked" in the UI so operators must edit config.json (or
-// re-deploy Helm) to change them.
-type FeatureFlagsFileConfig struct {
-	Flags map[string]FeatureFlagFileValue `json:"flags"`
-}
-
-// FeatureFlagFileValue accepts either a JSON literal bool or a string. The
-// string form supports the same "env.NAME" indirection used elsewhere in
-// config.json (encryption_key, provider creds), so Helm can flip flags via
-// container env vars without re-templating the JSON. Recognized truthy
-// string values are "true", "1", "yes", "on" (case-insensitive); anything
-// else parses as false.
-type FeatureFlagFileValue struct {
-	Enabled bool `json:"enabled"`
-}
-
-// UnmarshalJSON accepts {"enabled": true} (literal bool), {"enabled": "true"}
-// (string literal), or {"enabled": "env.BIFROST_FOO"} (env-var indirection).
-// The string form is critical for Helm because chart values are stringly
-// typed when sourced from env vars.
-func (v *FeatureFlagFileValue) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Enabled json.RawMessage `json:"enabled"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	if len(raw.Enabled) == 0 {
-		return nil
-	}
-	// Literal bool path.
-	var asBool bool
-	if err := json.Unmarshal(raw.Enabled, &asBool); err == nil {
-		v.Enabled = asBool
-		return nil
-	}
-	// String path: literal "true"/"false" or "env.X" indirection.
-	var asStr string
-	if err := json.Unmarshal(raw.Enabled, &asStr); err != nil {
-		return fmt.Errorf("feature flag enabled: must be bool or string, got %s", string(raw.Enabled))
-	}
-	resolved := asStr
-	if envKey, ok := strings.CutPrefix(asStr, "env."); ok {
-		resolved = os.Getenv(envKey)
-	}
-	switch strings.ToLower(strings.TrimSpace(resolved)) {
-	case "true", "1", "yes", "on":
-		v.Enabled = true
-	default:
-		v.Enabled = false
-	}
-	return nil
 }
 
 // normalizeSourceOfTruth returns the configured source-of-truth mode, defaulting to split.
@@ -306,8 +187,6 @@ func (cd *ConfigData) sectionPresent(name string) bool {
 		return cd.Client != nil
 	case "providers":
 		return cd.Providers != nil
-	case "mcp":
-		return cd.MCP != nil
 	case "governance":
 		return cd.Governance != nil
 	case "plugins":
@@ -381,15 +260,11 @@ func (cd *ConfigData) UnmarshalJSON(data []byte) error {
 		EncryptionKey     *schemas.SecretVar                    `json:"encryption_key"`
 		AuthConfig        *configstore.AuthConfig               `json:"auth_config,omitempty"`
 		Providers         map[string]configstore.ProviderConfig `json:"providers"`
-		MCP               *schemas.MCPConfig                    `json:"mcp,omitempty"`
 		Governance        *configstore.GovernanceConfig         `json:"governance,omitempty"`
 		VectorStoreConfig json.RawMessage                       `json:"vector_store,omitempty"`
 		ConfigStoreConfig json.RawMessage                       `json:"config_store,omitempty"`
 		LogsStoreConfig   json.RawMessage                       `json:"logs_store,omitempty"`
 		Plugins           []*schemas.PluginConfig               `json:"plugins,omitempty"`
-		WebSocket         *schemas.WebSocketConfig              `json:"websocket,omitempty"`
-		FeatureFlags      *FeatureFlagsFileConfig               `json:"feature_flags,omitempty"`
-		SkillsRegistry    *SkillsRegistryConfig                 `json:"skills_registry,omitempty"`
 	}
 
 	var temp TempConfigData
@@ -406,11 +281,8 @@ func (cd *ConfigData) UnmarshalJSON(data []byte) error {
 	cd.EncryptionKey = temp.EncryptionKey
 	cd.AuthConfig = temp.AuthConfig
 	cd.Providers = temp.Providers
-	cd.MCP = temp.MCP
 	cd.Governance = temp.Governance
 	cd.Plugins = temp.Plugins
-	cd.WebSocket = temp.WebSocket
-	cd.FeatureFlags = temp.FeatureFlags
 	cd.presentGovernanceSections = nil
 	if rawGovernance, ok := raw["governance"]; ok && len(rawGovernance) > 0 {
 		var rawGovernanceFields map[string]json.RawMessage
@@ -421,7 +293,6 @@ func (cd *ConfigData) UnmarshalJSON(data []byte) error {
 			}
 		}
 	}
-	cd.SkillsRegistry = temp.SkillsRegistry
 	// Initialize providers map if nil
 	if cd.Providers == nil {
 		cd.Providers = make(map[string]configstore.ProviderConfig)
@@ -478,7 +349,6 @@ func (cd *ConfigData) UnmarshalJSON(data []byte) error {
 //   - Lock-free plugin reads via atomic.Pointer for minimal hot-path latency
 type Config struct {
 	Mu     sync.RWMutex // Exported for direct access from handlers (governance plugin)
-	muMCP  sync.RWMutex
 	client *bifrost.Bifrost
 
 	configPath string
@@ -489,16 +359,13 @@ type Config struct {
 	LogsStore   logstore.LogStore
 	// LogsStoreConfig is the effective logs store configuration used to create LogsStore.
 	LogsStoreConfig *logstore.Config
-	ObjectStore     objectstore.ObjectStore
 
 	// In-memory storage
 	ServerConfig     *ServerConfig
 	ClientConfig     *configstore.ClientConfig
 	Providers        map[schemas.ModelProvider]configstore.ProviderConfig
-	MCPConfig        *schemas.MCPConfig
 	GovernanceConfig *configstore.GovernanceConfig
 	FrameworkConfig  *framework.FrameworkConfig
-	ProxyConfig      *configstoreTables.GlobalProxyConfig
 
 	// Plugin Storage (SINGLE SOURCE OF TRUTH)
 	// All plugins are stored in BasePlugins. Interface-specific caches are
@@ -508,7 +375,6 @@ type Config struct {
 	pluginOrderMap       map[string]pluginOrderInfo                                // Plugin ordering metadata (protected by pluginsMu)
 	BasePlugins          atomic.Pointer[[]schemas.BasePlugin]                      // Master list of all plugins
 	LLMPlugins           atomic.Pointer[[]schemas.LLMPlugin]                       // Derived cache (auto-rebuilt)
-	MCPPlugins           atomic.Pointer[[]schemas.MCPPlugin]                       // Derived cache (auto-rebuilt)
 	HTTPTransportPlugins atomic.Pointer[[]schemas.HTTPTransportPlugin]             // Derived cache (auto-rebuilt)
 	ConfigMarshallers    atomic.Pointer[map[string]schemas.ConfigMarshallerPlugin] // Derived cache (auto-rebuilt)
 	PluginLoader         plugins.PluginLoader
@@ -520,33 +386,13 @@ type Config struct {
 	pluginStatusMu sync.RWMutex
 	pluginStatus   map[string]schemas.PluginStatus // name -> status
 
-	OAuthProvider      *oauth2.OAuth2Provider
-	TokenRefreshWorker *oauth2.TokenRefreshWorker
-	OAuthSweepWorker   *oauth2.PerUserOAuthSweepWorker
-
-	// MCPHeadersProvider backs MCPAuthTypePerUserHeaders credential storage.
-	// Constructed alongside OAuthProvider and passed into the Bifrost core
-	// init so the per-user-headers resolver can resolve / persist values
-	// scoped by (auth_mode, identity, mcp_client).
-	MCPHeadersProvider    *mcp_headers.Provider
-	MCPHeadersSweepWorker *mcp_headers.CredentialSweepWorker
-
-	// Async job executor (initialized during setup if LogsStore + governance are available)
-	AsyncJobExecutor *logstore.AsyncJobExecutor
 	// Shared in-memory kvstore for transport-level protocol coordination.
 	KVStore *kvstore.Store
 
-	// Process-wide feature flag store. Flags are code-declared via
-	// featureflags.Register; this struct holds the effective state with
-	// layered overrides (DB then file). May be wired with a SyncDelegate
-	// by enterprise for cluster-wide gossip.
-	FeatureFlags *featureflags.Store
-
 	// Catalog managers
 	ModelCatalog *modelcatalog.ModelCatalog
-	MCPCatalog   *mcpcatalog.MCPCatalog
 
-	// Optional event broadcaster for real-time updates (e.g., WebSocket).
+	// Optional event broadcaster for real-time updates.
 	// Set by HTTP server at startup; may be nil in non-HTTP usage.
 	EventBroadcaster schemas.EventBroadcaster
 
@@ -559,8 +405,6 @@ type Config struct {
 	// enterprise from LargePayloadConfig.RequestThresholdBytes. Zero means
 	// use schemas.DefaultLargePayloadRequestThresholdBytes.
 	StreamingDecompressThreshold int64
-	// WebSocket configuration for WS gateway features (Responses WS mode, Realtime API).
-	WebSocketConfig *schemas.WebSocketConfig
 
 	// Precompiled header matcher for header filtering. Rebuilt on config change.
 	headerMatcher atomic.Pointer[HeaderMatcher]
@@ -578,10 +422,6 @@ var DefaultClientConfig = configstore.ClientConfig{
 	AllowedHeaders:                  []string{},
 	WhitelistedRoutes:               []string{},
 	MaxRequestBodySizeMB:            100,
-	MCPAgentDepth:                   10,
-	MCPToolExecutionTimeout:         30,
-	MCPCodeModeBindingLevel:         string(schemas.CodeModeBindingLevelServer),
-	MCPEnableTempTokenAuth:          false,
 	HideDeletedVirtualKeysInFilters: false,
 	RoutingChainMaxDepth:            governance.DefaultRoutingChainMaxDepth,
 }
@@ -597,10 +437,6 @@ var DefaultClientConfig = configstore.ClientConfig{
 //   - VK ProviderConfigs empty list → backfill all configured providers with AllowedModels: ["*"], AllowAllKeys: true
 //   - VK ProviderConfig AllowedModels: [] → ["*"]
 //   - VK ProviderConfig key_ids empty (AllowAllKeys=false, no Keys) → AllowAllKeys=true
-//   - VK MCPConfigs empty list → backfill all configured MCP clients with ToolsToExecute: ["*"]
-//
-// Note: tools_to_execute within a VK MCP config entry is NOT normalized — an empty
-// tools_to_execute already meant "skip this client" in v1.4.x, so the behavior is unchanged.
 func applyV1Compat(configData *ConfigData) {
 	// 1. Provider key models
 	for providerName, providerCfg := range configData.Providers {
@@ -650,18 +486,6 @@ func applyV1Compat(configData *ConfigData) {
 			}
 		}
 
-		// MCP configs: empty list → backfill all configured MCP clients
-		if len(vk.MCPConfigs) == 0 && configData.MCP != nil {
-			for _, mcpClient := range configData.MCP.ClientConfigs {
-				if mcpClient == nil {
-					continue
-				}
-				vk.MCPConfigs = append(vk.MCPConfigs, configstoreTables.TableVirtualKeyMCPConfig{
-					MCPClientName:  mcpClient.Name,
-					ToolsToExecute: schemas.WhiteList{"*"},
-				})
-			}
-		}
 	}
 }
 
@@ -742,12 +566,6 @@ func promoteCalendarAligned(owner *bool, budgets []configstoreTables.TableBudget
 	}
 }
 
-// registerFeatureFlags registers feature flags from the config store into the global flag registry.
-func registerFeatureFlags(_ context.Context) error {
-	// No feature flags to register
-	return nil
-}
-
 // LoadConfig loads initial configuration from a JSON config file into memory
 // with full preprocessing including environment variable resolution and key config parsing.
 // All processing is done upfront to ensure zero latency when retrieving data.
@@ -771,13 +589,6 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 		configPath: configFilePath,
 		Providers:  make(map[schemas.ModelProvider]configstore.ProviderConfig),
 		LLMPlugins: atomic.Pointer[[]schemas.LLMPlugin]{},
-	}
-	// Register feature flags before any file/DB-driven init so the
-	// registry is populated even when config.json is absent. initFeatureFlags
-	// (called below) hydrates DB overrides and applies file overrides; both
-	// depend on the registry being populated to surface flags correctly.
-	if err := registerFeatureFlags(ctx); err != nil {
-		logger.Error("failed to register feature flags: %v", err)
 	}
 	absConfigFilePath, err := filepath.Abs(configFilePath)
 	if err != nil {
@@ -862,10 +673,6 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 	if err := initKVStore(config); err != nil {
 		return nil, err
 	}
-	// 3a. Feature flags (after ConfigStore from initStores, before handlers)
-	if err := initFeatureFlags(ctx, config, &configData); err != nil {
-		return nil, err
-	}
 	// 4. Client config (store → file → defaults)
 	loadClientConfig(ctx, config, &configData)
 	config.SetHeaderMatcher(NewHeaderMatcher(config.ClientConfig.HeaderFilterConfig))
@@ -873,21 +680,17 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 	if err := loadProviders(ctx, config, &configData); err != nil {
 		return nil, err
 	}
-	// 6. MCP config
-	loadMCPConfig(ctx, config, &configData)
-	// 7. Governance config
+	// 6. Governance config
 	loadGovernanceConfig(ctx, config, &configData)
-	// 8. Auth config
+	// 7. Auth config
 	loadAuthConfig(ctx, config, &configData)
-	// 9. Plugins
+	// 8. Plugins
 	loadPlugins(ctx, config, &configData)
-	// 10. Skills registry (after plugins, before framework)
-	loadSkillsRegistry(ctx, config, &configData)
-	// 11. Framework config and pricing manager
+	// 9. Framework config and pricing manager
 	initFrameworkConfig(ctx, config, &configData)
-	// 12. Encryption sync
+	// 10. Encryption sync
 	syncEncryption(ctx, config)
-	// 12. Env label (config.json takes precedence over BIFROST_ENV_LABEL env var)
+	// 11. Env label (config.json takes precedence over BIFROST_ENV_LABEL env var)
 	truncateLabel := func(s string) string {
 		r := []rune(s)
 		if len(r) > 14 {
@@ -900,16 +703,7 @@ func LoadConfig(ctx context.Context, configDirPath string) (*Config, error) {
 	} else if label := strings.TrimSpace(os.Getenv("BIFROST_ENV_LABEL")); label != "" {
 		config.EnvLabel = truncateLabel(label)
 	}
-	// 13. WebSocket defaults
-	if configData.WebSocket != nil {
-		configData.WebSocket.CheckAndSetDefaults()
-		config.WebSocketConfig = configData.WebSocket
-	} else {
-		wsConfig := &schemas.WebSocketConfig{}
-		wsConfig.CheckAndSetDefaults()
-		config.WebSocketConfig = wsConfig
-	}
-	// 13. Server config
+	// 12. Server config
 	if configData.Server != nil {
 		config.ServerConfig = configData.Server
 	} else {
@@ -963,9 +757,6 @@ func initStores(ctx context.Context, config *Config, configData *ConfigData, con
 			return err
 		}
 		config.LogsStoreConfig = configData.LogsStoreConfig
-		if err := initSkillsObjectStore(ctx, config, configData.LogsStoreConfig); err != nil {
-			return err
-		}
 		logger.Info("logs store initialized")
 	} else if configData.LogsStoreConfig == nil {
 		// No logs store section — check DB for stored config (if available), then fall back to default SQLite
@@ -1019,9 +810,6 @@ func initStores(ctx context.Context, config *Config, configData *ConfigData, con
 			config.LogsStoreConfig = logStoreConfig
 		}
 		logger.Info("logs store initialized")
-		if err := initSkillsObjectStore(ctx, config, logStoreConfig); err != nil {
-			return err
-		}
 		if config.ConfigStore != nil {
 			if err = config.ConfigStore.UpdateLogsStoreConfig(ctx, logStoreConfig); err != nil {
 				return fmt.Errorf("failed to update logs store config: %w", err)
@@ -1054,17 +842,8 @@ func applyClientConfigDefaults(cc *configstore.ClientConfig) {
 	if cc.MaxRequestBodySizeMB == 0 {
 		cc.MaxRequestBodySizeMB = DefaultClientConfig.MaxRequestBodySizeMB
 	}
-	if cc.MCPAgentDepth == 0 {
-		cc.MCPAgentDepth = DefaultClientConfig.MCPAgentDepth
-	}
 	if cc.RoutingChainMaxDepth == 0 {
 		cc.RoutingChainMaxDepth = DefaultClientConfig.RoutingChainMaxDepth
-	}
-	if cc.MCPToolExecutionTimeout == 0 {
-		cc.MCPToolExecutionTimeout = DefaultClientConfig.MCPToolExecutionTimeout
-	}
-	if cc.MCPCodeModeBindingLevel == "" {
-		cc.MCPCodeModeBindingLevel = DefaultClientConfig.MCPCodeModeBindingLevel
 	}
 	if cc.AllowedOrigins == nil {
 		cc.AllowedOrigins = DefaultClientConfig.AllowedOrigins
@@ -1077,25 +856,7 @@ func applyClientConfigDefaults(cc *configstore.ClientConfig) {
 	}
 }
 
-// sanitizeMCPExternalOAuthURLs validates the MCP external OAuth URL overrides
-// on a ClientConfig and clears any invalid override so it cannot leak into
-// OAuth URL generation. The warning intentionally omits the offending value:
-// these fields support env-var references (`env.MY_VAR`), and echoing the
-// resolved value would let a misconfigured deployment surface env contents
-// in logs.
-func sanitizeMCPExternalOAuthURLs(client *configstore.ClientConfig) {
-	if client == nil {
-		return
-	}
-	if err := ValidateBaseURL(client.MCPExternalClientURL.GetValue()); err != nil {
-		logger.Warn("mcp_external_client_url %v; override will be ignored and OAuth URLs will fall back to the request Host header", err)
-		client.MCPExternalClientURL = nil
-	}
-}
-
 // loadClientConfig loads and merges client config from file with store using hash-based reconciliation.
-// The hash covers both the client section and mcp.tool_manager_config so that UI changes to either
-// survive restarts when the file is unchanged.
 func loadClientConfig(ctx context.Context, config *Config, configData *ConfigData) {
 	var clientConfig *configstore.ClientConfig
 	var err error
@@ -1106,21 +867,13 @@ func loadClientConfig(ctx context.Context, config *Config, configData *ConfigDat
 		}
 	}
 
-	// toolManagerFromFile returns the mcp.tool_manager_config section of the file, or nil.
-	var toolManagerFromFile *schemas.MCPToolManagerConfig
-	if configData.MCP != nil {
-		toolManagerFromFile = configData.MCP.ToolManagerConfig
-	}
-
 	// Case 1: No config in DB - use file config (or defaults)
 	if clientConfig == nil {
 		logger.Debug("client config not found in store, using config file")
 		if configData.Client != nil {
-			sanitizeMCPExternalOAuthURLs(configData.Client)
 			config.ClientConfig = configData.Client
 			applyClientConfigDefaults(config.ClientConfig)
-			applyToolManagerToClientConfig(config.ClientConfig, toolManagerFromFile)
-			fileHash, hashErr := configData.Client.GenerateClientConfigHashWithToolManager(toolManagerFromFile)
+			fileHash, hashErr := configData.Client.GenerateClientConfigHash()
 			if hashErr != nil {
 				logger.Warn("failed to generate client config hash: %v", hashErr)
 			} else {
@@ -1128,8 +881,7 @@ func loadClientConfig(ctx context.Context, config *Config, configData *ConfigDat
 			}
 		} else {
 			config.ClientConfig = new(DefaultClientConfig)
-			applyToolManagerToClientConfig(config.ClientConfig, toolManagerFromFile)
-			defaultHash, hashErr := config.ClientConfig.GenerateClientConfigHashWithToolManager(toolManagerFromFile)
+			defaultHash, hashErr := config.ClientConfig.GenerateClientConfigHash()
 			if hashErr != nil {
 				logger.Warn("failed to generate default client config hash: %v", hashErr)
 			} else {
@@ -1153,9 +905,7 @@ func loadClientConfig(ctx context.Context, config *Config, configData *ConfigDat
 		return
 	}
 	// Case 2b: Both DB and file config exist - use hash-based reconciliation.
-	// The hash covers both the client section and mcp.tool_manager_config so a change
-	// in either section triggers a file-wins sync.
-	fileHash, hashErr := configData.Client.GenerateClientConfigHashWithToolManager(toolManagerFromFile)
+	fileHash, hashErr := configData.Client.GenerateClientConfigHash()
 	if hashErr != nil {
 		logger.Warn("failed to generate client config hash from file: %v", hashErr)
 		return
@@ -1165,29 +915,14 @@ func loadClientConfig(ctx context.Context, config *Config, configData *ConfigDat
 	// the DB row is unchanged. Forcing the sync reverts UI drift back to file values.
 	forceClientSync := configData.isConfigJSONSourceOfTruth() && configData.sectionPresent("client")
 	if !forceClientSync && clientConfig.ConfigHash == fileHash {
-		// Hash matches - keep DB config (preserves UI changes to both client and tool manager settings)
+		// Hash matches - keep DB config.
 		logger.Debug("client config hash matches, keeping DB config")
-	} else if baseHash, baseErr := configData.Client.GenerateClientConfigHash(); !forceClientSync && baseErr == nil &&
-		clientConfig.ConfigHash == baseHash && toolManagerFromFile != nil {
-		// Legacy hash match (pre-upgrade): the stored hash covers only the client section and
-		// matches the file, meaning the client section is unchanged. Only apply the tool manager
-		// settings from the file so that client-section UI changes survive the upgrade.
-		logger.Info("upgrading config hash to include mcp.tool_manager_config; applying tool manager settings from file, client config preserved from DB")
-		applyToolManagerToClientConfig(config.ClientConfig, toolManagerFromFile)
-		config.ClientConfig.ConfigHash = fileHash
-		if config.ConfigStore != nil {
-			if err = config.ConfigStore.UpdateClientConfig(ctx, config.ClientConfig); err != nil {
-				logger.Warn("failed to update client config: %v", err)
-			}
-		}
 	} else {
 		// Full hash mismatch - file changed, sync from file (file takes precedence)
 		logger.Info("client config was updated in config.json, syncing. Note that: file config takes precedence.")
-		sanitizeMCPExternalOAuthURLs(configData.Client)
 		config.ClientConfig = configData.Client
 		config.ClientConfig.ConfigHash = fileHash
 		applyClientConfigDefaults(config.ClientConfig)
-		applyToolManagerToClientConfig(config.ClientConfig, toolManagerFromFile)
 		if config.ConfigStore != nil {
 			logger.Debug("updating client config in store from file")
 			if err = config.ConfigStore.UpdateClientConfig(ctx, config.ClientConfig); err != nil {
@@ -1195,32 +930,6 @@ func loadClientConfig(ctx context.Context, config *Config, configData *ConfigDat
 			}
 		}
 	}
-}
-
-// applyToolManagerToClientConfig copies tool manager settings from the file into ClientConfig.
-// Only called when the file has changed (hash mismatch) or on first startup.
-// Zero/empty file values reset the field to its default so users can remove a setting
-// from the file and have it revert to the default rather than being silently preserved.
-func applyToolManagerToClientConfig(cc *configstore.ClientConfig, tm *schemas.MCPToolManagerConfig) {
-	if tm == nil {
-		return
-	}
-	if tm.MaxAgentDepth > 0 {
-		cc.MCPAgentDepth = tm.MaxAgentDepth
-	} else {
-		cc.MCPAgentDepth = DefaultClientConfig.MCPAgentDepth
-	}
-	if d := tm.ToolExecutionTimeout.D(); d > 0 {
-		cc.MCPToolExecutionTimeout = int(math.Ceil(d.Seconds()))
-	} else {
-		cc.MCPToolExecutionTimeout = DefaultClientConfig.MCPToolExecutionTimeout
-	}
-	if tm.CodeModeBindingLevel != "" {
-		cc.MCPCodeModeBindingLevel = string(tm.CodeModeBindingLevel)
-	} else {
-		cc.MCPCodeModeBindingLevel = DefaultClientConfig.MCPCodeModeBindingLevel
-	}
-	cc.MCPDisableAutoToolInject = tm.DisableAutoToolInject
 }
 
 // loadProviders loads and merges providers from file with store using hash reconciliation
@@ -1246,7 +955,9 @@ func loadProviders(ctx context.Context, config *Config, configData *ConfigData) 
 		for providerName, providerCfgInFile := range configData.Providers {
 			provider := schemas.ModelProvider(strings.ToLower(providerName))
 			existingCfg, exists := providersInConfigStore[provider]
-			processAuthoritativeProvider(providerName, providerCfgInFile, existingCfg, exists, authoritativeProviders)
+			if err = processAuthoritativeProvider(providerName, providerCfgInFile, existingCfg, exists, authoritativeProviders); err != nil {
+				return fmt.Errorf("failed to process provider %s: %w", providerName, err)
+			}
 		}
 		providersInConfigStore = authoritativeProviders
 	} else {
@@ -1254,13 +965,12 @@ func loadProviders(ctx context.Context, config *Config, configData *ConfigData) 
 		if len(configData.Providers) > 0 {
 			for providerName, providerCfgInFile := range configData.Providers {
 				if err = processProvider(config, providerName, providerCfgInFile, providersInConfigStore); err != nil {
-					logger.Warn("failed to process provider %s: %v", providerName, err)
+					return fmt.Errorf("failed to process provider %s: %w", providerName, err)
 				}
 			}
 		} else if len(providersInConfigStore) == 0 && (!configData.isConfigJSONSourceOfTruth() || providersSectionPresent) {
-			// No providers in file and none in DB — auto-detect from environment
+			// Lite does not auto-create built-in providers from environment variables.
 			config.autoDetectProviders(ctx)
-			maps.Copy(providersInConfigStore, config.Providers)
 		}
 	}
 	// Update store and config
@@ -1358,10 +1068,10 @@ func processAuthoritativeProvider(
 	existingCfg configstore.ProviderConfig,
 	exists bool,
 	providers map[schemas.ModelProvider]configstore.ProviderConfig,
-) {
+) error {
 	provider := schemas.ModelProvider(strings.ToLower(providerName))
 	if err := ValidateCustomProvider(providerCfgInFile, provider); err != nil {
-		logger.Warn("invalid custom provider config for %s (writing through): %v", provider, err)
+		return err
 	}
 	baseProvider := provider
 	if providerCfgInFile.CustomProviderConfig != nil && providerCfgInFile.CustomProviderConfig.BaseProviderType != "" {
@@ -1372,7 +1082,7 @@ func processAuthoritativeProvider(
 			providerCfgInFile.Keys[i].ID = uuid.NewString()
 		}
 		if err := providerKeyInFile.Aliases.Validate(baseProvider); err != nil {
-			logger.Warn("invalid aliases for key %q in provider %s (writing through): %v", providerKeyInFile.Name, provider, err)
+			return fmt.Errorf("invalid aliases for key %q in provider %s: %w", providerKeyInFile.Name, provider, err)
 		}
 	}
 	fileProviderConfigHash, err := providerCfgInFile.GenerateConfigHash(string(provider))
@@ -1386,6 +1096,7 @@ func processAuthoritativeProvider(
 		providerCfgInFile.Description = existingCfg.Description
 	}
 	providers[provider] = providerCfgInFile
+	return nil
 }
 
 // mergeProviderWithHash merges provider config using hash-based reconciliation
@@ -1585,333 +1296,6 @@ func reconcileProviderKeys(provider schemas.ModelProvider, fileKeys, dbKeys []sc
 		mergedKeys = append(mergedKeys, fileKey)
 	}
 	return mergedKeys
-}
-
-// loadMCPConfig loads and merges MCP config from file
-func loadMCPConfig(ctx context.Context, config *Config, configData *ConfigData) {
-	if config.ConfigStore == nil {
-		if configData.MCP != nil && len(configData.MCP.ClientConfigs) > 0 {
-			logger.Warn("config store is disabled - MCP manager will not be initialized. MCP clients require config store for persistence.")
-		}
-		return
-	}
-	// Validate MCP client names from config file before processing
-	if configData.MCP != nil && len(configData.MCP.ClientConfigs) > 0 {
-		valid := make([]*schemas.MCPClientConfig, 0, len(configData.MCP.ClientConfigs))
-		for _, c := range configData.MCP.ClientConfigs {
-			if c == nil {
-				continue
-			}
-			if err := mcp.ValidateMCPClientName(c.Name); err != nil {
-				logger.Warn("skipping MCP client config %q from config file: %v", c.Name, err)
-				continue
-			}
-			valid = append(valid, c)
-		}
-		configData.MCP.ClientConfigs = valid
-	}
-
-	if config.ConfigStore != nil {
-		logger.Debug("getting MCP config from store")
-		tableMCPConfig, err := config.ConfigStore.GetMCPConfig(ctx)
-		if err != nil {
-			logger.Warn("failed to get MCP config from store: %v", err)
-		} else if tableMCPConfig != nil {
-			config.MCPConfig = tableMCPConfig
-		}
-	}
-
-	if config.MCPConfig != nil {
-		// Merge with config file if present
-		if configData.MCP != nil {
-			if configData.isConfigJSONSourceOfTruth() && configData.sectionPresent("mcp") {
-				syncMCPConfigFromFile(ctx, config, configData, config.MCPConfig)
-			} else {
-				mergeMCPConfig(ctx, config, configData, config.MCPConfig)
-			}
-		}
-	} else if configData.MCP != nil {
-		// MCP config not in store, use config file
-		logger.Debug("no MCP config found in store, processing from config file")
-		config.MCPConfig = configData.MCP
-		if config.ConfigStore != nil && config.MCPConfig != nil {
-			logger.Debug("updating MCP config in store")
-			for _, clientConfig := range config.MCPConfig.ClientConfigs {
-				if clientConfig != nil {
-					if clientConfig.ID == "" {
-						clientConfig.ID = uuid.NewString()
-					}
-					if err := config.ConfigStore.CreateMCPClientConfig(ctx, clientConfig); err != nil {
-						logger.Warn("failed to create MCP client config: %v", err)
-					}
-				}
-			}
-		}
-	}
-	applyMCPGlobalSettingsToClientConfig(ctx, config, configData.MCP)
-}
-
-// mergeMCPConfig merges MCP config from file with store
-func mergeMCPConfig(ctx context.Context, config *Config, configData *ConfigData, mcpConfig *schemas.MCPConfig) {
-	logger.Debug("merging MCP config from config file with store")
-
-	if configData.MCP == nil {
-		return
-	}
-	tempMCPConfig := configData.MCP
-	config.MCPConfig = tempMCPConfig
-	// Merge client configs by name with hash-based reconciliation.
-	clientConfigsToAdd := make([]*schemas.MCPClientConfig, 0)
-	clientConfigsToUpdate := make([]configstoreTables.TableMCPClient, 0)
-	for _, newClientConfig := range tempMCPConfig.ClientConfigs {
-		if newClientConfig == nil {
-			continue
-		}
-		if newClientConfig.ID == "" {
-			newClientConfig.ID = uuid.NewString()
-		}
-		fileClientRow, err := mcpClientConfigToTable(newClientConfig)
-		if err != nil {
-			logger.Warn("invalid MCP client config for %q: %v", newClientConfig.Name, err)
-			continue
-		}
-		fileHash, err := configstore.GenerateMCPClientHash(fileClientRow)
-		if err != nil {
-			logger.Warn("failed to generate MCP client hash for %q: %v", newClientConfig.Name, err)
-			continue
-		}
-		newClientConfig.ConfigHash = fileHash
-		fileClientRow.ConfigHash = fileHash
-
-		found := false
-		for i, existingClientConfig := range mcpConfig.ClientConfigs {
-			if existingClientConfig == nil {
-				continue
-			}
-			if newClientConfig.Name != "" && existingClientConfig.Name == newClientConfig.Name {
-				found = true
-				if existingClientConfig.ConfigHash != fileHash {
-					logger.Debug("config hash mismatch for MCP client %q, syncing from config file", newClientConfig.Name)
-					newClientConfig.ID = existingClientConfig.ID
-					newClientConfig.ConfigHash = fileHash
-					fileClientRow.ClientID = existingClientConfig.ID
-					fileClientRow.ConfigHash = fileHash
-					clientConfigsToUpdate = append(clientConfigsToUpdate, fileClientRow)
-					mcpConfig.ClientConfigs[i] = newClientConfig
-				} else {
-					logger.Debug("config hash matches for MCP client %q, keeping DB config", newClientConfig.Name)
-				}
-				break
-			}
-		}
-		if !found {
-			clientConfigsToAdd = append(clientConfigsToAdd, newClientConfig)
-		}
-	}
-	// Add new client configs to existing ones.
-	config.MCPConfig.ClientConfigs = append(mcpConfig.ClientConfigs, clientConfigsToAdd...)
-	// Persist additions and config-driven updates.
-	if config.ConfigStore != nil && (len(clientConfigsToAdd) > 0 || len(clientConfigsToUpdate) > 0) {
-		logger.Debug("updating MCP config in store with %d new clients and %d updated clients", len(clientConfigsToAdd), len(clientConfigsToUpdate))
-		for _, clientConfig := range clientConfigsToAdd {
-			if clientConfig != nil {
-				if err := config.ConfigStore.CreateMCPClientConfig(ctx, clientConfig); err != nil {
-					logger.Warn("failed to create MCP client config: %v", err)
-				}
-			}
-		}
-		for i := range clientConfigsToUpdate {
-			update := clientConfigsToUpdate[i]
-			if err := config.ConfigStore.UpdateMCPClientConfig(ctx, update.ClientID, &update); err != nil {
-				logger.Warn("failed to update MCP client config %q: %v", update.Name, err)
-			}
-		}
-	}
-}
-
-func applyMCPGlobalSettingsToClientConfig(ctx context.Context, config *Config, mcpCfg *schemas.MCPConfig) {
-	if config == nil || config.ClientConfig == nil || mcpCfg == nil {
-		return
-	}
-
-	// Backfill MCPConfig.ToolManagerConfig from ClientConfig so bifrost.Init always receives
-	// the authoritative values (which may be DB values preserved by hash reconciliation in
-	// loadClientConfig, or file values applied there on hash mismatch).
-	// Allocate if absent so bifrost.Init never falls back to hardcoded defaults.
-	if mcpCfg.ToolManagerConfig == nil {
-		mcpCfg.ToolManagerConfig = &schemas.MCPToolManagerConfig{}
-	}
-	mcpCfg.ToolManagerConfig.MaxAgentDepth = config.ClientConfig.MCPAgentDepth
-	mcpCfg.ToolManagerConfig.ToolExecutionTimeout = schemas.Duration(
-		time.Duration(config.ClientConfig.MCPToolExecutionTimeout) * time.Second,
-	)
-	mcpCfg.ToolManagerConfig.CodeModeBindingLevel = schemas.CodeModeBindingLevel(
-		config.ClientConfig.MCPCodeModeBindingLevel,
-	)
-	mcpCfg.ToolManagerConfig.DisableAutoToolInject = config.ClientConfig.MCPDisableAutoToolInject
-
-	// ToolSyncInterval lives only in MCPConfig (not a ClientConfig field), so reconcile separately.
-	changed := false
-	if mcpCfg.ToolSyncInterval == 0 {
-		if config.ClientConfig.MCPToolSyncInterval != 0 {
-			config.ClientConfig.MCPToolSyncInterval = 0
-			changed = true
-		}
-	} else if mcpCfg.ToolSyncInterval > 0 {
-		if mcpCfg.ToolSyncInterval%time.Second != 0 {
-			logger.Warn(
-				"ignoring mcp.tool_sync_interval %q: must be a whole number of seconds",
-				mcpCfg.ToolSyncInterval.String(),
-			)
-		} else {
-			syncSeconds := int(mcpCfg.ToolSyncInterval / time.Second)
-			if config.ClientConfig.MCPToolSyncInterval != syncSeconds {
-				config.ClientConfig.MCPToolSyncInterval = syncSeconds
-				changed = true
-			}
-		}
-	}
-
-	if changed && config.ConfigStore != nil {
-		if err := config.ConfigStore.UpdateClientConfig(ctx, config.ClientConfig); err != nil {
-			logger.Warn("failed to update client config with MCP global settings: %v", err)
-		}
-	}
-}
-
-func mcpClientConfigToTable(clientConfig *schemas.MCPClientConfig) (configstoreTables.TableMCPClient, error) {
-	if clientConfig == nil {
-		return configstoreTables.TableMCPClient{}, nil
-	}
-	if clientConfig.ToolSyncInterval%time.Second != 0 {
-		return configstoreTables.TableMCPClient{}, fmt.Errorf(
-			"tool_sync_interval must be a whole number of seconds, got %q",
-			clientConfig.ToolSyncInterval.String(),
-		)
-	}
-	authType := string(clientConfig.AuthType)
-	if authType == "" {
-		authType = string(schemas.MCPAuthTypeHeaders)
-	}
-	return configstoreTables.TableMCPClient{
-		ClientID:                  clientConfig.ID,
-		Name:                      clientConfig.Name,
-		IsCodeModeClient:          clientConfig.IsCodeModeClient,
-		ConnectionType:            string(clientConfig.ConnectionType),
-		ConnectionString:          clientConfig.ConnectionString,
-		StdioConfig:               clientConfig.StdioConfig,
-		AuthType:                  authType,
-		OauthConfigID:             clientConfig.OauthConfigID,
-		ToolsToExecute:            clientConfig.ToolsToExecute,
-		ToolsToAutoExecute:        clientConfig.ToolsToAutoExecute,
-		Headers:                   clientConfig.Headers,
-		AllowedExtraHeaders:       clientConfig.AllowedExtraHeaders,
-		IsPingAvailable:           clientConfig.IsPingAvailable,
-		ToolSyncInterval:          int(clientConfig.ToolSyncInterval / time.Second),
-		ToolPricing:               clientConfig.ToolPricing,
-		AllowOnAllVirtualKeys:     clientConfig.AllowOnAllVirtualKeys,
-		Disabled:                  clientConfig.Disabled,
-		DiscoveredTools:           clientConfig.DiscoveredTools,
-		DiscoveredToolNameMapping: clientConfig.DiscoveredToolNameMapping,
-		PerUserHeaderKeys:         mcputils.CanonicalizeHeaderKeys(clientConfig.PerUserHeaderKeys),
-		ConfigHash:                clientConfig.ConfigHash,
-	}, nil
-}
-
-// syncMCPConfigFromFile replaces stored MCP clients with the clients declared in config.json.
-//
-// Unlike the provider/plugin/governance syncs, this reconciliation is intentionally
-// best-effort rather than transactional: the MCP store methods (Create/Update/Delete
-// MCPClientConfig) do not accept an enclosing tx, and each client is reconciled
-// independently so a single malformed client only logs a warning instead of aborting
-// startup. An all-or-nothing transaction is incompatible with that warn-and-continue
-// behavior, and blocking boot on one bad MCP entry is the worse failure mode here.
-func syncMCPConfigFromFile(ctx context.Context, config *Config, configData *ConfigData, mcpConfig *schemas.MCPConfig) {
-	logger.Debug("source_of_truth=config.json: syncing MCP config exactly from config file")
-	if configData.MCP == nil {
-		return
-	}
-	fileMCPConfig := configData.MCP
-	existingByName := make(map[string]*schemas.MCPClientConfig, len(mcpConfig.ClientConfigs))
-	existingByID := make(map[string]*schemas.MCPClientConfig, len(mcpConfig.ClientConfigs))
-	for _, existing := range mcpConfig.ClientConfigs {
-		if existing == nil {
-			continue
-		}
-		if existing.Name != "" {
-			existingByName[existing.Name] = existing
-		}
-		if existing.ID != "" {
-			existingByID[existing.ID] = existing
-		}
-	}
-
-	keepIDs := make(map[string]bool, len(fileMCPConfig.ClientConfigs))
-	updates := make([]configstoreTables.TableMCPClient, 0)
-	adds := make([]*schemas.MCPClientConfig, 0)
-	for _, fileClient := range fileMCPConfig.ClientConfigs {
-		if fileClient == nil {
-			continue
-		}
-		existing := existingByName[fileClient.Name]
-		if existing == nil && fileClient.ID != "" {
-			existing = existingByID[fileClient.ID]
-		}
-		// Mark the matched existing client as kept up-front so a later validation
-		// failure (which `continue`s) does not cause the prune loop to delete it.
-		if existing != nil && existing.ID != "" {
-			keepIDs[existing.ID] = true
-		}
-		if fileClient.ID == "" {
-			if existing != nil && existing.ID != "" {
-				fileClient.ID = existing.ID
-			} else {
-				fileClient.ID = uuid.NewString()
-			}
-		}
-		fileRow, err := mcpClientConfigToTable(fileClient)
-		if err != nil {
-			logger.Warn("invalid MCP client config for %q: %v", fileClient.Name, err)
-			continue
-		}
-		fileHash, err := configstore.GenerateMCPClientHash(fileRow)
-		if err != nil {
-			logger.Warn("failed to generate MCP client hash for %q: %v", fileClient.Name, err)
-			continue
-		}
-		fileClient.ConfigHash = fileHash
-		fileRow.ConfigHash = fileHash
-		keepIDs[fileClient.ID] = true
-		if existing == nil {
-			adds = append(adds, fileClient)
-		} else {
-			fileRow.ClientID = existing.ID
-			updates = append(updates, fileRow)
-		}
-	}
-
-	if config.ConfigStore != nil {
-		for _, existing := range mcpConfig.ClientConfigs {
-			if existing == nil || existing.ID == "" || keepIDs[existing.ID] {
-				continue
-			}
-			if err := config.ConfigStore.DeleteMCPClientConfig(ctx, existing.ID); err != nil {
-				logger.Warn("failed to delete MCP client config %q: %v", existing.Name, err)
-			}
-		}
-		for _, add := range adds {
-			if err := config.ConfigStore.CreateMCPClientConfig(ctx, add); err != nil {
-				logger.Warn("failed to create MCP client config: %v", err)
-			}
-		}
-		for i := range updates {
-			update := updates[i]
-			if err := config.ConfigStore.UpdateMCPClientConfig(ctx, update.ClientID, &update); err != nil {
-				logger.Warn("failed to update MCP client config %q: %v", update.Name, err)
-			}
-		}
-	}
-	config.MCPConfig = fileMCPConfig
 }
 
 // loadGovernanceConfig loads and merges governance config from file
@@ -2269,9 +1653,6 @@ func mergeGovernanceConfig(ctx context.Context, config *Config, configData *Conf
 						}
 						configData.Governance.VirtualKeys[i].Value = governance.GenerateVirtualKey()
 					}
-					// Resolve MCP client names to IDs for config file mcp_configs
-					configData.Governance.VirtualKeys[i].MCPConfigs = resolveMCPConfigClientIDs(
-						ctx, config.ConfigStore, configData.Governance.VirtualKeys[i].MCPConfigs, newVirtualKey.ID)
 					virtualKeysToUpdate = append(virtualKeysToUpdate, configData.Governance.VirtualKeys[i])
 					governanceConfig.VirtualKeys[j] = configData.Governance.VirtualKeys[i]
 				} else {
@@ -2302,9 +1683,6 @@ func mergeGovernanceConfig(ctx context.Context, config *Config, configData *Conf
 				}
 				configData.Governance.VirtualKeys[i].Value = governance.GenerateVirtualKey()
 			}
-			// Resolve MCP client names to IDs for config file mcp_configs
-			configData.Governance.VirtualKeys[i].MCPConfigs = resolveMCPConfigClientIDs(
-				ctx, config.ConfigStore, configData.Governance.VirtualKeys[i].MCPConfigs, newVirtualKey.ID)
 			virtualKeysToAdd = append(virtualKeysToAdd, configData.Governance.VirtualKeys[i])
 		}
 	}
@@ -2585,12 +1963,7 @@ func pruneGovernanceConfigToFile(ctx context.Context, config *Config, configData
 			for i := range configData.Governance.VirtualKeys {
 				vk := &configData.Governance.VirtualKeys[i]
 				keep[vk.ID] = true
-				// Unchanged VKs never went through resolveMCPConfigClientIDs in
-				// mergeGovernanceConfig, so their MCPConfigs may still carry
-				// mcp_client_name with MCPClientID==0. Resolve before reconciling
-				// to avoid creating/deleting client-id 0 associations.
-				vk.MCPConfigs = resolveMCPConfigClientIDs(ctx, config.ConfigStore, vk.MCPConfigs, vk.ID)
-				if err := reconcileVirtualKeyAssociations(ctx, config.ConfigStore, tx, vk.ID, vk.ProviderConfigs, vk.MCPConfigs); err != nil {
+				if err := reconcileVirtualKeyAssociations(ctx, config.ConfigStore, tx, vk.ID, vk.ProviderConfigs); err != nil {
 					return fmt.Errorf("failed to reconcile associations for virtual key %s: %w", vk.ID, err)
 				}
 			}
@@ -2954,9 +2327,7 @@ func updateGovernanceConfigInStore(
 		for i := range virtualKeysToAdd {
 			virtualKey := &virtualKeysToAdd[i]
 			providerConfigs := virtualKey.ProviderConfigs
-			mcpConfigs := virtualKey.MCPConfigs
 			virtualKey.ProviderConfigs = nil
-			virtualKey.MCPConfigs = nil
 			// Here we wll filter provider / keys that are not available
 			if err := config.ConfigStore.CreateVirtualKey(ctx, virtualKey, tx); err != nil {
 				return fmt.Errorf("failed to create virtual key %s: %w", virtualKey.ID, err)
@@ -2967,20 +2338,13 @@ func updateGovernanceConfigInStore(
 					return fmt.Errorf("failed to create provider config for virtual key %s: %w", virtualKey.ID, err)
 				}
 			}
-			for j := range mcpConfigs {
-				mcpConfigs[j].VirtualKeyID = virtualKey.ID
-				if err := config.ConfigStore.CreateVirtualKeyMCPConfig(ctx, &mcpConfigs[j], tx); err != nil {
-					return fmt.Errorf("failed to create MCP config for virtual key %s: %w", virtualKey.ID, err)
-				}
-			}
 
 			virtualKey.ProviderConfigs = providerConfigs
-			virtualKey.MCPConfigs = mcpConfigs
 		}
 
 		// Update virtual keys (config.json changed)
 		for _, virtualKey := range virtualKeysToUpdate {
-			if err := reconcileVirtualKeyAssociations(ctx, config.ConfigStore, tx, virtualKey.ID, virtualKey.ProviderConfigs, virtualKey.MCPConfigs); err != nil {
+			if err := reconcileVirtualKeyAssociations(ctx, config.ConfigStore, tx, virtualKey.ID, virtualKey.ProviderConfigs); err != nil {
 				return fmt.Errorf("failed to reconcile associations for virtual key %s: %w", virtualKey.ID, err)
 			}
 			if err := config.ConfigStore.UpdateVirtualKey(ctx, &virtualKey, tx); err != nil {
@@ -3510,9 +2874,7 @@ func createGovernanceConfigInStore(ctx context.Context, config *Config) {
 				virtualKey.ConfigHash = vkHash
 			}
 			providerConfigs := virtualKey.ProviderConfigs
-			mcpConfigs := virtualKey.MCPConfigs
 			virtualKey.ProviderConfigs = nil
-			virtualKey.MCPConfigs = nil
 
 			if virtualKey.ID == "" {
 				virtualKey.ID = uuid.NewString()
@@ -3533,18 +2895,7 @@ func createGovernanceConfigInStore(ctx context.Context, config *Config) {
 				}
 			}
 
-			// Resolve MCP client names to IDs for config file mcp_configs
-			mcpConfigs = resolveMCPConfigClientIDs(ctx, config.ConfigStore, mcpConfigs, virtualKey.ID)
-
-			for _, mc := range mcpConfigs {
-				mc.VirtualKeyID = virtualKey.ID
-				if err := config.ConfigStore.CreateVirtualKeyMCPConfig(ctx, &mc, tx); err != nil {
-					return fmt.Errorf("failed to create MCP config for virtual key %s: %w", virtualKey.ID, err)
-				}
-			}
-
 			virtualKey.ProviderConfigs = providerConfigs
-			virtualKey.MCPConfigs = mcpConfigs
 		}
 
 		// Create virtual-key-owned budgets after virtual keys exist.
@@ -3781,11 +3132,6 @@ func loadPlugins(ctx context.Context, config *Config, configData *ConfigData) {
 					Placement: plugin.Placement,
 					Order:     plugin.Order,
 				}
-				if plugin.Name == semanticcache.PluginName {
-					if err := config.ValidateSemanticCacheConfig(pluginConfig); err != nil {
-						logger.Warn("failed to validate semantic cache config: %v", err)
-					}
-				}
 				config.PluginConfigs[i] = pluginConfig
 			}
 		}
@@ -3949,57 +3295,6 @@ func syncPluginsFromFile(ctx context.Context, config *Config, configData *Config
 	config.PluginConfigs = configData.Plugins
 }
 
-// buildMCPPricingDataFromStore builds MCP pricing data from the config store
-func buildMCPPricingDataFromStore(ctx context.Context, configStore configstore.ConfigStore) mcpcatalog.MCPPricingData {
-	mcpPricingData := mcpcatalog.MCPPricingData{}
-	mcpConfig, err := configStore.GetMCPConfig(ctx)
-	if err != nil {
-		logger.Warn("failed to get MCP config from store: %v", err)
-		return mcpPricingData
-	}
-	if mcpConfig != nil {
-		for _, clientConfig := range mcpConfig.ClientConfigs {
-			dbClientConfig, err := configStore.GetMCPClientByName(ctx, clientConfig.Name)
-			if err != nil {
-				logger.Warn("failed to get MCP client config from store: %v", err)
-				continue
-			}
-			if dbClientConfig == nil {
-				logger.Warn("MCP client config is nil for client: %s", clientConfig.Name)
-				continue
-			}
-			for toolName, costPerExecution := range dbClientConfig.ToolPricing {
-				// Tool names in the DB are stored without the client/server prefix.
-				// Build the key using fmt.Sprintf("%s/%s", clientName, toolName) to match
-				// buildMCPPricingDataFromConfig and EditMCPClient patterns.
-				mcpPricingData[fmt.Sprintf("%s/%s", dbClientConfig.Name, toolName)] = mcpcatalog.PricingEntry{
-					Server:           dbClientConfig.Name,
-					ToolName:         toolName,
-					CostPerExecution: costPerExecution,
-				}
-			}
-		}
-	}
-	return mcpPricingData
-}
-
-func buildMCPPricingDataFromConfig(ctx context.Context, configData *ConfigData) mcpcatalog.MCPPricingData {
-	mcpPricingData := mcpcatalog.MCPPricingData{}
-	if configData == nil || configData.MCP == nil {
-		return mcpPricingData
-	}
-	for _, clientConfig := range configData.MCP.ClientConfigs {
-		for toolName, costPerExecution := range clientConfig.ToolPricing {
-			mcpPricingData[fmt.Sprintf("%s/%s", clientConfig.Name, toolName)] = mcpcatalog.PricingEntry{
-				Server:           clientConfig.Name,
-				ToolName:         toolName,
-				CostPerExecution: costPerExecution,
-			}
-		}
-	}
-	return mcpPricingData
-}
-
 // ResolveFrameworkPricingConfig resolves framework pricing configuration.
 //
 // Precedence order (highest → lowest): DB > config.json > built-in defaults.
@@ -4030,11 +3325,8 @@ func ResolveFrameworkPricingConfig(
 	filePricingURL := (*string)(nil)
 	fileModelParametersURL := (*string)(nil)
 	fileSyncSeconds := (*int64)(nil)
-	fileMCPLibraryURL := (*string)(nil)
-	fileMCPLibrarySyncSeconds := (*int64)(nil)
 	skipURLBackfill := false // prevent DB backfill of unresolved env references
 	skipModelParamsURLBackfill := false
-	skipMCPLibraryURLBackfill := false
 	if fileConfig != nil && fileConfig.Pricing != nil {
 		if fileConfig.Pricing.PricingURL != nil {
 			raw := *fileConfig.Pricing.PricingURL
@@ -4084,39 +3376,6 @@ func ResolveFrameworkPricingConfig(
 				fileSyncSeconds = &val
 			}
 		}
-		if fileConfig.Pricing.MCPLibraryURL != nil {
-			raw := strings.TrimSpace(*fileConfig.Pricing.MCPLibraryURL)
-			if raw == "" {
-				// Blank is treated as "not set"; fall back to default.
-			} else if strings.HasPrefix(raw, "env.") {
-				resolvedURL, err := envutils.ProcessEnvValue(raw)
-				if err != nil {
-					logger.Warn("mcp_library_url: env variable not found (%v); keeping original value %q", err, raw)
-					fileMCPLibraryURL = &raw
-					skipMCPLibraryURLBackfill = true
-				} else {
-					resolved := strings.TrimSpace(resolvedURL)
-					if resolved != "" {
-						fileMCPLibraryURL = &resolved
-					}
-				}
-			} else {
-				fileMCPLibraryURL = &raw
-			}
-		}
-		if fileConfig.Pricing.MCPLibrarySyncInterval != nil {
-			val := *fileConfig.Pricing.MCPLibrarySyncInterval
-			switch {
-			case val <= 0:
-				logger.Warn("mcp_library_sync_interval in config.json is invalid (%d seconds), ignoring — using default (%d seconds)", val, defaultSyncSeconds)
-			case val < modelcatalog.MinimumPricingSyncIntervalSec:
-				clamped := modelcatalog.MinimumPricingSyncIntervalSec
-				logger.Warn("mcp_library_sync_interval in config.json is below minimum (%d seconds), clamping to %d seconds", val, clamped)
-				fileMCPLibrarySyncSeconds = &clamped
-			default:
-				fileMCPLibrarySyncSeconds = &val
-			}
-		}
 	}
 
 	// --- Phase 2: apply file config over defaults ---
@@ -4124,11 +3383,6 @@ func ResolveFrameworkPricingConfig(
 	resolvedPricingURL := &defaultPricingURL
 	resolvedModelParametersURL := &defaultModelParametersURL
 	resolvedSyncSeconds := &defaultSyncSeconds
-
-	defaultMCPLibraryURL := modelcatalog.DefaultMCPLibraryURL
-	defaultMCPLibrarySyncSeconds := int64(modelcatalog.DefaultSyncInterval.Seconds())
-	resolvedMCPLibraryURL := &defaultMCPLibraryURL
-	resolvedMCPLibrarySyncInterval := &defaultMCPLibrarySyncSeconds
 
 	if filePricingURL != nil {
 		resolvedPricingURL = filePricingURL
@@ -4143,16 +3397,6 @@ func ResolveFrameworkPricingConfig(
 		logger.Debug("pricing_sync_interval resolved from file: %d seconds", *fileSyncSeconds)
 	}
 
-	// MCP library catalog sync source mirrors the datasheet URL handling for
-	// defaults, env substitution, interval validation, and hash-gated config.json
-	// changes. DB precedence is applied in Phase 3 below.
-	if fileMCPLibraryURL != nil {
-		resolvedMCPLibraryURL = fileMCPLibraryURL
-	}
-	if fileMCPLibrarySyncSeconds != nil {
-		resolvedMCPLibrarySyncInterval = fileMCPLibrarySyncSeconds
-	}
-
 	// --- Phase 3: DB values applied; file wins on hash mismatch (file changed since last write) ---
 
 	needsDBUpdate := false
@@ -4160,22 +3404,8 @@ func ResolveFrameworkPricingConfig(
 
 	// Hash the file-resolved values; skip if nothing valid survived Phase 1.
 	fileHash := ""
-	fileHasHashableMCPConfig := (fileMCPLibraryURL != nil && !skipMCPLibraryURLBackfill) || fileMCPLibrarySyncSeconds != nil
-	if fileConfig != nil && fileConfig.Pricing != nil && !skipURLBackfill && (filePricingURL != nil || fileSyncSeconds != nil || fileHasHashableMCPConfig) {
-		var h string
-		var err error
-		if fileHasHashableMCPConfig {
-			mcpHashURL := fileMCPLibraryURL
-			if skipMCPLibraryURLBackfill {
-				mcpHashURL = nil
-			}
-			h, err = configstore.GenerateFrameworkConfigHash(filePricingURL, fileModelParametersURL, fileSyncSeconds, configstore.FrameworkConfigHashOptions{
-				MCPLibraryURL:          mcpHashURL,
-				MCPLibrarySyncInterval: fileMCPLibrarySyncSeconds,
-			})
-		} else {
-			h, err = configstore.GenerateFrameworkConfigHash(filePricingURL, fileModelParametersURL, fileSyncSeconds)
-		}
+	if fileConfig != nil && fileConfig.Pricing != nil && !skipURLBackfill && (filePricingURL != nil || fileModelParametersURL != nil || fileSyncSeconds != nil) {
+		h, err := configstore.GenerateFrameworkConfigHash(filePricingURL, fileModelParametersURL, fileSyncSeconds)
 		if err != nil {
 			logger.Warn("failed to compute framework config hash: %v", err)
 		} else {
@@ -4230,47 +3460,6 @@ func ResolveFrameworkPricingConfig(
 			needsDBUpdate = true
 		}
 
-		// MCP library config follows the same hash-gated config.json precedence as
-		// datasheet config: DB wins while the file is unchanged; file wins and is
-		// backfilled when the file changed since the last persisted hash.
-		if dbConfig.MCPLibraryURL != nil {
-			if trimmed := strings.TrimSpace(*dbConfig.MCPLibraryURL); trimmed != "" {
-				if fileChanged && fileMCPLibraryURL != nil && !skipMCPLibraryURLBackfill {
-					logger.Info("mcp_library_url from config.json overrides DB (file hash changed) — updating DB")
-					needsDBUpdate = true
-				} else {
-					resolvedMCPLibraryURL = &trimmed
-				}
-			} else if !skipMCPLibraryURLBackfill {
-				needsDBUpdate = true
-			}
-		} else if !skipMCPLibraryURLBackfill {
-			needsDBUpdate = true
-		}
-		if dbConfig.MCPLibrarySyncInterval != nil {
-			val := *dbConfig.MCPLibrarySyncInterval
-			switch {
-			case val <= 0:
-				logger.Warn("mcp_library_sync_interval in DB is corrupted (%d seconds), ignoring — backfilling with %d seconds", val, *resolvedMCPLibrarySyncInterval)
-				needsDBUpdate = true
-			case val < modelcatalog.MinimumPricingSyncIntervalSec:
-				logger.Warn("mcp_library_sync_interval in DB is below minimum (%d seconds) — backfilling", val)
-				if !fileChanged || fileMCPLibrarySyncSeconds == nil {
-					clamped := modelcatalog.MinimumPricingSyncIntervalSec
-					resolvedMCPLibrarySyncInterval = &clamped
-				}
-				needsDBUpdate = true
-			default:
-				if fileChanged && fileMCPLibrarySyncSeconds != nil {
-					logger.Info("mcp_library_sync_interval from config.json overrides DB (file hash changed): file=%d db=%d seconds — updating DB", *fileMCPLibrarySyncSeconds, val)
-					needsDBUpdate = true
-				} else {
-					resolvedMCPLibrarySyncInterval = dbConfig.MCPLibrarySyncInterval
-				}
-			}
-		} else {
-			needsDBUpdate = true
-		}
 	}
 
 	// --- Phase 4: nil guard ---
@@ -4286,13 +3475,6 @@ func ResolveFrameworkPricingConfig(
 		logger.Warn("invariant violation: pricing_sync_interval resolved to nil — falling back to default %d seconds", defaultSyncSeconds)
 		resolvedSyncSeconds = &defaultSyncSeconds
 	}
-	if resolvedMCPLibraryURL == nil {
-		resolvedMCPLibraryURL = &defaultMCPLibraryURL
-	}
-	if resolvedMCPLibrarySyncInterval == nil {
-		resolvedMCPLibrarySyncInterval = &defaultMCPLibrarySyncSeconds
-	}
-
 	// Only update the stored hash when the file actually changed; preserve the
 	// existing hash for correction-only DB updates (null backfill, corruption fix).
 	persistedHash := ""
@@ -4304,25 +3486,20 @@ func ResolveFrameworkPricingConfig(
 	}
 
 	return &configstoreTables.TableFrameworkConfig{
-			ID:                     configID,
-			PricingURL:             resolvedPricingURL,
-			PricingSyncInterval:    resolvedSyncSeconds,
-			ModelParametersURL:     resolvedModelParametersURL,
-			MCPLibraryURL:          resolvedMCPLibraryURL,
-			MCPLibrarySyncInterval: resolvedMCPLibrarySyncInterval,
-			ConfigHash:             persistedHash,
+			ID:                  configID,
+			PricingURL:          resolvedPricingURL,
+			PricingSyncInterval: resolvedSyncSeconds,
+			ModelParametersURL:  resolvedModelParametersURL,
+			ConfigHash:          persistedHash,
 		}, &modelcatalog.Config{
-			PricingURL:             resolvedPricingURL,
-			PricingSyncInterval:    resolvedSyncSeconds,
-			ModelParametersURL:     resolvedModelParametersURL,
-			MCPLibraryURL:          resolvedMCPLibraryURL,
-			MCPLibrarySyncInterval: resolvedMCPLibrarySyncInterval,
+			PricingURL:          resolvedPricingURL,
+			PricingSyncInterval: resolvedSyncSeconds,
+			ModelParametersURL:  resolvedModelParametersURL,
 		}, needsDBUpdate
 }
 
 // initFrameworkConfig initializes framework config and pricing manager from file
 func initFrameworkConfig(ctx context.Context, config *Config, configData *ConfigData) {
-	mcpPricingConfig := &mcpcatalog.Config{}
 	var frameworkConfigFromDB *configstoreTables.TableFrameworkConfig
 	if config.ConfigStore != nil {
 		frameworkConfig, err := config.ConfigStore.GetFrameworkConfig(ctx)
@@ -4330,7 +3507,6 @@ func initFrameworkConfig(ctx context.Context, config *Config, configData *Config
 			logger.Warn("failed to get framework config from store: %v", err)
 		}
 		frameworkConfigFromDB = frameworkConfig
-		mcpPricingConfig.PricingData = buildMCPPricingDataFromStore(ctx, config.ConfigStore)
 	}
 	var fileFrameworkConfig *framework.FrameworkConfig
 	if configData != nil {
@@ -4343,34 +3519,6 @@ func initFrameworkConfig(ctx context.Context, config *Config, configData *Config
 		}
 	}
 
-	// Initialize OAuth provider
-	config.OAuthProvider = oauth2.NewOAuth2Provider(config.ConfigStore, logger)
-	// Initialize per-user-headers credential provider. Storage parallel of
-	// OAuthProvider for MCPAuthTypePerUserHeaders clients.
-	config.MCPHeadersProvider = mcp_headers.NewProvider(config.ConfigStore, logger)
-
-	// Start token refresh worker for automatic OAuth token refresh
-	config.TokenRefreshWorker = oauth2.NewTokenRefreshWorker(config.OAuthProvider, logger)
-	if config.TokenRefreshWorker != nil {
-		config.TokenRefreshWorker.Start(ctx)
-	}
-
-	// Start per-user OAuth sweep worker: expires stale pending flows and reaps
-	// long-orphaned token rows. Orphan retention defaults to 30 days.
-	config.OAuthSweepWorker = oauth2.NewPerUserOAuthSweepWorker(config.OAuthProvider, 30*24*time.Hour, logger)
-	if config.OAuthSweepWorker != nil {
-		config.OAuthSweepWorker.Start(ctx)
-	}
-
-	// Start per-user headers credential sweep worker. Parallel of the OAuth
-	// sweep but only reaps orphaned credential rows (no flow table to sweep).
-	// Same 30-day retention so admin expectations stay uniform across the two
-	// per-user auth surfaces.
-	config.MCPHeadersSweepWorker = mcp_headers.NewCredentialSweepWorker(config.MCPHeadersProvider, 30*24*time.Hour, logger)
-	if config.MCPHeadersSweepWorker != nil {
-		config.MCPHeadersSweepWorker.Start(ctx)
-	}
-
 	config.FrameworkConfig = &framework.FrameworkConfig{
 		Pricing: pricingConfig,
 	}
@@ -4381,23 +3529,6 @@ func initFrameworkConfig(ctx context.Context, config *Config, configData *Config
 		logger.Fatal("failed to initialize pricing manager: %v", err)
 	}
 	config.ModelCatalog = pricingManager
-
-	// Initialize MCP catalog
-	// Merge file-based pricing into mcpPricingConfig (DB data already loaded above).
-	// File config is used as fallback; DB values take precedence via the merge order.
-	if mcpPricingConfig.PricingData == nil {
-		mcpPricingConfig.PricingData = mcpcatalog.MCPPricingData{}
-	}
-	for k, v := range buildMCPPricingDataFromConfig(ctx, configData) {
-		if _, exists := mcpPricingConfig.PricingData[k]; !exists {
-			mcpPricingConfig.PricingData[k] = v
-		}
-	}
-	mcpCatalog, err := mcpcatalog.Init(ctx, mcpPricingConfig, logger)
-	if err != nil {
-		logger.Warn("failed to initialize MCP catalog: %v", err)
-	}
-	config.MCPCatalog = mcpCatalog
 
 	// ModelCatalog is now initialized; replay pricing overrides for the no-store path.
 	// loadGovernanceConfig ran before ModelCatalog existed, so the in-memory
@@ -4440,59 +3571,7 @@ func syncEncryption(ctx context.Context, config *Config) {
 	}
 }
 
-// resolveMCPConfigClientIDs resolves MCPClientName to MCPClientID for each MCP config.
-// This is needed when parsing virtual keys from config.json, which uses "mcp_client_name"
-// instead of "mcp_client_id". The function looks up each MCP client by name and sets the
-// corresponding MCPClientID. Configs with unresolvable names are logged and skipped.
-// Returns the filtered slice containing only configs with valid MCPClientIDs.
-func resolveMCPConfigClientIDs(
-	ctx context.Context,
-	store configstore.ConfigStore,
-	mcpConfigs []configstoreTables.TableVirtualKeyMCPConfig,
-	virtualKeyID string,
-) []configstoreTables.TableVirtualKeyMCPConfig {
-	if store == nil || len(mcpConfigs) == 0 {
-		return mcpConfigs
-	}
-
-	resolvedConfigs := make([]configstoreTables.TableVirtualKeyMCPConfig, 0, len(mcpConfigs))
-
-	for i := range mcpConfigs {
-		mc := &mcpConfigs[i]
-
-		// If MCPClientID is already set (e.g., from database or direct construction), keep it
-		if mc.MCPClientID != 0 {
-			resolvedConfigs = append(resolvedConfigs, *mc)
-			continue
-		}
-
-		// If MCPClientName is set (from config.json parsing), resolve it to MCPClientID
-		if mc.MCPClientName != "" {
-			mcpClient, err := store.GetMCPClientByName(ctx, mc.MCPClientName)
-			if err != nil {
-				logger.Warn("virtual key %s: failed to resolve MCP client '%s': %v (skipping this MCP config)",
-					virtualKeyID, mc.MCPClientName, err)
-				continue
-			}
-			if mcpClient == nil {
-				logger.Warn("virtual key %s: MCP client '%s' not found (skipping this MCP config)",
-					virtualKeyID, mc.MCPClientName)
-				continue
-			}
-			mc.MCPClientID = mcpClient.ID
-			resolvedConfigs = append(resolvedConfigs, *mc)
-			continue
-		}
-
-		// Neither MCPClientID nor MCPClientName is set - skip this config
-		logger.Warn("virtual key %s: MCP config has neither mcp_client_id nor mcp_client_name set (skipping)",
-			virtualKeyID)
-	}
-
-	return resolvedConfigs
-}
-
-// reconcileVirtualKeyAssociations reconciles ProviderConfigs and MCPConfigs associations
+// reconcileVirtualKeyAssociations reconciles ProviderConfigs associations
 // for a virtual key when config.json changes (hash mismatch already detected at VK level).
 //
 // NOTE: This function is ONLY called when the virtual key's hash has changed,
@@ -4509,7 +3588,6 @@ func reconcileVirtualKeyAssociations(
 	tx *gorm.DB,
 	vkID string,
 	newProviderConfigs []configstoreTables.TableVirtualKeyProviderConfig,
-	newMCPConfigs []configstoreTables.TableVirtualKeyMCPConfig,
 ) error {
 	// Reconcile ProviderConfigs
 	existingProviderConfigs, err := store.GetVirtualKeyProviderConfigs(ctx, vkID)
@@ -4552,46 +3630,6 @@ func reconcileVirtualKeyAssociations(
 		if !newProviderSet[provider] {
 			if err := store.DeleteVirtualKeyProviderConfig(ctx, existing.ID, tx); err != nil {
 				return fmt.Errorf("failed to delete provider config for %s: %w", provider, err)
-			}
-		}
-	}
-
-	// Reconcile MCPConfigs
-	existingMCPConfigs, err := store.GetVirtualKeyMCPConfigs(ctx, vkID)
-	if err != nil {
-		return fmt.Errorf("failed to get existing MCP configs: %w", err)
-	}
-
-	// Build lookup map for existing MCP configs by MCPClientID
-	existingByMCPClientID := make(map[uint]configstoreTables.TableVirtualKeyMCPConfig)
-	for _, mc := range existingMCPConfigs {
-		existingByMCPClientID[mc.MCPClientID] = mc
-	}
-
-	// Process MCP configs from config.json
-	newMCPSet := make(map[uint]bool)
-	for _, newMC := range newMCPConfigs {
-		newMCPSet[newMC.MCPClientID] = true
-		newMC.VirtualKeyID = vkID
-		if existing, found := existingByMCPClientID[newMC.MCPClientID]; found {
-			// Update existing MCP config from file
-			existing.ToolsToExecute = newMC.ToolsToExecute
-			if err := store.UpdateVirtualKeyMCPConfig(ctx, &existing, tx); err != nil {
-				return fmt.Errorf("failed to update MCP config for client %d: %w", newMC.MCPClientID, err)
-			}
-		} else {
-			// Create new MCP config from file
-			if err := store.CreateVirtualKeyMCPConfig(ctx, &newMC, tx); err != nil {
-				return fmt.Errorf("failed to create MCP config for client %d: %w", newMC.MCPClientID, err)
-			}
-		}
-	}
-
-	// Delete MCP configs that exist in DB but not in file
-	for mcpClientID, existing := range existingByMCPClientID {
-		if !newMCPSet[mcpClientID] {
-			if err := store.DeleteVirtualKeyMCPConfig(ctx, existing.ID, tx); err != nil {
-				return fmt.Errorf("failed to delete MCP config for client %d: %w", mcpClientID, err)
 			}
 		}
 	}
@@ -4669,13 +3707,6 @@ func (c *Config) ShouldAllowDirectKeys() bool {
 	return c.ClientConfig.AllowDirectKeys
 }
 
-// GetMCPExternalClientURL returns the configured external base URL Bifrost uses as the
-// redirect_uri when acting as an OAuth client to upstream MCP servers, or empty string
-// if not configured. Resolves env var references automatically.
-func (c *Config) GetMCPExternalClientURL() string {
-	return c.ClientConfig.MCPExternalClientURL.GetValue()
-}
-
 // GetHeaderMatcher returns the precompiled header matcher for header filtering.
 // Lock-free via atomic pointer; safe for concurrent reads from hot paths.
 func (c *Config) GetHeaderMatcher() *HeaderMatcher {
@@ -4686,47 +3717,6 @@ func (c *Config) GetHeaderMatcher() *HeaderMatcher {
 // Called when header filter config changes.
 func (c *Config) SetHeaderMatcher(m *HeaderMatcher) {
 	c.headerMatcher.Store(m)
-}
-
-// GetMCPHeaderCombinedAllowlist returns the combined allowlist for MCP headers across all MCP clients.
-// This method acquires a muMCP read lock and is safe for concurrent access from hot paths.
-func (c *Config) GetMCPHeaderCombinedAllowlist() schemas.WhiteList {
-	c.muMCP.RLock()
-	defer c.muMCP.RUnlock()
-
-	if c.MCPConfig == nil || len(c.MCPConfig.ClientConfigs) == 0 {
-		return schemas.WhiteList{}
-	}
-
-	allowlist := schemas.WhiteList{}
-	for _, mcpClient := range c.MCPConfig.ClientConfigs {
-		if mcpClient == nil {
-			continue
-		}
-		if mcpClient.AllowedExtraHeaders.IsUnrestricted() {
-			return schemas.WhiteList{"*"}
-		}
-		allowlist = append(allowlist, mcpClient.AllowedExtraHeaders...)
-	}
-	return allowlist
-}
-
-// GetAllowOnAllVirtualKeysClients returns a map of clientID -> clientName for all MCP clients
-// that have AllowOnAllVirtualKeys enabled. The returned map is a copy, safe for concurrent use.
-func (c *Config) GetAllowOnAllVirtualKeysClients() map[string]string {
-	c.muMCP.RLock()
-	defer c.muMCP.RUnlock()
-
-	if c.MCPConfig == nil {
-		return nil
-	}
-	result := make(map[string]string)
-	for _, client := range c.MCPConfig.ClientConfigs {
-		if client != nil && client.AllowOnAllVirtualKeys {
-			result[client.ID] = client.Name
-		}
-	}
-	return result
 }
 
 // GetPluginOrder returns the names of all base plugins in their sorted placement order.
@@ -4816,41 +3806,18 @@ func (c *Config) GetStreamChunkInterceptor() StreamChunkInterceptor {
 	return &pluginChunkInterceptor{plugins: plugins}
 }
 
-// GetAsyncJobExecutor returns the async job executor.
-// Returns nil if LogsStore or governance plugin is not configured.
-func (c *Config) GetAsyncJobExecutor() *logstore.AsyncJobExecutor {
-	return c.AsyncJobExecutor
-}
-
-// GetAsyncJobResultTTL returns the default TTL for async job results in seconds.
-func (c *Config) GetAsyncJobResultTTL() int {
-	if c.ClientConfig.AsyncJobResultTTL > 0 {
-		return c.ClientConfig.AsyncJobResultTTL
-	}
-	return logstore.DefaultAsyncJobResultTTL
-}
-
 // GetKVStore returns the shared in-memory kvstore instance.
 func (c *Config) GetKVStore() *kvstore.Store {
 	return c.KVStore
 }
 
 // Close gracefully shuts down all background components associated with the Config.
-// This includes ModelCatalog sync worker, TokenRefreshWorker, KVStore cleanup loop,
-// ConfigStore, LogsStore, and VectorStore. It should be called when the Config is
-// no longer needed to prevent goroutine leaks.
+// This includes ModelCatalog sync worker, KVStore cleanup loop, ConfigStore,
+// LogsStore, and VectorStore. It should be called when the Config is no longer
+// needed to prevent goroutine leaks.
 func (c *Config) Close(ctx context.Context) {
 	if c.ModelCatalog != nil {
 		c.ModelCatalog.Cleanup()
-	}
-	if c.TokenRefreshWorker != nil {
-		c.TokenRefreshWorker.Stop()
-	}
-	if c.OAuthSweepWorker != nil {
-		c.OAuthSweepWorker.Stop()
-	}
-	if c.MCPHeadersSweepWorker != nil {
-		c.MCPHeadersSweepWorker.Stop()
 	}
 	if c.KVStore != nil {
 		c.KVStore.Close()
@@ -4861,77 +3828,9 @@ func (c *Config) Close(ctx context.Context) {
 	if c.LogsStore != nil {
 		c.LogsStore.Close(ctx)
 	}
-	if c.ObjectStore != nil {
-		if err := c.ObjectStore.Close(); err != nil {
-			logger.Warn("failed to close object store: %v", err)
-		}
-	}
 	if c.VectorStore != nil {
 		c.VectorStore.Close(ctx, "")
 	}
-}
-
-func initSkillsObjectStore(ctx context.Context, config *Config, logStoreConfig *logstore.Config) error {
-	if config == nil || config.ObjectStore != nil || logStoreConfig == nil || logStoreConfig.ObjectStorage == nil {
-		return nil
-	}
-	objStore, err := objectstore.NewObjectStore(ctx, logStoreConfig.ObjectStorage, logger)
-	if err != nil {
-		return fmt.Errorf("failed to create skills object store: %w", err)
-	}
-	pingCtx, pingCancel := context.WithTimeout(ctx, 10*time.Second)
-	defer pingCancel()
-	if err := objStore.Ping(pingCtx); err != nil {
-		_ = objStore.Close()
-		return fmt.Errorf("failed to ping skills object store: %w", err)
-	}
-	config.ObjectStore = objStore
-	logger.Info("skills object store initialized")
-	return nil
-}
-
-// initFeatureFlags constructs the feature flag store and applies overrides
-// in precedence order: DB first (Hydrate), then config.json file (ApplyFile,
-// which marks the entry as locked so it cannot be toggled via the UI).
-// Errors from configstore are logged and ignored so a transient DB hiccup
-// at boot does not block startup; the store falls back to defaults +
-// file overrides.
-func initFeatureFlags(ctx context.Context, config *Config, configData *ConfigData) error {
-	// Type-assert to bool so a stored `false` (or non-bool / missing key)
-	// resolves to OSS mode rather than the misleading "any non-nil = true"
-	// behavior of the previous `!= nil` check. The schemas comment for this
-	// context key declares it as bool, so the assertion is the documented
-	// shape; the comma-ok zero-value handles the unset path cleanly.
-	isEnterprise, _ := ctx.Value(schemas.BifrostContextKeyIsEnterprise).(bool)
-	store, err := featureflags.New(featureflags.Config{IsEnterprise: isEnterprise})
-	if err != nil {
-		return fmt.Errorf("failed to initialize feature flags: %w", err)
-	}
-	config.FeatureFlags = store
-
-	if config.ConfigStore != nil {
-		rows, err := config.ConfigStore.ListFeatureFlags(ctx)
-		if err != nil {
-			logger.Warn("[featureflags] hydrate from configstore failed: %v", err)
-		} else {
-			hydration := make([]featureflags.HydrationRow, 0, len(rows))
-			for _, row := range rows {
-				hydration = append(hydration, featureflags.HydrationRow{
-					ID:        row.ID,
-					Enabled:   row.Enabled,
-					UpdatedAt: row.UpdatedAt,
-				})
-			}
-			store.Hydrate(hydration)
-		}
-	}
-
-	if configData != nil && configData.FeatureFlags != nil {
-		for id, val := range configData.FeatureFlags.Flags {
-			store.ApplyFile(id, val.Enabled)
-		}
-	}
-	return nil
 }
 
 // initKVStore initializes the kvstore for the config
@@ -4943,18 +3842,6 @@ func initKVStore(config *Config) error {
 	})
 	if err != nil {
 		return fmt.Errorf("failed to initialize kvstore: %w", err)
-	}
-	return nil
-}
-
-// GetLoadedMCPPlugins returns the current snapshot of loaded MCP plugins.
-// This method is lock-free and safe for concurrent access from hot paths.
-// It returns the plugin slice from the atomic pointer, which is safe to iterate
-// even if plugins are being updated concurrently.
-// Do not modify the returned slice; it is a shared snapshot and must be treated read-only.
-func (c *Config) GetLoadedMCPPlugins() []schemas.MCPPlugin {
-	if plugins := c.MCPPlugins.Load(); plugins != nil {
-		return slices.Clone(*plugins)
 	}
 	return nil
 }
@@ -4979,25 +3866,19 @@ func (c *Config) rebuildInterfaceCaches() {
 	if basePlugins == nil {
 		// Clear all caches atomically, except ConfigMarshallers which are preserved.
 		emptyLLM := []schemas.LLMPlugin{}
-		emptyMCP := []schemas.MCPPlugin{}
 		emptyHTTP := []schemas.HTTPTransportPlugin{}
 		c.LLMPlugins.Store(&emptyLLM)
-		c.MCPPlugins.Store(&emptyMCP)
 		c.HTTPTransportPlugins.Store(&emptyHTTP)
 		return
 	}
 
 	// Single pass through all plugins - check all interfaces in one iteration
 	var llm []schemas.LLMPlugin
-	var mcp []schemas.MCPPlugin
 	var httpTransport []schemas.HTTPTransportPlugin
 
 	for _, p := range *basePlugins {
 		if llmPlugin, ok := p.(schemas.LLMPlugin); ok {
 			llm = append(llm, llmPlugin)
-		}
-		if mcpPlugin, ok := p.(schemas.MCPPlugin); ok {
-			mcp = append(mcp, mcpPlugin)
 		}
 		if httpPlugin, ok := p.(schemas.HTTPTransportPlugin); ok {
 			httpTransport = append(httpTransport, httpPlugin)
@@ -5009,7 +3890,6 @@ func (c *Config) rebuildInterfaceCaches() {
 	}
 
 	c.LLMPlugins.Store(&llm)
-	c.MCPPlugins.Store(&mcp)
 	c.HTTPTransportPlugins.Store(&httpTransport)
 }
 
@@ -5355,11 +4235,6 @@ func FindPluginAs[T any](c *Config, name string) (T, error) {
 // FindLLMPlugin is a convenience wrapper for finding LLM plugins
 func (c *Config) FindLLMPlugin(name string) (schemas.LLMPlugin, error) {
 	return FindPluginAs[schemas.LLMPlugin](c, name)
-}
-
-// FindMCPPlugin is a convenience wrapper for finding MCP plugins
-func (c *Config) FindMCPPlugin(name string) (schemas.MCPPlugin, error) {
-	return FindPluginAs[schemas.MCPPlugin](c, name)
 }
 
 // FindPluginByName returns a plugin as BasePlugin
@@ -5905,457 +4780,13 @@ func (c *Config) GetAllKeys() ([]configstoreTables.TableKey, error) {
 }
 
 // SetBifrostClient sets the Bifrost client in the store.
-// This is used to allow the store to access the Bifrost client.
-// This is useful for the MCP handler to access the Bifrost client.
 func (c *Config) SetBifrostClient(client *bifrost.Bifrost) {
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-
 	c.client = client
 }
 
-// GetMCPClient gets an MCP client configuration from the configuration.
-// This method is called when an MCP client is reconnected via the HTTP API.
-//
-// Parameters:
-//   - id: ID of the client to get
-//
-// Returns:
-//   - *schemas.MCPClientConfig: The MCP client configuration (not redacted)
-//   - error: Any retrieval error
-func (c *Config) GetMCPClient(id string) (*schemas.MCPClientConfig, error) {
-	c.muMCP.RLock()
-	defer c.muMCP.RUnlock()
-
-	if c.client == nil {
-		return nil, fmt.Errorf("bifrost client not set")
-	}
-
-	if c.MCPConfig == nil {
-		return nil, fmt.Errorf("no MCP config found")
-	}
-
-	for _, clientConfig := range c.MCPConfig.ClientConfigs {
-		if clientConfig.ID == id {
-			return clientConfig, nil
-		}
-	}
-
-	return nil, fmt.Errorf("MCP client '%s' not found", id)
-}
-
-// AddMCPClient adds a new MCP client to the configuration.
-// This method is called when a new MCP client is added via the HTTP API.
-//
-// The method:
-//   - Validates that the MCP client doesn't already exist
-//   - Processes environment variables in the MCP client configuration
-//   - Stores the processed configuration in memory
-func (c *Config) AddMCPClient(ctx context.Context, clientConfig *schemas.MCPClientConfig) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-	if c.MCPConfig == nil {
-		c.MCPConfig = &schemas.MCPConfig{}
-	}
-	// Track new environment variables
-	c.MCPConfig.ClientConfigs = append(c.MCPConfig.ClientConfigs, clientConfig)
-	// Config with processed env vars
-	if err := c.client.AddMCPClient(ctx, clientConfig); err != nil {
-		c.MCPConfig.ClientConfigs = c.MCPConfig.ClientConfigs[:len(c.MCPConfig.ClientConfigs)-1]
-		return fmt.Errorf("failed to connect MCP client: %w", err)
-	}
-	// Update MCP catalog pricing data for the new client
-	if c.MCPCatalog != nil && c.ConfigStore != nil {
-		// Get the created client config from store to get tool_pricing
-		dbClientConfig, err := c.ConfigStore.GetMCPClientByName(ctx, clientConfig.Name)
-		if err != nil {
-			logger.Warn("failed to get MCP client config for catalog update: %v", err)
-		} else if dbClientConfig != nil {
-			for toolName, costPerExecution := range dbClientConfig.ToolPricing {
-				c.MCPCatalog.UpdatePricingData(dbClientConfig.Name, toolName, costPerExecution)
-			}
-			logger.Debug("updated MCP catalog pricing for client: %s (%d tools)", dbClientConfig.Name, len(dbClientConfig.ToolPricing))
-		}
-	}
-	return nil
-}
-
-// UpdateMCPClient edits an MCP client configuration.
-// This allows for dynamic MCP client management at runtime with proper env var handling.
-//
-// Parameters:
-//   - id: ID of the client to edit
-//   - updatedConfig: Updated MCP client configuration
-func (c *Config) UpdateMCPClient(ctx context.Context, id string, updatedConfig *schemas.MCPClientConfig) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-
-	if c.MCPConfig == nil {
-		return fmt.Errorf("no MCP config found")
-	}
-	// Find the existing client config
-	var oldConfig *schemas.MCPClientConfig
-	var found bool
-	var configIndex int
-	for i, clientConfig := range c.MCPConfig.ClientConfigs {
-		if clientConfig.ID == id {
-			oldConfig = clientConfig
-			configIndex = i
-			found = true
-			break
-		}
-	}
-	if !found {
-		return fmt.Errorf("MCP client '%s' not found", id)
-	}
-	oldDisabled := oldConfig.Disabled
-	// Check if client is registered in Bifrost (can be not registered if client initialization failed)
-	clientRegistered := false
-	if clients, err := c.client.GetMCPClients(); err == nil && len(clients) > 0 {
-		for _, client := range clients {
-			if client.Config.ID == id {
-				clientRegistered = true
-				if err := c.client.UpdateMCPClient(id, updatedConfig); err != nil {
-					// Rollback in-memory changes
-					c.MCPConfig.ClientConfigs[configIndex] = oldConfig
-					return fmt.Errorf("failed to edit MCP client: %w", err)
-				}
-				break
-			}
-		}
-	}
-	// Update MCP catalog pricing data for the edited client
-	if c.MCPCatalog != nil {
-		// If the client name has changed, delete all old pricing entries under the old name
-		if updatedConfig.Name != oldConfig.Name {
-			for toolName := range oldConfig.ToolPricing {
-				c.MCPCatalog.DeletePricingData(oldConfig.Name, toolName)
-			}
-			logger.Debug("deleted old MCP catalog pricing for renamed client: %s -> %s (%d tools)", oldConfig.Name, updatedConfig.Name, len(oldConfig.ToolPricing))
-		} else {
-			// If name hasn't changed, remove pricing entries that were deleted
-			for toolName := range oldConfig.ToolPricing {
-				if _, exists := updatedConfig.ToolPricing[toolName]; !exists {
-					c.MCPCatalog.DeletePricingData(updatedConfig.Name, toolName)
-				}
-			}
-		}
-		// Then, add or update pricing entries from the new config (with new name if changed)
-		for toolName, costPerExecution := range updatedConfig.ToolPricing {
-			c.MCPCatalog.UpdatePricingData(updatedConfig.Name, toolName, costPerExecution)
-		}
-		logger.Debug("updated MCP catalog pricing for client: %s (%d tools)", updatedConfig.Name, len(updatedConfig.ToolPricing))
-	}
-	// Update the in-memory configuration with only the fields that were changed
-	// Preserve connection info (connection_type, connection_string, stdio_config) from oldConfig
-	// as these are read-only and not sent in the update request
-	c.MCPConfig.ClientConfigs[configIndex].Name = updatedConfig.Name
-	c.MCPConfig.ClientConfigs[configIndex].IsCodeModeClient = updatedConfig.IsCodeModeClient
-	c.MCPConfig.ClientConfigs[configIndex].Headers = updatedConfig.Headers
-	c.MCPConfig.ClientConfigs[configIndex].ToolsToExecute = updatedConfig.ToolsToExecute
-	c.MCPConfig.ClientConfigs[configIndex].ToolsToAutoExecute = updatedConfig.ToolsToAutoExecute
-	c.MCPConfig.ClientConfigs[configIndex].AllowedExtraHeaders = updatedConfig.AllowedExtraHeaders
-	c.MCPConfig.ClientConfigs[configIndex].ToolPricing = updatedConfig.ToolPricing
-	c.MCPConfig.ClientConfigs[configIndex].IsPingAvailable = updatedConfig.IsPingAvailable
-	c.MCPConfig.ClientConfigs[configIndex].ToolSyncInterval = updatedConfig.ToolSyncInterval
-	c.MCPConfig.ClientConfigs[configIndex].AllowOnAllVirtualKeys = updatedConfig.AllowOnAllVirtualKeys
-	c.MCPConfig.ClientConfigs[configIndex].Disabled = updatedConfig.Disabled
-	c.MCPConfig.ClientConfigs[configIndex].PerUserHeaderKeys = updatedConfig.PerUserHeaderKeys
-
-	// Handle disable/enable lifecycle when the Disabled flag toggles and the client
-	// is registered at runtime. We call the core bifrost methods directly (not the
-	// Config wrappers) to avoid a redundant DB write — the caller is responsible for
-	// persisting the disabled flag to the DB before calling UpdateMCPClient.
-	if oldDisabled != updatedConfig.Disabled && clientRegistered {
-		if updatedConfig.Disabled {
-			if err := c.client.DisableMCPClient(id); err != nil {
-				// Rollback the in-memory Disabled flag so the runtime view stays
-				// consistent with what the caller can observe.
-				c.MCPConfig.ClientConfigs[configIndex].Disabled = oldDisabled
-				return fmt.Errorf("failed to disable MCP client: %w", err)
-			}
-		} else {
-			if err := c.client.EnableMCPClient(id); err != nil {
-				c.MCPConfig.ClientConfigs[configIndex].Disabled = oldDisabled
-				return fmt.Errorf("failed to enable MCP client: %w", err)
-			}
-		}
-	}
-	return nil
-}
-
-// UpdateMCPClientConnection updates the auth credentials (headers) for an existing MCP client.
-// It delegates the actual reconnection (with the new credentials) to the Bifrost client.
-func (c *Config) UpdateMCPClientConnection(ctx context.Context, id string, newConfig *schemas.MCPClientConfig) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-
-	c.muMCP.RLock()
-	if c.MCPConfig == nil {
-		c.muMCP.RUnlock()
-		return fmt.Errorf("in-memory MCPConfig absent; cannot update MCP client connection")
-	}
-	found := false
-	for _, cc := range c.MCPConfig.ClientConfigs {
-		if cc == nil {
-			continue
-		}
-		if cc.ID == id {
-			found = true
-			break
-		}
-	}
-	c.muMCP.RUnlock()
-	if !found {
-		return fmt.Errorf("MCP client %s not found in in-memory MCP config", id)
-	}
-
-	// Attempt the credential swap on the runtime side first.
-	// If this fails, nothing in our in-memory config has changed.
-	if err := c.client.UpdateMCPClientConnection(id, newConfig); err != nil {
-		return fmt.Errorf("failed to update MCP client credentials: %w", err)
-	}
-
-	// Reconnect succeeded — mirror the new credentials into the in-memory config
-	// so that subsequent reads of MCPConfig reflect the live state.
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-	if c.MCPConfig != nil {
-		found := false
-		for _, cc := range c.MCPConfig.ClientConfigs {
-			if cc == nil {
-				continue
-			}
-			if cc.ID == id {
-				found = true
-				if newConfig.Headers != nil {
-					cc.Headers = maps.Clone(newConfig.Headers)
-				}
-				if newConfig.OauthConfigID != nil {
-					cc.OauthConfigID = newConfig.OauthConfigID
-				}
-				break
-			}
-		}
-		if !found {
-			return fmt.Errorf("MCP client %s not found in in-memory config after successful reconnect", id)
-		}
-	}
-	return nil
-}
-
-// RemoveMCPClient removes an MCP client from the configuration.
-// This method is called when an MCP client is removed via the HTTP API.
-//
-// The method:
-//   - Validates that the MCP client exists
-//   - Removes the MCP client from the configuration
-//   - Removes the MCP client from the Bifrost client
-func (c *Config) RemoveMCPClient(ctx context.Context, id string) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-	if c.MCPConfig == nil {
-		return fmt.Errorf("no MCP config found")
-	}
-	// Check if client is registered in Bifrost (can be not registered if client initialization failed)
-	if clients, err := c.client.GetMCPClients(); err == nil && len(clients) > 0 {
-		for _, client := range clients {
-			if client.Config.ID == id {
-				if err := c.client.RemoveMCPClient(id); err != nil {
-					return fmt.Errorf("failed to remove MCP client: %w", err)
-				}
-				break
-			}
-		}
-	}
-	// Find and remove client from in-memory config
-	for i, clientConfig := range c.MCPConfig.ClientConfigs {
-		if clientConfig.ID == id {
-			c.MCPConfig.ClientConfigs = append(c.MCPConfig.ClientConfigs[:i], c.MCPConfig.ClientConfigs[i+1:]...)
-			break
-		}
-	}
-	return nil
-}
-
-// DisableMCPClient persists disabled=true to the DB and shuts down the client's
-// connection, health monitor, and tool syncer at runtime.
-func (c *Config) DisableMCPClient(ctx context.Context, id string) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-
-	if c.ConfigStore == nil {
-		return fmt.Errorf("config store not set")
-	}
-
-	dbClient, err := c.ConfigStore.GetMCPClientByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("MCP client '%s' not found: %w", id, err)
-	}
-	if err := c.client.DisableMCPClient(id); err != nil {
-		return fmt.Errorf("failed to disable MCP client: %w", err)
-	}
-
-	dbClient.Disabled = true
-	if err := c.ConfigStore.UpdateMCPClientConfig(ctx, id, dbClient); err != nil {
-		_ = c.client.EnableMCPClient(id) // rollback
-		return fmt.Errorf("failed to persist disabled state: %w", err)
-	}
-
-	c.muMCP.Lock()
-	defer c.muMCP.Unlock()
-	if c.MCPConfig != nil {
-		for _, cc := range c.MCPConfig.ClientConfigs {
-			if cc.ID == id {
-				cc.Disabled = true
-				break
-			}
-		}
-	}
-	return nil
-}
-
-// EnableMCPClient persists disabled=false to the DB and reconnects the client
-// at runtime, restarting its health monitor and tool syncer.
-func (c *Config) EnableMCPClient(ctx context.Context, id string) error {
-	if c.client == nil {
-		return fmt.Errorf("bifrost client not set")
-	}
-	if c.ConfigStore == nil {
-		return fmt.Errorf("config store not set")
-	}
-
-	dbClient, err := c.ConfigStore.GetMCPClientByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("MCP client '%s' not found: %w", id, err)
-	}
-	dbClient.Disabled = false
-	if err := c.ConfigStore.UpdateMCPClientConfig(ctx, id, dbClient); err != nil {
-		return fmt.Errorf("failed to persist enabled state: %w", err)
-	}
-
-	c.muMCP.Lock()
-	if c.MCPConfig != nil {
-		for _, cc := range c.MCPConfig.ClientConfigs {
-			if cc.ID == id {
-				cc.Disabled = false
-				break
-			}
-		}
-	}
-	c.muMCP.Unlock()
-
-	return c.client.EnableMCPClient(id)
-}
-
-// RedactMCPClientConfig creates a redacted copy of a MCPClientConfig configuration.
-// Connection strings and headers are redacted for safe external exposure.
-func (c *Config) RedactMCPClientConfig(config *schemas.MCPClientConfig) *schemas.MCPClientConfig {
-	// Create an actual copy of the struct (not just a pointer copy)
-	// This prevents modifying the original config when redacting
-	configCopy := *config
-
-	// Redact connection string if present
-	if config.ConnectionString != nil {
-		configCopy.ConnectionString = config.ConnectionString.Redacted()
-	}
-
-	// Redact Header values if present
-	if config.Headers != nil {
-		configCopy.Headers = make(map[string]schemas.SecretVar, len(config.Headers))
-		for header, value := range config.Headers {
-			configCopy.Headers[header] = *value.Redacted()
-		}
-	}
-
-	// Redact OAuth client credentials
-	if config.OauthClientID != nil {
-		configCopy.OauthClientID = config.OauthClientID.Redacted()
-	}
-	if config.OauthClientSecret != nil {
-		configCopy.OauthClientSecret = config.OauthClientSecret.Redacted()
-	}
-
-	// Redact TLS CA cert PEM if present
-	if config.TLSConfig != nil {
-		tlsCopy := *config.TLSConfig
-		if config.TLSConfig.CACertPEM != nil {
-			tlsCopy.CACertPEM = config.TLSConfig.CACertPEM.Redacted()
-		}
-		configCopy.TLSConfig = &tlsCopy
-	}
-
-	return &configCopy
-}
-
-// autoDetectProviders automatically detects common environment variables and sets up providers
-// when no configuration file exists. This enables zero-config startup when users have set
-// standard environment variables like OPENAI_API_KEY, ANTHROPIC_API_KEY, etc.
-//
-// Supported environment variables:
-//   - OpenAI: OPENAI_API_KEY, OPENAI_KEY
-//   - Anthropic: ANTHROPIC_API_KEY, ANTHROPIC_KEY
-//   - Mistral: MISTRAL_API_KEY, MISTRAL_KEY
-//
-// For each detected provider, it creates a default configuration with:
-//   - The detected API key with weight 1.0
-//   - Empty models list (provider will use default models)
-//   - Default concurrency and buffer size settings
 func (c *Config) autoDetectProviders(ctx context.Context) {
-	// Define common environment variable patterns for each provider
-	providerEnvVars := map[schemas.ModelProvider][]string{
-		schemas.OpenAI:    {"OPENAI_API_KEY", "OPENAI_KEY"},
-		schemas.Anthropic: {"ANTHROPIC_API_KEY", "ANTHROPIC_KEY"},
-		schemas.Mistral:   {"MISTRAL_API_KEY", "MISTRAL_KEY"},
-	}
-
-	detectedCount := 0
-
-	for provider, envVars := range providerEnvVars {
-		for _, envVar := range envVars {
-			if apiKey := os.Getenv(envVar); apiKey != "" {
-				// Generate a unique ID for the auto-detected key
-				keyID := uuid.NewString()
-				// Create default provider configuration
-				providerConfig := configstore.ProviderConfig{
-					Keys: []schemas.Key{
-						{
-							ID:     keyID,
-							Name:   fmt.Sprintf("%s_auto_detected", envVar),
-							Value:  *schemas.NewSecretVar(apiKey),
-							Models: schemas.WhiteList{"*"},
-							Weight: 1.0,
-						},
-					},
-					ConcurrencyAndBufferSize: &schemas.DefaultConcurrencyAndBufferSize,
-				}
-				// Add to providers map
-				c.Providers[provider] = providerConfig
-				logger.Info("auto-detected %s provider from environment variable %s", provider, envVar)
-				detectedCount++
-				break // Only use the first found env var for each provider
-			}
-		}
-	}
-	if detectedCount > 0 {
-		logger.Info("auto-configured %d provider(s) from environment variables", detectedCount)
-		if c.ConfigStore != nil {
-			if err := c.ConfigStore.UpdateProvidersConfig(ctx, c.Providers); err != nil {
-				logger.Error("failed to update providers in store: %v", err)
-			}
-		}
-	}
+	_ = ctx
+	logger.Info("Lite disables provider auto-detection; configure custom providers explicitly")
 }
 
 // GetVectorStoreConfigRedacted retrieves the vector store configuration with password redacted for safe external exposure
@@ -6392,7 +4823,7 @@ func (c *Config) GetVectorStoreConfigRedacted(ctx context.Context) (*vectorstore
 // ValidateCustomProvider validates the custom provider configuration
 func ValidateCustomProvider(config configstore.ProviderConfig, provider schemas.ModelProvider) error {
 	if config.CustomProviderConfig == nil {
-		return nil
+		return fmt.Errorf("custom provider validation failed: custom_provider_config is required in Lite")
 	}
 
 	if bifrost.IsStandardProvider(provider) {
@@ -6415,15 +4846,102 @@ func ValidateCustomProvider(config configstore.ProviderConfig, provider schemas.
 	if cpc.BaseProviderType == schemas.Bedrock && cpc.IsKeyLess {
 		return fmt.Errorf("custom provider validation failed: Bedrock providers cannot be keyless (is_key_less=true)")
 	}
+	if cpc.AllowedRequests == nil {
+		return fmt.Errorf("custom provider validation failed: allowed_requests is required in Lite")
+	}
+
+	if err := validateLiteCustomProviderRequests(cpc); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+func validateLiteCustomProviderRequests(cpc *schemas.CustomProviderConfig) error {
+	if cpc.AllowedRequests != nil {
+		for _, requestType := range nonLiteCustomProviderRequestTypes {
+			if cpc.AllowedRequests.IsOperationAllowed(requestType) {
+				return fmt.Errorf("custom provider validation failed: allowed_requests.%s is not supported in Lite", requestType)
+			}
+		}
+	}
+	for requestType := range cpc.RequestPathOverrides {
+		if !isLiteCustomProviderRequest(requestType) {
+			return fmt.Errorf("custom provider validation failed: request_path_overrides.%s is not supported in Lite", requestType)
+		}
+	}
+	return nil
+}
+
+func isLiteCustomProviderRequest(requestType schemas.RequestType) bool {
+	switch requestType {
+	case schemas.ListModelsRequest,
+		schemas.ChatCompletionRequest,
+		schemas.ChatCompletionStreamRequest,
+		schemas.ResponsesRequest,
+		schemas.ResponsesStreamRequest,
+		schemas.ImageGenerationRequest,
+		schemas.ImageGenerationStreamRequest,
+		schemas.ImageEditRequest,
+		schemas.ImageEditStreamRequest:
+		return true
+	default:
+		return false
+	}
+}
+
+var nonLiteCustomProviderRequestTypes = []schemas.RequestType{
+	schemas.TextCompletionRequest,
+	schemas.TextCompletionStreamRequest,
+	schemas.CountTokensRequest,
+	schemas.CompactionRequest,
+	schemas.EmbeddingRequest,
+	schemas.RerankRequest,
+	schemas.OCRRequest,
+	schemas.SpeechRequest,
+	schemas.SpeechStreamRequest,
+	schemas.TranscriptionRequest,
+	schemas.TranscriptionStreamRequest,
+	schemas.VideoGenerationRequest,
+	schemas.VideoRetrieveRequest,
+	schemas.VideoDownloadRequest,
+	schemas.VideoDeleteRequest,
+	schemas.VideoListRequest,
+	schemas.VideoRemixRequest,
+	schemas.BatchCreateRequest,
+	schemas.BatchListRequest,
+	schemas.BatchRetrieveRequest,
+	schemas.BatchCancelRequest,
+	schemas.BatchDeleteRequest,
+	schemas.BatchResultsRequest,
+	schemas.FileUploadRequest,
+	schemas.FileListRequest,
+	schemas.FileRetrieveRequest,
+	schemas.FileDeleteRequest,
+	schemas.FileContentRequest,
+	schemas.ContainerCreateRequest,
+	schemas.ContainerListRequest,
+	schemas.ContainerRetrieveRequest,
+	schemas.ContainerDeleteRequest,
+	schemas.ContainerFileCreateRequest,
+	schemas.ContainerFileListRequest,
+	schemas.ContainerFileRetrieveRequest,
+	schemas.ContainerFileContentRequest,
+	schemas.ContainerFileDeleteRequest,
+	schemas.PassthroughRequest,
+	schemas.PassthroughStreamRequest,
+	schemas.CachedContentCreateRequest,
+	schemas.CachedContentListRequest,
+	schemas.CachedContentRetrieveRequest,
+	schemas.CachedContentUpdateRequest,
+	schemas.CachedContentDeleteRequest,
 }
 
 // ValidateCustomProviderUpdate validates that immutable fields in CustomProviderConfig are not changed during updates
 func ValidateCustomProviderUpdate(newConfig, existingConfig configstore.ProviderConfig, provider schemas.ModelProvider) error {
 	// If neither config has CustomProviderConfig, no validation needed
 	if newConfig.CustomProviderConfig == nil && existingConfig.CustomProviderConfig == nil {
-		return nil
+		return ValidateCustomProvider(newConfig, provider)
 	}
 
 	// If new config doesn't have CustomProviderConfig but existing does, return an error
@@ -6454,127 +4972,6 @@ func ValidateCustomProviderUpdate(newConfig, existingConfig configstore.Provider
 	}
 
 	return nil
-}
-
-func (c *Config) ValidateSemanticCacheConfig(config *schemas.PluginConfig) error {
-	if config.Name != semanticcache.PluginName {
-		return nil
-	}
-
-	// Check if config.Config exists
-	if config.Config == nil {
-		return fmt.Errorf("semantic_cache plugin config is nil")
-	}
-
-	// Type assert config.Config to map[string]interface{}
-	configMap, ok := config.Config.(map[string]interface{})
-	if !ok {
-		return fmt.Errorf("semantic_cache plugin config must be a map, got %T", config.Config)
-	}
-
-	dimension, hasDimension, err := semanticCacheConfigDimension(configMap)
-	if err != nil {
-		return err
-	}
-
-	// Check if provider key exists and is a string
-	providerVal, exists := configMap["provider"]
-	if !exists {
-		if hasDimension && dimension == 1 {
-			delete(configMap, "keys")
-			delete(configMap, "embedding_model")
-			return nil
-		}
-		return fmt.Errorf("semantic_cache plugin requires 'provider' for semantic mode (dimension > 1). For direct-only mode, set dimension: 1 and omit provider")
-	}
-
-	provider, ok := providerVal.(string)
-	if !ok {
-		return fmt.Errorf("semantic_cache plugin 'provider' field must be a string, got %T", providerVal)
-	}
-	provider = strings.TrimSpace(provider)
-	configMap["provider"] = provider
-
-	if provider == "" {
-		if hasDimension && dimension == 1 {
-			delete(configMap, "provider")
-			delete(configMap, "keys")
-			delete(configMap, "embedding_model")
-			return nil
-		}
-		return fmt.Errorf("semantic_cache plugin requires a non-empty 'provider' for semantic mode (dimension > 1). For direct-only mode, set dimension: 1 and omit provider")
-	}
-	if !hasDimension {
-		return fmt.Errorf("semantic_cache plugin requires 'dimension' for provider-backed semantic mode. For direct-only mode, set dimension: 1 and omit provider")
-	}
-	if dimension <= 1 {
-		return fmt.Errorf("semantic_cache plugin requires 'dimension' > 1 when 'provider' is set. Use dimension: 1 only for direct-only mode without a provider")
-	}
-
-	embeddingModelVal, exists := configMap["embedding_model"]
-	if !exists {
-		return fmt.Errorf("semantic_cache plugin requires 'embedding_model' when 'provider' is set")
-	}
-	embeddingModel, ok := embeddingModelVal.(string)
-	if !ok {
-		return fmt.Errorf("semantic_cache plugin 'embedding_model' field must be a string, got %T", embeddingModelVal)
-	}
-	embeddingModel = strings.TrimSpace(embeddingModel)
-	if embeddingModel == "" {
-		return fmt.Errorf("semantic_cache plugin requires a non-empty 'embedding_model' when 'provider' is set")
-	}
-	configMap["embedding_model"] = embeddingModel
-
-	// Validate that the provider is configured in the global client (keys are inherited automatically).
-	if _, err := c.GetProviderConfigRaw(schemas.ModelProvider(provider)); err != nil {
-		return fmt.Errorf("failed to get provider config for %s: %w", provider, err)
-	}
-
-	return nil
-}
-
-func semanticCacheConfigDimension(configMap map[string]interface{}) (int, bool, error) {
-	dimensionVal, exists := configMap["dimension"]
-	if !exists {
-		return 0, false, nil
-	}
-
-	switch v := dimensionVal.(type) {
-	case int:
-		if v < 1 {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' must be >= 1, got %d", v)
-		}
-		return v, true, nil
-	case int32:
-		if v < 1 {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' must be >= 1, got %d", v)
-		}
-		return int(v), true, nil
-	case int64:
-		if v < 1 {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' must be >= 1, got %d", v)
-		}
-		return int(v), true, nil
-	case float64:
-		if v != math.Trunc(v) {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' field must be an integer, got %v", v)
-		}
-		if v < 1 {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' must be >= 1, got %v", v)
-		}
-		return int(v), true, nil
-	case json.Number:
-		parsed, err := v.Int64()
-		if err != nil {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' field must be an integer, got %q", v)
-		}
-		if parsed < 1 {
-			return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' must be >= 1, got %d", parsed)
-		}
-		return int(parsed), true, nil
-	default:
-		return 0, false, fmt.Errorf("semantic_cache plugin 'dimension' field must be numeric, got %T", dimensionVal)
-	}
 }
 
 func DeepCopy[T any](in T) (T, error) {
