@@ -34,6 +34,220 @@ type OpenAIProvider struct {
 	disableStore         bool                          // Whether to force store=false on outgoing requests
 }
 
+func newOpenAIEmptyResponseError() *schemas.BifrostError {
+	return providerUtils.NewBifrostUpstreamConnectionError(schemas.ErrProviderResponseEmpty, errors.New(schemas.ErrProviderResponseEmpty))
+}
+
+func chatReasoningDetailsHaveVisibleOutput(details []schemas.ChatReasoningDetails) bool {
+	for _, detail := range details {
+		if (detail.Summary != nil && strings.TrimSpace(*detail.Summary) != "") ||
+			(detail.Text != nil && strings.TrimSpace(*detail.Text) != "") ||
+			(detail.Signature != nil && *detail.Signature != "") ||
+			(detail.Data != nil && *detail.Data != "") {
+			return true
+		}
+	}
+	return false
+}
+
+func chatToolCallHasVisibleOutput(toolCall schemas.ChatAssistantMessageToolCall) bool {
+	if toolCall.ID != nil && *toolCall.ID != "" {
+		return true
+	}
+	if toolCall.Type != nil && *toolCall.Type != "" {
+		return true
+	}
+	if toolCall.Function.Name != nil && *toolCall.Function.Name != "" {
+		return true
+	}
+	if toolCall.Function.Arguments != "" {
+		return true
+	}
+	return len(toolCall.ExtraContent) > 0
+}
+
+func chatToolCallsHaveVisibleOutput(toolCalls []schemas.ChatAssistantMessageToolCall) bool {
+	for _, toolCall := range toolCalls {
+		if chatToolCallHasVisibleOutput(toolCall) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatContentBlockHasVisibleOutput(block schemas.ChatContentBlock) bool {
+	switch block.Type {
+	case schemas.ChatContentBlockTypeText:
+		return block.Text != nil && strings.TrimSpace(*block.Text) != ""
+	case schemas.ChatContentBlockTypeRefusal:
+		return block.Refusal != nil && strings.TrimSpace(*block.Refusal) != ""
+	case schemas.ChatContentBlockTypeInputAudio:
+		return block.InputAudio != nil
+	default:
+		return false
+	}
+}
+
+func chatContentBlocksHaveVisibleOutput(blocks []schemas.ChatContentBlock) bool {
+	for _, block := range blocks {
+		if chatContentBlockHasVisibleOutput(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatMessageHasVisibleOutput(message *schemas.ChatMessage) bool {
+	if message == nil {
+		return false
+	}
+	if message.Content != nil && message.Content.ContentStr != nil && strings.TrimSpace(*message.Content.ContentStr) != "" {
+		return true
+	}
+	if message.Content != nil && chatContentBlocksHaveVisibleOutput(message.Content.ContentBlocks) {
+		return true
+	}
+	if message.ChatAssistantMessage == nil {
+		return false
+	}
+	assistant := message.ChatAssistantMessage
+	return (assistant.Refusal != nil && strings.TrimSpace(*assistant.Refusal) != "") ||
+		assistant.Audio != nil ||
+		(assistant.Reasoning != nil && strings.TrimSpace(*assistant.Reasoning) != "") ||
+		chatReasoningDetailsHaveVisibleOutput(assistant.ReasoningDetails) ||
+		chatToolCallsHaveVisibleOutput(assistant.ToolCalls)
+}
+
+func chatResponseHasVisibleOutput(response *schemas.BifrostChatResponse) bool {
+	if response == nil {
+		return false
+	}
+	for _, choice := range response.Choices {
+		if choice.ChatNonStreamResponseChoice != nil && chatMessageHasVisibleOutput(choice.Message) {
+			return true
+		}
+	}
+	return false
+}
+
+func chatStreamDeltaHasVisibleOutput(delta *schemas.ChatStreamResponseChoiceDelta) bool {
+	if delta == nil {
+		return false
+	}
+	return (delta.Content != nil && strings.TrimSpace(*delta.Content) != "") ||
+		(delta.Refusal != nil && strings.TrimSpace(*delta.Refusal) != "") ||
+		delta.Audio != nil ||
+		(delta.Reasoning != nil && strings.TrimSpace(*delta.Reasoning) != "") ||
+		chatReasoningDetailsHaveVisibleOutput(delta.ReasoningDetails) ||
+		chatToolCallsHaveVisibleOutput(delta.ToolCalls)
+}
+
+func responsesContentBlockHasVisibleOutput(block schemas.ResponsesMessageContentBlock) bool {
+	switch block.Type {
+	case schemas.ResponsesOutputMessageContentTypeText, schemas.ResponsesOutputMessageContentTypeReasoning:
+		return block.Text != nil && strings.TrimSpace(*block.Text) != ""
+	case schemas.ResponsesOutputMessageContentTypeRefusal:
+		if block.ResponsesOutputMessageContentRefusal != nil && strings.TrimSpace(block.ResponsesOutputMessageContentRefusal.Refusal) != "" {
+			return true
+		}
+		return block.Text != nil && strings.TrimSpace(*block.Text) != ""
+	case schemas.ResponsesOutputMessageContentTypeRenderedContent:
+		return block.ResponsesOutputMessageContentRenderedContent != nil && strings.TrimSpace(block.RenderedContent) != ""
+	case schemas.ResponsesOutputMessageContentTypeCompaction:
+		return block.ResponsesOutputMessageContentCompaction != nil && strings.TrimSpace(block.Summary) != ""
+	default:
+		return false
+	}
+}
+
+func responsesMessageHasVisibleOutput(message schemas.ResponsesMessage) bool {
+	if message.ResponsesToolMessage != nil {
+		return true
+	}
+	if message.Type != nil {
+		switch *message.Type {
+		case schemas.ResponsesMessageTypeFunctionCall,
+			schemas.ResponsesMessageTypeCustomToolCall,
+			schemas.ResponsesMessageTypeFileSearchCall,
+			schemas.ResponsesMessageTypeComputerCall,
+			schemas.ResponsesMessageTypeWebSearchCall,
+			schemas.ResponsesMessageTypeWebFetchCall,
+			schemas.ResponsesMessageTypeCodeInterpreterCall,
+			schemas.ResponsesMessageTypeLocalShellCall,
+			schemas.ResponsesMessageTypeImageGenerationCall,
+			schemas.ResponsesMessageTypeAdvisorCall:
+			return true
+		case schemas.ResponsesMessageTypeReasoning:
+			if message.ResponsesReasoning != nil {
+				if message.ResponsesReasoning.EncryptedContent != nil && *message.ResponsesReasoning.EncryptedContent != "" {
+					return true
+				}
+				for _, summary := range message.ResponsesReasoning.Summary {
+					if strings.TrimSpace(summary.Text) != "" {
+						return true
+					}
+				}
+			}
+		}
+	}
+	if message.Content == nil {
+		return false
+	}
+	if message.Content.ContentStr != nil && strings.TrimSpace(*message.Content.ContentStr) != "" {
+		return true
+	}
+	for _, block := range message.Content.ContentBlocks {
+		if responsesContentBlockHasVisibleOutput(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func responsesResponseHasVisibleOutput(response *schemas.BifrostResponsesResponse) bool {
+	if response == nil {
+		return false
+	}
+	for _, message := range response.Output {
+		if responsesMessageHasVisibleOutput(message) {
+			return true
+		}
+	}
+	return false
+}
+
+func responsesStreamResponseHasVisibleOutput(response *schemas.BifrostResponsesStreamResponse) bool {
+	if response == nil {
+		return false
+	}
+	switch response.Type {
+	case schemas.ResponsesStreamResponseTypeOutputTextDelta,
+		schemas.ResponsesStreamResponseTypeReasoningSummaryTextDelta:
+		return response.Delta != nil && strings.TrimSpace(*response.Delta) != ""
+	case schemas.ResponsesStreamResponseTypeOutputTextDone:
+		return response.Text != nil && strings.TrimSpace(*response.Text) != ""
+	case schemas.ResponsesStreamResponseTypeRefusalDelta,
+		schemas.ResponsesStreamResponseTypeRefusalDone:
+		return response.Refusal != nil && strings.TrimSpace(*response.Refusal) != ""
+	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta,
+		schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone,
+		schemas.ResponsesStreamResponseTypeCustomToolCallInputDelta,
+		schemas.ResponsesStreamResponseTypeCustomToolCallInputDone:
+		return true
+	case schemas.ResponsesStreamResponseTypeOutputItemAdded,
+		schemas.ResponsesStreamResponseTypeOutputItemDone:
+		return response.Item != nil && responsesMessageHasVisibleOutput(*response.Item)
+	case schemas.ResponsesStreamResponseTypeContentPartAdded,
+		schemas.ResponsesStreamResponseTypeContentPartDone:
+		return response.Part != nil && responsesContentBlockHasVisibleOutput(*response.Part)
+	case schemas.ResponsesStreamResponseTypeCompleted,
+		schemas.ResponsesStreamResponseTypeIncomplete:
+		return responsesResponseHasVisibleOutput(response.Response)
+	default:
+		return false
+	}
+}
+
 // NewOpenAIProvider creates a new OpenAI provider instance.
 // It initializes the HTTP client with the provided configuration and sets up response pools.
 // The client is configured with timeouts, concurrency limits, and optional proxy settings.
@@ -888,6 +1102,10 @@ func HandleOpenAIChatCompletionRequest(
 		return nil, providerUtils.EnrichError(ctx, bifrostErr, jsonData, body, sendBackRawRequest, sendBackRawResponse)
 	}
 
+	if !chatResponseHasVisibleOutput(response) {
+		return nil, providerUtils.EnrichError(ctx, newOpenAIEmptyResponseError(), jsonData, body, sendBackRawRequest, sendBackRawResponse)
+	}
+
 	response.ExtraFields.Latency = latency.Milliseconds()
 
 	// Set raw request if enabled
@@ -1142,6 +1360,7 @@ func HandleOpenAIChatCompletionStreaming(
 		forwardedTerminalFinishReason := false
 		// Defer final completed/incomplete event until usage chunk arrives (fallback path only).
 		var pendingFinalEvent *schemas.BifrostResponsesStreamResponse
+		hasVisibleOutput := false
 		usageSeen := false
 
 		for {
@@ -1261,6 +1480,10 @@ func HandleOpenAIChatCompletionStreaming(
 						response.ExtraFields.RawResponse = jsonData
 					}
 
+					if responsesStreamResponseHasVisibleOutput(response) {
+						hasVisibleOutput = true
+					}
+
 					if response.Type == schemas.ResponsesStreamResponseTypeCompleted || response.Type == schemas.ResponsesStreamResponseTypeIncomplete {
 						// Defer sending until stream end so usage can be attached.
 						pendingFinalEvent = response
@@ -1343,6 +1566,9 @@ func HandleOpenAIChatCompletionStreaming(
 						len(choice.ChatStreamResponseChoice.Delta.ReasoningDetails) > 0 ||
 						choice.ChatStreamResponseChoice.Delta.Audio != nil ||
 						len(choice.ChatStreamResponseChoice.Delta.ToolCalls) > 0) {
+					if chatStreamDeltaHasVisibleOutput(choice.ChatStreamResponseChoice.Delta) {
+						hasVisibleOutput = true
+					}
 					if choice.FinishReason != nil && *choice.FinishReason != "" {
 						forwardedTerminalFinishReason = true
 					}
@@ -1368,6 +1594,11 @@ func HandleOpenAIChatCompletionStreaming(
 
 		if isResponsesToChatCompletionsFallback {
 			if pendingFinalEvent != nil {
+				if !hasVisibleOutput {
+					ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
+					providerUtils.ProcessAndSendBifrostError(ctx, postHookRunner, providerUtils.EnrichError(ctx, newOpenAIEmptyResponseError(), jsonBody, nil, sendBackRawRequest, sendBackRawResponse), responseChan, logger, postHookSpanFinalizer)
+					return
+				}
 				if usageSeen && pendingFinalEvent.Response != nil {
 					pendingFinalEvent.Response.Usage = usage.ToResponsesResponseUsage()
 				}
@@ -1379,6 +1610,11 @@ func HandleOpenAIChatCompletionStreaming(
 				providerUtils.ProcessAndSendResponse(ctx, postHookRunner, providerUtils.GetBifrostResponseForStreamResponse(nil, nil, pendingFinalEvent, nil, nil, nil), responseChan, postHookSpanFinalizer)
 			}
 		} else {
+			if !hasVisibleOutput {
+				ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
+				providerUtils.ProcessAndSendBifrostError(ctx, postHookRunner, providerUtils.EnrichError(ctx, newOpenAIEmptyResponseError(), jsonBody, nil, sendBackRawRequest, sendBackRawResponse), responseChan, logger, postHookSpanFinalizer)
+				return
+			}
 			finalFinishReason := finishReason
 			if forwardedTerminalFinishReason {
 				finalFinishReason = nil
@@ -1553,6 +1789,10 @@ func HandleOpenAIResponsesRequest(
 
 	if bifrostErr != nil {
 		return nil, providerUtils.EnrichError(ctx, bifrostErr, jsonData, body, sendBackRawRequest, sendBackRawResponse)
+	}
+
+	if !responsesResponseHasVisibleOutput(response) {
+		return nil, providerUtils.EnrichError(ctx, newOpenAIEmptyResponseError(), jsonData, body, sendBackRawRequest, sendBackRawResponse)
 	}
 
 	response.ExtraFields.Latency = latency.Milliseconds()
@@ -1778,6 +2018,7 @@ func HandleOpenAIResponsesStreaming(
 		sseReader := providerUtils.GetSSEDataReader(ctx, reader)
 
 		lastChunkTime := startTime
+		hasVisibleOutput := false
 
 		for {
 			// If context was cancelled/timed out, let defer handle it
@@ -1888,7 +2129,15 @@ func HandleOpenAIResponsesStreaming(
 				}
 
 				response.ExtraFields.ChunkIndex = response.SequenceNumber
+				if responsesStreamResponseHasVisibleOutput(&response) {
+					hasVisibleOutput = true
+				}
 				if response.Type == schemas.ResponsesStreamResponseTypeCompleted || response.Type == schemas.ResponsesStreamResponseTypeIncomplete {
+					if !hasVisibleOutput {
+						ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
+						providerUtils.ProcessAndSendBifrostError(ctx, postHookRunner, providerUtils.EnrichError(ctx, newOpenAIEmptyResponseError(), jsonBody, []byte(jsonData), sendBackRawRequest, sendBackRawResponse), responseChan, logger, postHookSpanFinalizer)
+						return
+					}
 					// Set raw request if enabled
 					if sendBackRawRequest {
 						providerUtils.ParseAndSetRawRequest(&response.ExtraFields, jsonBody)
