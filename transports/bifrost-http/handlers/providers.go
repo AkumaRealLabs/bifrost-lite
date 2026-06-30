@@ -117,6 +117,7 @@ type providerUpdatePayload struct {
 	StoreRawRequestResponse  *bool                            `json:"store_raw_request_response,omitempty"`
 	CustomProviderConfig     *schemas.CustomProviderConfig    `json:"custom_provider_config,omitempty"`
 	OpenAIConfig             *schemas.OpenAIConfig            `json:"openai_config,omitempty"` // OpenAI-specific configuration
+	Description              *string                          `json:"description,omitempty"`
 }
 
 // RegisterRoutes registers all provider management routes
@@ -486,6 +487,9 @@ func (h *ProviderHandler) updateProvider(ctx *fasthttp.RequestCtx) {
 	config.NetworkConfig = &nc
 	config.CustomProviderConfig = payload.CustomProviderConfig
 	config.OpenAIConfig = payload.OpenAIConfig
+	if payload.Description != nil {
+		config.Description = *payload.Description
+	}
 	if payload.SendBackRawRequest != nil {
 		config.SendBackRawRequest = *payload.SendBackRawRequest
 	}

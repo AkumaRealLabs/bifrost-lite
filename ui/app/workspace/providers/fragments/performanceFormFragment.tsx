@@ -17,6 +17,29 @@ interface PerformanceFormFragmentProps {
 	provider: ModelProvider;
 }
 
+function getPriceRMBPerDao(description?: string): number | undefined {
+	if (!description) return undefined;
+	try {
+		const value = JSON.parse(description).price_rmb_per_dao;
+		return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function setPriceRMBPerDao(description: string | undefined, price: number | undefined): string {
+	let metadata: Record<string, unknown> = {};
+	if (description) {
+		try {
+			const parsed = JSON.parse(description);
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed;
+		} catch {}
+	}
+	if (price == null) delete metadata.price_rmb_per_dao;
+	else metadata.price_rmb_per_dao = price;
+	return Object.keys(metadata).length ? JSON.stringify(metadata) : "";
+}
+
 export function PerformanceFormFragment({ provider }: PerformanceFormFragmentProps) {
 	const dispatch = useAppDispatch();
 	const hasUpdateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Update);
@@ -30,6 +53,7 @@ export function PerformanceFormFragment({ provider }: PerformanceFormFragmentPro
 				concurrency: provider.concurrency_and_buffer_size?.concurrency ?? DefaultPerformanceConfig.concurrency,
 				buffer_size: provider.concurrency_and_buffer_size?.buffer_size ?? DefaultPerformanceConfig.buffer_size,
 			},
+			price_rmb_per_dao: getPriceRMBPerDao(provider.description),
 		},
 	});
 
@@ -44,8 +68,9 @@ export function PerformanceFormFragment({ provider }: PerformanceFormFragmentPro
 				concurrency: provider.concurrency_and_buffer_size?.concurrency ?? DefaultPerformanceConfig.concurrency,
 				buffer_size: provider.concurrency_and_buffer_size?.buffer_size ?? DefaultPerformanceConfig.buffer_size,
 			},
+			price_rmb_per_dao: getPriceRMBPerDao(provider.description),
 		});
-	}, [form, provider.name, provider.concurrency_and_buffer_size]);
+	}, [form, provider.name, provider.concurrency_and_buffer_size, provider.description]);
 
 	const onSubmit = (data: PerformanceFormSchema) => {
 		// Create updated provider configuration (raw request/response are in Debugging tab)
@@ -54,15 +79,16 @@ export function PerformanceFormFragment({ provider }: PerformanceFormFragmentPro
 				concurrency: data.concurrency_and_buffer_size.concurrency,
 				buffer_size: data.concurrency_and_buffer_size.buffer_size,
 			},
+			description: setPriceRMBPerDao(provider.description, data.price_rmb_per_dao),
 		});
 		updateProvider(updatedProvider)
 			.unwrap()
 			.then(() => {
-				toast.success("Provider configuration updated successfully");
+				toast.success("Provider 配置已更新");
 				form.reset(data);
 			})
 			.catch((err) => {
-				toast.error("Failed to update provider configuration", {
+				toast.error("更新 Provider 配置失败", {
 					description: getErrorMessage(err),
 				});
 			});
@@ -141,6 +167,35 @@ export function PerformanceFormFragment({ provider }: PerformanceFormFragmentPro
 							/>
 						</div>
 					</div>
+					<FormField
+						control={form.control}
+						name="price_rmb_per_dao"
+						render={({ field }) => (
+							<FormItem>
+								<FormLabel>渠道成本（RMB / 1刀额度）</FormLabel>
+								<FormControl>
+									<Input
+										type="number"
+										min="0"
+										step="any"
+										placeholder="0.1"
+										value={field.value === undefined || Number.isNaN(field.value) ? "" : field.value}
+										disabled={!hasUpdateProviderAccess}
+										onChange={(e) => {
+											const value = e.target.value;
+											if (value === "") {
+												field.onChange(undefined);
+												return;
+											}
+											const parsed = Number(value);
+											if (!Number.isNaN(parsed)) field.onChange(parsed);
+										}}
+									/>
+								</FormControl>
+								<FormMessage />
+							</FormItem>
+						)}
+					/>
 				</div>
 
 				{/* Form Actions */}
@@ -150,7 +205,7 @@ export function PerformanceFormFragment({ provider }: PerformanceFormFragmentPro
 						disabled={!form.formState.isDirty || !hasUpdateProviderAccess || isUpdatingProvider}
 						isLoading={isUpdatingProvider}
 					>
-						Save Performance Configuration
+						保存性能配置
 					</Button>
 				</div>
 			</form>
