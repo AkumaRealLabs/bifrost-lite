@@ -75,7 +75,6 @@ type ProviderResponse struct {
 	Name                     schemas.ModelProvider            `json:"name"`
 	NetworkConfig            schemas.NetworkConfig            `json:"network_config"`                   // Network-related settings
 	ConcurrencyAndBufferSize schemas.ConcurrencyAndBufferSize `json:"concurrency_and_buffer_size"`      // Concurrency settings
-	ProxyConfig              *schemas.ProxyConfig             `json:"proxy_config"`                     // Proxy configuration
 	SendBackRawRequest       bool                             `json:"send_back_raw_request"`            // Include raw request in BifrostResponse
 	SendBackRawResponse      bool                             `json:"send_back_raw_response"`           // Include raw response in BifrostResponse
 	StoreRawRequestResponse  bool                             `json:"store_raw_request_response"`       // Capture raw request/response for internal logging only
@@ -103,7 +102,6 @@ type providerCreatePayload struct {
 	Provider                 schemas.ModelProvider             `json:"provider"`
 	NetworkConfig            *schemas.NetworkConfig            `json:"network_config,omitempty"`
 	ConcurrencyAndBufferSize *schemas.ConcurrencyAndBufferSize `json:"concurrency_and_buffer_size,omitempty"`
-	ProxyConfig              *schemas.ProxyConfig              `json:"proxy_config,omitempty"`
 	SendBackRawRequest       *bool                             `json:"send_back_raw_request,omitempty"`
 	SendBackRawResponse      *bool                             `json:"send_back_raw_response,omitempty"`
 	StoreRawRequestResponse  *bool                             `json:"store_raw_request_response,omitempty"`
@@ -114,7 +112,6 @@ type providerCreatePayload struct {
 type providerUpdatePayload struct {
 	NetworkConfig            schemas.NetworkConfig            `json:"network_config"`
 	ConcurrencyAndBufferSize schemas.ConcurrencyAndBufferSize `json:"concurrency_and_buffer_size"`
-	ProxyConfig              *schemas.ProxyConfig             `json:"proxy_config,omitempty"`
 	SendBackRawRequest       *bool                            `json:"send_back_raw_request,omitempty"`
 	SendBackRawResponse      *bool                            `json:"send_back_raw_response,omitempty"`
 	StoreRawRequestResponse  *bool                            `json:"store_raw_request_response,omitempty"`
@@ -248,21 +245,23 @@ func (h *ProviderHandler) addProvider(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, "Missing provider")
 		return
 	}
-	if payload.CustomProviderConfig != nil {
-		// custom provider key should not be same as standard provider names
-		if bifrost.IsStandardProvider(payload.Provider) {
-			SendError(ctx, fasthttp.StatusBadRequest, "Custom provider cannot be same as a standard provider")
-			return
-		}
-		if payload.CustomProviderConfig.BaseProviderType == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "BaseProviderType is required when CustomProviderConfig is provided")
-			return
-		}
-		// check if base provider is a supported base provider
-		if !bifrost.IsSupportedBaseProvider(payload.CustomProviderConfig.BaseProviderType) {
-			SendError(ctx, fasthttp.StatusBadRequest, "BaseProviderType must be a standard provider")
-			return
-		}
+	if payload.CustomProviderConfig == nil {
+		SendError(ctx, fasthttp.StatusBadRequest, "Lite only supports adding custom providers")
+		return
+	}
+	// custom provider key should not be same as standard provider names
+	if bifrost.IsStandardProvider(payload.Provider) {
+		SendError(ctx, fasthttp.StatusBadRequest, "Custom provider cannot be same as a standard provider")
+		return
+	}
+	if payload.CustomProviderConfig.BaseProviderType == "" {
+		SendError(ctx, fasthttp.StatusBadRequest, "BaseProviderType is required when CustomProviderConfig is provided")
+		return
+	}
+	// check if base provider is a supported base provider
+	if !bifrost.IsSupportedBaseProvider(payload.CustomProviderConfig.BaseProviderType) {
+		SendError(ctx, fasthttp.StatusBadRequest, "BaseProviderType must be a standard provider")
+		return
 	}
 	if payload.ConcurrencyAndBufferSize != nil {
 		if payload.ConcurrencyAndBufferSize.Concurrency == 0 {
@@ -305,7 +304,6 @@ func (h *ProviderHandler) addProvider(ctx *fasthttp.RequestCtx) {
 	// Construct ProviderConfig from individual fields
 	config := configstore.ProviderConfig{
 		NetworkConfig:            payload.NetworkConfig,
-		ProxyConfig:              payload.ProxyConfig,
 		ConcurrencyAndBufferSize: payload.ConcurrencyAndBufferSize,
 		SendBackRawRequest:       payload.SendBackRawRequest != nil && *payload.SendBackRawRequest,
 		SendBackRawResponse:      payload.SendBackRawResponse != nil && *payload.SendBackRawResponse,
@@ -349,7 +347,6 @@ func (h *ProviderHandler) addProvider(ctx *fasthttp.RequestCtx) {
 		response := h.getProviderResponseFromConfig(payload.Provider, configstore.ProviderConfig{
 			NetworkConfig:            config.NetworkConfig,
 			ConcurrencyAndBufferSize: config.ConcurrencyAndBufferSize,
-			ProxyConfig:              config.ProxyConfig,
 			SendBackRawRequest:       config.SendBackRawRequest,
 			SendBackRawResponse:      config.SendBackRawResponse,
 			StoreRawRequestResponse:  config.StoreRawRequestResponse,
@@ -436,7 +433,6 @@ func (h *ProviderHandler) updateProvider(ctx *fasthttp.RequestCtx) {
 		Keys:                     oldConfigRaw.Keys,
 		NetworkConfig:            oldConfigRaw.NetworkConfig,
 		ConcurrencyAndBufferSize: oldConfigRaw.ConcurrencyAndBufferSize,
-		ProxyConfig:              oldConfigRaw.ProxyConfig,
 		CustomProviderConfig:     oldConfigRaw.CustomProviderConfig,
 		OpenAIConfig:             oldConfigRaw.OpenAIConfig,
 		StoreRawRequestResponse:  oldConfigRaw.StoreRawRequestResponse,
@@ -488,23 +484,6 @@ func (h *ProviderHandler) updateProvider(ctx *fasthttp.RequestCtx) {
 		}
 	}
 	config.NetworkConfig = &nc
-	// Merge proxy config - preserve secrets if redacted values were sent back
-	if payload.ProxyConfig != nil && oldConfigRaw.ProxyConfig != nil && oldRedactedConfig.ProxyConfig != nil {
-		if payload.ProxyConfig.URL != nil && payload.ProxyConfig.URL.IsRedacted() && payload.ProxyConfig.URL.Equals(oldRedactedConfig.ProxyConfig.URL) {
-			payload.ProxyConfig.URL = oldConfigRaw.ProxyConfig.URL
-		}
-		if payload.ProxyConfig.Username != nil && payload.ProxyConfig.Username.IsRedacted() && payload.ProxyConfig.Username.Equals(oldRedactedConfig.ProxyConfig.Username) {
-			payload.ProxyConfig.Username = oldConfigRaw.ProxyConfig.Username
-		}
-		if payload.ProxyConfig.Password != nil && payload.ProxyConfig.Password.IsRedacted() && payload.ProxyConfig.Password.Equals(oldRedactedConfig.ProxyConfig.Password) {
-			payload.ProxyConfig.Password = oldConfigRaw.ProxyConfig.Password
-		}
-		if payload.ProxyConfig.CACertPEM != nil && payload.ProxyConfig.CACertPEM.IsRedacted() && payload.ProxyConfig.CACertPEM.Equals(oldRedactedConfig.ProxyConfig.CACertPEM) {
-			payload.ProxyConfig.CACertPEM = oldConfigRaw.ProxyConfig.CACertPEM
-		}
-	}
-
-	config.ProxyConfig = payload.ProxyConfig
 	config.CustomProviderConfig = payload.CustomProviderConfig
 	config.OpenAIConfig = payload.OpenAIConfig
 	if payload.SendBackRawRequest != nil {
@@ -567,7 +546,6 @@ func (h *ProviderHandler) updateProvider(ctx *fasthttp.RequestCtx) {
 		response := h.getProviderResponseFromConfig(provider, configstore.ProviderConfig{
 			NetworkConfig:            config.NetworkConfig,
 			ConcurrencyAndBufferSize: config.ConcurrencyAndBufferSize,
-			ProxyConfig:              config.ProxyConfig,
 			SendBackRawRequest:       config.SendBackRawRequest,
 			SendBackRawResponse:      config.SendBackRawResponse,
 			StoreRawRequestResponse:  config.StoreRawRequestResponse,
@@ -1194,7 +1172,6 @@ func (h *ProviderHandler) getProviderResponseFromConfig(provider schemas.ModelPr
 		Name:                     provider,
 		NetworkConfig:            *config.NetworkConfig,
 		ConcurrencyAndBufferSize: *config.ConcurrencyAndBufferSize,
-		ProxyConfig:              config.ProxyConfig,
 		SendBackRawRequest:       config.SendBackRawRequest,
 		SendBackRawResponse:      config.SendBackRawResponse,
 		StoreRawRequestResponse:  config.StoreRawRequestResponse,

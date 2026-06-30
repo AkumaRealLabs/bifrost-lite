@@ -66,6 +66,20 @@ func (m *mockModelsManager) OnKeyDeleted(_ context.Context, _ schemas.ModelProvi
 	return nil
 }
 
+func liteAllowedRequestsForHandlerTest() *schemas.AllowedRequests {
+	return &schemas.AllowedRequests{
+		ListModels:            true,
+		ChatCompletion:        true,
+		ChatCompletionStream:  true,
+		Responses:             true,
+		ResponsesStream:       true,
+		ImageGeneration:       true,
+		ImageGenerationStream: true,
+		ImageEdit:             true,
+		ImageEditStream:       true,
+	}
+}
+
 // providerHandlerForTest builds a handler with fixed provider config and model sets.
 func providerHandlerForTest(provider schemas.ModelProvider, keys []schemas.Key, filtered, unfiltered []string) *ProviderHandler {
 	return &ProviderHandler{
@@ -102,6 +116,7 @@ func TestAddProvider_ReloadsRuntimeEvenWhenModelDiscoveryIsSkipped(t *testing.T)
 		CustomProviderConfig: &schemas.CustomProviderConfig{
 			BaseProviderType: schemas.OpenAI,
 			IsKeyLess:        true,
+			AllowedRequests:  liteAllowedRequestsForHandlerTest(),
 		},
 	})
 	if err != nil {
@@ -126,6 +141,70 @@ func TestAddProvider_ReloadsRuntimeEvenWhenModelDiscoveryIsSkipped(t *testing.T)
 	}
 }
 
+func TestAddProvider_LiteRejectsNonCustomProviderCreation(t *testing.T) {
+	SetLogger(&mockLogger{})
+	lib.SetLogger(&mockLogger{})
+
+	tests := []struct {
+		name    string
+		payload providerCreatePayload
+		wantMsg string
+	}{
+		{
+			name: "missing custom provider config",
+			payload: providerCreatePayload{
+				Provider: schemas.OpenAI,
+			},
+			wantMsg: "Lite only supports adding custom providers",
+		},
+		{
+			name: "standard provider name with custom config",
+			payload: providerCreatePayload{
+				Provider: schemas.OpenAI,
+				CustomProviderConfig: &schemas.CustomProviderConfig{
+					BaseProviderType: schemas.OpenAI,
+					IsKeyLess:        true,
+					AllowedRequests:  liteAllowedRequestsForHandlerTest(),
+				},
+			},
+			wantMsg: "Custom provider cannot be same as a standard provider",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := &ProviderHandler{
+				inMemoryStore: &lib.Config{Providers: map[schemas.ModelProvider]configstore.ProviderConfig{}},
+				modelsManager: &mockModelsManager{},
+			}
+
+			body, err := sonic.Marshal(tt.payload)
+			if err != nil {
+				t.Fatalf("failed to marshal request body: %v", err)
+			}
+
+			ctx := &fasthttp.RequestCtx{}
+			ctx.Request.Header.SetMethod(fasthttp.MethodPost)
+			ctx.Request.SetRequestURI("/api/providers")
+			ctx.Request.SetBody(body)
+
+			h.addProvider(ctx)
+
+			if ctx.Response.StatusCode() != fasthttp.StatusBadRequest {
+				t.Fatalf("expected 400, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+			}
+
+			var bifrostErr schemas.BifrostError
+			if err := json.Unmarshal(ctx.Response.Body(), &bifrostErr); err != nil {
+				t.Fatalf("failed to unmarshal error response: %v", err)
+			}
+			if bifrostErr.Error == nil || bifrostErr.Error.Message != tt.wantMsg {
+				t.Fatalf("expected error %q, got %#v", tt.wantMsg, bifrostErr.Error)
+			}
+		})
+	}
+}
+
 func TestAddProvider_ReturnsErrorWhenRuntimeReloadFails(t *testing.T) {
 	SetLogger(&mockLogger{})
 	lib.SetLogger(&mockLogger{})
@@ -141,6 +220,7 @@ func TestAddProvider_ReturnsErrorWhenRuntimeReloadFails(t *testing.T) {
 		CustomProviderConfig: &schemas.CustomProviderConfig{
 			BaseProviderType: schemas.OpenAI,
 			IsKeyLess:        true,
+			AllowedRequests:  liteAllowedRequestsForHandlerTest(),
 		},
 	})
 	if err != nil {
