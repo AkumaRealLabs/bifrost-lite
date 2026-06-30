@@ -37,12 +37,6 @@ const KNOWN_BETA_HEADERS = [
 		defaults: { anthropic: true, vertex: false, bedrock: false, azure: true },
 	},
 	{
-		prefix: "mcp-client-",
-		label: "MCP Client",
-		description: "MCP connector support",
-		defaults: { anthropic: true, vertex: false, bedrock: false, azure: true },
-	},
-	{
 		prefix: "prompt-caching-scope-",
 		label: "Prompt Caching Scope",
 		description: "Prompt caching scope control",

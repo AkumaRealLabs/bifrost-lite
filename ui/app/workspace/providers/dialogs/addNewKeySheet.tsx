@@ -17,10 +17,9 @@ export default function AddNewKeySheet({ show, onCancel, provider, keyId, provid
 	const resolvedProviderName = (providerName ?? provider.name).toLowerCase();
 	const isVLLM = resolvedProviderName === "vllm";
 	const isOllamaOrSGL = resolvedProviderName === "ollama" || resolvedProviderName === "sgl";
-	const entityLabel = isVLLM ? "model" : isOllamaOrSGL ? "server" : "key";
-	const EntityLabel = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1);
-	const dialogTitle = isEditing ? `Edit ${entityLabel}` : `Add new ${entityLabel}`;
-	const successMessage = isEditing ? `${EntityLabel} updated successfully` : `${EntityLabel} added successfully`;
+	const entityLabel = isVLLM ? "模型" : isOllamaOrSGL ? "服务" : "Key";
+	const dialogTitle = isEditing ? `编辑${entityLabel}` : `新增${entityLabel}`;
+	const successMessage = isEditing ? `${entityLabel}已更新` : `${entityLabel}已添加`;
 
 	return (
 		<Sheet

@@ -62,7 +62,7 @@ function CustomTooltip({ active, payload, selectedModel, displayModels }: any) {
 						<div className="flex items-center justify-between gap-4">
 							<span className="flex items-center gap-1.5">
 								<span className="h-2 w-2 rounded-full bg-emerald-500" />
-								<span className="text-zinc-600 dark:text-zinc-400">Success</span>
+								<span className="text-zinc-600 dark:text-zinc-400">成功</span>
 							</span>
 							<span className="font-medium text-emerald-600 dark:text-emerald-400">
 								{(data.by_model?.[selectedModel]?.success || 0).toLocaleString()}
@@ -71,7 +71,7 @@ function CustomTooltip({ active, payload, selectedModel, displayModels }: any) {
 						<div className="flex items-center justify-between gap-4">
 							<span className="flex items-center gap-1.5">
 								<span className="h-2 w-2 rounded-full bg-red-500" />
-								<span className="text-zinc-600 dark:text-zinc-400">Error</span>
+								<span className="text-zinc-600 dark:text-zinc-400">错误</span>
 							</span>
 							<span className="font-medium text-red-600 dark:text-red-400">
 								{(data.by_model?.[selectedModel]?.error || 0).toLocaleString()}
@@ -136,7 +136,7 @@ function ModelUsageChartImpl({ data, chartType, startTime, endTime, selectedMode
 	}, [data, selectedModel]);
 
 	if (!data?.buckets || chartData.length === 0) {
-		return <div className="text-muted-foreground flex h-full items-center justify-center text-sm">No data available</div>;
+		return <div className="text-muted-foreground flex h-full items-center justify-center text-sm">暂无数据</div>;
 	}
 
 	const commonProps = {

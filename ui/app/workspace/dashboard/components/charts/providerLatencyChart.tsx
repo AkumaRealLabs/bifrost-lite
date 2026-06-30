@@ -11,6 +11,7 @@ interface ProviderLatencyChartProps {
 	startTime: number;
 	endTime: number;
 	selectedProvider: string;
+	metricLabel?: string;
 }
 
 function AllProvidersTooltip({ active, payload, displayProviders: providers }: any) {
@@ -41,7 +42,7 @@ function AllProvidersTooltip({ active, payload, displayProviders: providers }: a
 	);
 }
 
-function SingleProviderTooltip({ active, payload }: any) {
+function SingleProviderTooltip({ active, payload, metricLabel = "延迟" }: any) {
 	if (!active || !payload || !payload.length) return null;
 
 	const data = payload[0]?.payload;
@@ -54,7 +55,7 @@ function SingleProviderTooltip({ active, payload }: any) {
 				<div className="flex items-center justify-between gap-4">
 					<span className="flex items-center gap-1.5">
 						<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
-						<span className="text-zinc-600 dark:text-zinc-400">Avg</span>
+						<span className="text-zinc-600 dark:text-zinc-400">平均</span>
 					</span>
 					<span className="font-medium">{formatLatency(data.avg_latency)}</span>
 				</div>
@@ -80,7 +81,7 @@ function SingleProviderTooltip({ active, payload }: any) {
 					<span className="font-medium">{formatLatency(data.p99_latency)}</span>
 				</div>
 				<div className="flex items-center justify-between gap-4 border-t border-zinc-200 pt-1 dark:border-zinc-700">
-					<span className="text-zinc-600 dark:text-zinc-400">Requests</span>
+					<span className="text-zinc-600 dark:text-zinc-400">{metricLabel} 样本</span>
 					<span className="font-medium">{data.total_requests?.toLocaleString() || 0}</span>
 				</div>
 			</div>
@@ -88,7 +89,7 @@ function SingleProviderTooltip({ active, payload }: any) {
 	);
 }
 
-function ProviderLatencyChartImpl({ data, chartType, startTime, endTime, selectedProvider }: ProviderLatencyChartProps) {
+function ProviderLatencyChartImpl({ data, chartType, startTime, endTime, selectedProvider, metricLabel = "延迟" }: ProviderLatencyChartProps) {
 	const { chartData, mode, displayProviders } = useMemo(() => {
 		if (!data?.buckets || !data.bucket_size_seconds) {
 			return { chartData: [], mode: "all" as const, displayProviders: [] };
@@ -128,7 +129,7 @@ function ProviderLatencyChartImpl({ data, chartType, startTime, endTime, selecte
 	}, [data, selectedProvider]);
 
 	if (!data?.buckets || chartData.length === 0) {
-		return <div className="text-muted-foreground flex h-full items-center justify-center text-sm">No data available</div>;
+		return <div className="text-muted-foreground flex h-full items-center justify-center text-sm">暂无数据</div>;
 	}
 
 	const commonProps = {
@@ -163,7 +164,7 @@ function ProviderLatencyChartImpl({ data, chartType, startTime, endTime, selecte
 						/>
 						{mode === "single" ? (
 							<>
-								<Tooltip content={<SingleProviderTooltip provider={selectedProvider} />} cursor={{ fill: "#8c8c8f", fillOpacity: 0.15 }} />
+								<Tooltip content={<SingleProviderTooltip provider={selectedProvider} metricLabel={metricLabel} />} cursor={{ fill: "#8c8c8f", fillOpacity: 0.15 }} />
 								<Bar
 									isAnimationActive={false}
 									dataKey="avg_latency"
@@ -241,7 +242,7 @@ function ProviderLatencyChartImpl({ data, chartType, startTime, endTime, selecte
 						/>
 						{mode === "single" ? (
 							<>
-								<Tooltip content={<SingleProviderTooltip provider={selectedProvider} />} />
+								<Tooltip content={<SingleProviderTooltip provider={selectedProvider} metricLabel={metricLabel} />} />
 								<Area
 									isAnimationActive={false}
 									type="monotone"

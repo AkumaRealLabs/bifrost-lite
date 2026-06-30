@@ -15,9 +15,6 @@ export enum RbacResource {
 	VirtualKeys = "VirtualKeys",
 	ModelProvider = "ModelProvider",
 	Plugins = "Plugins",
-	MCPGateway = "MCPGateway",
-	MCPToolGroups = "MCPToolGroups",
-	MCPLogs = "MCPLogs",
 	AdaptiveRouter = "AdaptiveRouter",
 	AuditLogs = "AuditLogs",
 	Customers = "Customers",
@@ -28,12 +25,10 @@ export enum RbacResource {
 	PIIRedactor = "PIIRedactor",
 	PromptRepository = "PromptRepository",
 	PromptDeploymentStrategy = "PromptDeploymentStrategy",
-	SkillsRepository = "SkillsRepository",
 	AccessProfiles = "AccessProfiles",
 	APIKeys = "APIKeys",
 	Inference = "Inference",
 	Metrics = "Metrics",
-	FeatureFlags = "FeatureFlags",
 	CircuitBreaker = "CircuitBreaker",
 }
 

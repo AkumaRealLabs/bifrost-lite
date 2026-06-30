@@ -72,7 +72,6 @@ export const RequestTypes = [
 	"image_generation_stream",
 	"image_edit",
 	"image_edit_stream",
-	"image_variation",
 	"ocr",
 	"ocr_stream",
 	"video_generation",
@@ -96,10 +95,6 @@ export const RequestTypes = [
 	"container_file_delete",
 	"passthrough",
 	"passthrough_stream",
-	// WebSocket/Realtime operations
-	"websocket_responses",
-	"realtime",
-	"realtime.turn",
 ] as const;
 
 export const ProviderLabels: Record<ProviderName, string> = {
@@ -159,49 +154,48 @@ export const StatusBarColors = {
 export const RequestTypeLabels = {
 	"chat.completion": "Chat",
 	response: "Responses",
-	"response.completion.chunk": "Responses Stream",
-	completion: "Completion",
-	"text.completion": "Text",
-	list: "List",
-	"audio.speech": "Speech",
-	"audio.transcription": "Transcription",
-	"chat.completion.chunk": "Chat Stream",
-	"audio.speech.chunk": "Speech Stream",
-	"audio.transcription.chunk": "Transcription Stream",
+	"response.completion.chunk": "Responses 流",
+	completion: "补全",
+	"text.completion": "文本",
+	list: "列表",
+	"audio.speech": "语音",
+	"audio.transcription": "转写",
+	"chat.completion.chunk": "Chat 流",
+	"audio.speech.chunk": "语音流",
+	"audio.transcription.chunk": "转写流",
 
 	// Request Types
-	list_models: "List Models",
-	text_completion: "Text",
-	text_completion_stream: "Text Stream",
+	list_models: "模型列表",
+	text_completion: "文本",
+	text_completion_stream: "文本流",
 	chat_completion: "Chat",
-	chat_completion_stream: "Chat Stream",
+	chat_completion_stream: "Chat 流",
 	responses: "Responses",
-	responses_stream: "Responses Stream",
+	responses_stream: "Responses 流",
 
 	embedding: "Embedding",
 	rerank: "Rerank",
 
-	speech: "Speech",
-	speech_stream: "Speech Stream",
+	speech: "语音",
+	speech_stream: "语音流",
 
-	transcription: "Transcription",
-	transcription_stream: "Transcription Stream",
+	transcription: "转写",
+	transcription_stream: "转写流",
 
-	image_generation: "Image Generation",
-	image_generation_stream: "Image Generation Stream",
-	image_edit: "Image Edit",
-	image_edit_stream: "Image Edit Stream",
-	image_variation: "Image Variation",
+	image_generation: "图片生成",
+	image_generation_stream: "图片生成流",
+	image_edit: "图片编辑",
+	image_edit_stream: "图片编辑流",
 	ocr: "OCR",
-	ocr_stream: "OCR Stream",
-	video_generation: "Video Generation",
-	video_retrieve: "Video Retrieve",
-	video_download: "Video Download",
-	video_delete: "Video Delete",
-	video_list: "Video List",
-	video_remix: "Video Remix",
-	count_tokens: "Count Tokens",
-	compaction: "Compaction",
+	ocr_stream: "OCR 流",
+	video_generation: "视频生成",
+	video_retrieve: "视频查询",
+	video_download: "视频下载",
+	video_delete: "视频删除",
+	video_list: "视频列表",
+	video_remix: "视频混剪",
+	count_tokens: "Token 计数",
+	compaction: "上下文压缩",
 
 	batch_create: "Batch Create",
 	batch_list: "Batch List",
@@ -217,24 +211,20 @@ export const RequestTypeLabels = {
 	file_content: "File Content",
 
 	// Container operations
-	container_create: "Container Create",
-	container_list: "Container List",
-	container_retrieve: "Container Retrieve",
-	container_delete: "Container Delete",
+	container_create: "容器创建",
+	container_list: "容器列表",
+	container_retrieve: "容器查询",
+	container_delete: "容器删除",
 
 	// Container file operations
-	container_file_create: "Container File Create",
-	container_file_list: "Container File List",
-	container_file_retrieve: "Container File Retrieve",
-	container_file_content: "Container File Content",
-	container_file_delete: "Container File Delete",
+	container_file_create: "容器文件创建",
+	container_file_list: "容器文件列表",
+	container_file_retrieve: "容器文件查询",
+	container_file_content: "容器文件内容",
+	container_file_delete: "容器文件删除",
 
-	passthrough: "Passthrough",
-	passthrough_stream: "Passthrough Stream",
-	// WebSocket operations
-	websocket_responses: "WebSocket Responses",
-	realtime: "Realtime",
-	"realtime.turn": "Realtime Turn",
+	passthrough: "透传",
+	passthrough_stream: "透传流",
 } as const;
 
 export const RequestTypeColors = {
@@ -274,7 +264,6 @@ export const RequestTypeColors = {
 	image_generation_stream: "bg-sky-100 text-sky-800",
 	image_edit: "bg-emerald-100 text-emerald-800",
 	image_edit_stream: "bg-teal-100 text-teal-800",
-	image_variation: "bg-violet-100 text-violet-800",
 	ocr: "bg-amber-100 text-amber-800",
 	ocr_stream: "bg-yellow-100 text-yellow-800",
 	video_generation: "bg-fuchsia-100 text-fuchsia-800",
@@ -314,19 +303,14 @@ export const RequestTypeColors = {
 	file_retrieve: "bg-orange-100 text-orange-800",
 	file_delete: "bg-red-100 text-red-800",
 	file_content: "bg-blue-100 text-blue-800",
-
-	// WebSocket operations
-	websocket_responses: "bg-teal-100 text-teal-800",
-	realtime: "bg-indigo-100 text-indigo-800",
-	"realtime.turn": "bg-cyan-100 text-cyan-800",
 } as const;
 
 export const RoutingEngineUsedLabels = {
-	"routing-rule": "Routing Rule",
-	governance: "Governance",
-	loadbalancing: "Loadbalancing",
-	"model-catalog": "Model Catalog",
-	core: "Core",
+	"routing-rule": "路由规则",
+	governance: "治理",
+	loadbalancing: "负载均衡",
+	"model-catalog": "模型目录",
+	core: "核心",
 } as const;
 
 export const RoutingEngineUsedColors = {

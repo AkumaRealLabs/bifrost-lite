@@ -80,30 +80,30 @@ export function SessionDetailsSheet({
 	const summaryCards: SummaryCard[] = useMemo(
 		() => [
 			{
-				label: "Logs",
+				label: "日志数",
 				value: (sessionSummary?.count || 0).toLocaleString(),
-				helper: sessionSummary && sessionLogs.length < sessionSummary.count ? `(${sessionLogs.length.toLocaleString()} loaded)` : undefined,
+				helper: sessionSummary && sessionLogs.length < sessionSummary.count ? `（已加载 ${sessionLogs.length.toLocaleString()} 条）` : undefined,
 			},
 			{
-				label: "Total Cost",
+				label: "总成本",
 				value: `$${(sessionSummary?.total_cost || 0).toFixed(4)}`,
 			},
 			{
-				label: "Total Tokens",
+				label: "总 Token",
 				value: (sessionSummary?.total_tokens || 0).toLocaleString(),
 			},
 			{
-				label: "Started",
-				value: sessionSummary?.started_at ? format(new Date(sessionSummary.started_at), "MMM d, yyyy hh:mm:ss aa") : "N/A",
+				label: "开始时间",
+				value: sessionSummary?.started_at ? format(new Date(sessionSummary.started_at), "yyyy-MM-dd HH:mm:ss") : "N/A",
 				size: "sm",
 			},
 			{
-				label: "Latest Update",
-				value: sessionSummary?.latest_at ? format(new Date(sessionSummary.latest_at), "MMM d, yyyy hh:mm:ss aa") : "N/A",
+				label: "最近更新",
+				value: sessionSummary?.latest_at ? format(new Date(sessionSummary.latest_at), "yyyy-MM-dd HH:mm:ss") : "N/A",
 				size: "sm",
 			},
 			{
-				label: "Duration",
+				label: "耗时",
 				value: formatDurationFromMs(sessionSummary?.duration_ms),
 			},
 		],
@@ -130,7 +130,7 @@ export function SessionDetailsSheet({
 					pagination: { limit: SESSION_LOG_PAGE_SIZE, offset, order: sortOrder },
 				});
 				if (result.error) {
-					toast.error("Failed to load session logs", {
+					toast.error("加载会话日志失败", {
 						description: getErrorMessage(result.error),
 					});
 					return;
@@ -184,7 +184,7 @@ export function SessionDetailsSheet({
 			<SheetContent className="flex w-full flex-col gap-4 overflow-x-hidden p-8 sm:max-w-[60%]">
 				<div className="flex items-center justify-between gap-4">
 					<div>
-						<div className="text-lg font-medium">Session</div>
+						<div className="text-lg font-medium">会话</div>
 						{sessionId && onFilterByParentRequestId ? (
 							<Tooltip>
 								<TooltipTrigger asChild>
@@ -195,7 +195,7 @@ export function SessionDetailsSheet({
 										{sessionId}
 									</code>
 								</TooltipTrigger>
-								<TooltipContent sideOffset={6}>Filter this session</TooltipContent>
+								<TooltipContent sideOffset={6}>筛选此会话</TooltipContent>
 							</Tooltip>
 						) : (
 							<code className="text-sm break-all">{sessionId}</code>
@@ -209,7 +209,7 @@ export function SessionDetailsSheet({
 							onClick={() => setSortOrder((prev) => (prev === "asc" ? "desc" : "asc"))}
 						>
 							{sortOrder === "asc" ? <ArrowUp className="mr-2 h-4 w-4" /> : <ArrowDown className="mr-2 h-4 w-4" />}
-							{sortOrder === "asc" ? "Earliest first" : "Latest first"}
+							{sortOrder === "asc" ? "最早优先" : "最新优先"}
 						</Button>
 					</div>
 				</div>
@@ -245,9 +245,9 @@ export function SessionDetailsSheet({
 						<TableHeader className="sticky top-0 z-10 bg-[#f9f9f9] dark:bg-[#27272a]">
 							<TableRow>
 								<TableHead className="w-2"></TableHead>
-								<TableHead>Time</TableHead>
-								<TableHead>Type</TableHead>
-								<TableHead>Message</TableHead>
+								<TableHead>时间</TableHead>
+								<TableHead>类型</TableHead>
+								<TableHead>消息</TableHead>
 								<TableHead>Provider</TableHead>
 								<TableHead>Model</TableHead>
 							</TableRow>
@@ -258,7 +258,7 @@ export function SessionDetailsSheet({
 									<TableCell colSpan={6} className="h-24 text-center">
 										<div className="flex items-center justify-center gap-2">
 											<Loader2 className="h-4 w-4 animate-spin" />
-											Loading session...
+											正在加载会话...
 										</div>
 									</TableCell>
 								</TableRow>
@@ -275,7 +275,7 @@ export function SessionDetailsSheet({
 										<TableCell className="relative text-xs">
 											{log.id === highlightedLogId ? (
 												<div className="bg-background pointer-events-none absolute -top-1.5 left-1 z-10 rounded-full border border-sky-400/45 px-1.5 py-0 text-[9px] leading-tight font-semibold tracking-wide text-sky-600 uppercase dark:text-sky-300">
-													Current
+													当前
 												</div>
 											) : null}
 											{format(new Date(log.timestamp), "yyyy-MM-dd hh:mm:ss aa (XXX)")}
@@ -300,7 +300,7 @@ export function SessionDetailsSheet({
 							) : (
 								<TableRow>
 									<TableCell colSpan={6} className="text-muted-foreground h-24 text-center">
-										No logs found for this session.
+										此会话没有日志。
 									</TableCell>
 								</TableRow>
 							)}
@@ -317,7 +317,7 @@ export function SessionDetailsSheet({
 							disabled={loadingSession}
 						>
 							{loadingSession ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-							Load More
+							加载更多
 						</Button>
 					</div>
 				) : null}

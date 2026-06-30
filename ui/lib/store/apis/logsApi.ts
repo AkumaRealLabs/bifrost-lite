@@ -20,7 +20,6 @@ import {
 	TokenHistogramResponse,
 } from "@/lib/types/logs";
 import { baseApi } from "./baseApi";
-import { RoutingRule } from "@/lib/types/routingRules";
 
 // Helper function to build filter params
 function buildFilterParams(filters: LogFilters): Record<string, string | number> {
@@ -50,12 +49,6 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	if (filters.virtual_key_ids && filters.virtual_key_ids.length > 0) {
 		params.virtual_key_ids = filters.virtual_key_ids.join(",");
 	}
-	if (filters.routing_rule_ids && filters.routing_rule_ids.length > 0) {
-		params.routing_rule_ids = filters.routing_rule_ids.join(",");
-	}
-	if (filters.routing_engine_used && filters.routing_engine_used.length > 0) {
-		params.routing_engine_used = filters.routing_engine_used.join(",");
-	}
 	if (filters.stop_reasons && filters.stop_reasons.length > 0) {
 		params.stop_reasons = filters.stop_reasons.join(",");
 	}
@@ -70,21 +63,9 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	if (filters.min_tokens !== undefined) params.min_tokens = filters.min_tokens;
 	if (filters.max_tokens !== undefined) params.max_tokens = filters.max_tokens;
 	if (filters.missing_cost_only) params.missing_cost_only = "true";
-	if (filters.cache_hit_types && filters.cache_hit_types.length > 0) {
-		params.cache_hit_types = filters.cache_hit_types.join(",");
-	}
 	if (filters.content_search) params.content_search = filters.content_search;
 	if (filters.user_ids && filters.user_ids.length > 0) {
 		params.user_ids = filters.user_ids.join(",");
-	}
-	if (filters.team_ids && filters.team_ids.length > 0) {
-		params.team_ids = filters.team_ids.join(",");
-	}
-	if (filters.customer_ids && filters.customer_ids.length > 0) {
-		params.customer_ids = filters.customer_ids.join(",");
-	}
-	if (filters.business_unit_ids && filters.business_unit_ids.length > 0) {
-		params.business_unit_ids = filters.business_unit_ids.join(",");
 	}
 	if (filters.metadata_filters) {
 		for (const [key, value] of Object.entries(filters.metadata_filters)) {
@@ -318,13 +299,8 @@ export const logsApi = baseApi.injectEndpoints({
 				aliases?: string[];
 				selected_keys?: RedactedDBKey[];
 				virtual_keys?: VirtualKey[];
-				routing_rules?: RoutingRule[];
-				routing_engines?: string[];
 				stop_reasons?: string[];
-				teams?: { id: string; name: string }[];
-				customers?: { id: string; name: string }[];
 				users?: { id: string; name: string }[];
-				business_units?: { id: string; name: string }[];
 				metadata_keys?: Record<string, string[]>;
 			},
 			{ dimensions?: string[]; q?: string } | void

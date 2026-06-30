@@ -1,7 +1,7 @@
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { HistogramBucket, LogsHistogramResponse, MCPHistogramResponse } from "@/lib/types/logs";
+import type { HistogramBucket, LogsHistogramResponse } from "@/lib/types/logs";
 import { getUnixRangeForPeriod } from "@/lib/utils/timeRange";
 import { ChevronDown, RotateCcw } from "lucide-react";
 import { Component, type ErrorInfo, type ReactNode, useCallback, useMemo, useRef, useState } from "react";
@@ -66,7 +66,7 @@ class ChartErrorBoundary extends Component<{ children: ReactNode; resetKey?: str
 }
 
 interface LogsVolumeChartProps {
-	data: LogsHistogramResponse | MCPHistogramResponse | null;
+	data: LogsHistogramResponse | null;
 	loading?: boolean;
 	onTimeRangeChange: (startTime: number, endTime: number) => void;
 	onResetZoom?: () => void;

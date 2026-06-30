@@ -53,7 +53,6 @@ export interface AppState {
 
 	// Feature flags
 	features: {
-		enableMCP: boolean;
 		enableCaching: boolean;
 		enableLogging: boolean;
 	};
@@ -75,7 +74,6 @@ const initialState: AppState = {
 	},
 	globalError: null,
 	features: {
-		enableMCP: false,
 		enableCaching: false,
 		enableLogging: false,
 	},

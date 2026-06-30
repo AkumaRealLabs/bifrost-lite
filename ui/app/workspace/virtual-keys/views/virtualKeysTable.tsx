@@ -1,5 +1,3 @@
-import { BudgetDisplay } from "@/components/budgetDisplay";
-import { RateLimitDisplay } from "@/components/rateLimitDisplay";
 import { PIN_SHADOW_RIGHT } from "@/components/table/columnPinning";
 import {
 	AlertDialog,
@@ -14,16 +12,13 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ComboboxSelect } from "@/components/ui/combobox";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdownMenu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useCopyToClipboard } from "@/hooks/useCopyToClipboard";
-import { resetDurationLabels } from "@/lib/constants/governance";
 import {
 	getErrorMessage,
 	useBulkRotateVirtualKeysMutation,
@@ -32,9 +27,8 @@ import {
 	useLazyGetVirtualKeysQuery,
 	useUpdateVirtualKeyMutation,
 } from "@/lib/store";
-import { Customer, Team, VirtualKey } from "@/lib/types/governance";
+import { VirtualKey } from "@/lib/types/governance";
 import { cn } from "@/lib/utils";
-import { formatCurrency } from "@/lib/utils/governance";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { Link } from "@tanstack/react-router";
 import {
@@ -60,32 +54,17 @@ import {
 import { useQueryState } from "nuqs";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { useVirtualKeyUsage } from "../hooks/useVirtualKeyUsage";
 import VirtualKeyDetailSheet from "./virtualKeyDetailsSheet";
 import { VirtualKeysEmptyState } from "./virtualKeysEmptyState";
 import VirtualKeySheet from "./virtualKeySheet";
 
-const formatResetDuration = (duration: string) => resetDurationLabels[duration] || duration;
-
 type ExportScope = "current_page" | "all";
 
-function virtualKeysToCSV(vks: VirtualKey[], accessProfileNames: Record<number, string> = {}): string {
-	const headers = ["Name", "Status", "Assigned To", "Budget Limit", "Budget Spent", "Budget Reset", "Description", "Created At"];
+function virtualKeysToCSV(vks: VirtualKey[]): string {
+	const headers = ["名称", "状态", "描述", "创建时间"];
 	const rows = vks.map((vk) => {
-		const isExhausted =
-			vk.budgets?.some((b) => b.current_usage >= b.max_limit) ||
-			(vk.rate_limit?.token_current_usage &&
-				vk.rate_limit?.token_max_limit &&
-				vk.rate_limit.token_current_usage >= vk.rate_limit.token_max_limit) ||
-			(vk.rate_limit?.request_current_usage &&
-				vk.rate_limit?.request_max_limit &&
-				vk.rate_limit.request_current_usage >= vk.rate_limit.request_max_limit);
-		const status = vk.is_active ? (isExhausted ? "Exhausted" : "Active") : "Inactive";
-		const assignedTo = vk.team ? `Team: ${vk.team.name}` : vk.customer ? `Customer: ${vk.customer.name}` : "";
-		const budgetLimit = vk.budgets?.length ? vk.budgets.map((b) => formatCurrency(b.max_limit)).join("; ") : "";
-		const budgetSpent = vk.budgets?.length ? vk.budgets.map((b) => formatCurrency(b.current_usage)).join("; ") : "";
-		const budgetReset = vk.budgets?.length ? vk.budgets.map((b) => formatResetDuration(b.reset_duration)).join("; ") : "";
-		return [vk.name, status, assignedTo, budgetLimit, budgetSpent, budgetReset, vk.description || "", vk.created_at];
+		const status = vk.is_active ? "启用" : "停用";
+		return [vk.name, status, vk.description || "", vk.created_at];
 	});
 	return [headers, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
 }
@@ -100,45 +79,6 @@ function downloadCSV(content: string) {
 	URL.revokeObjectURL(url);
 }
 
-function VKBudgetCell({ vk }: { vk: VirtualKey }) {
-	const { displayBudgets } = useVirtualKeyUsage(vk);
-	return <BudgetDisplay budgets={displayBudgets} calendarAligned={vk.calendar_aligned} />;
-}
-
-function VKAssignedToCell({ vk }: { vk: VirtualKey }) {
-	const { assignedUsers } = useVirtualKeyUsage(vk);
-	const assignedUser = assignedUsers[0];
-
-	let label: string | null = null;
-	if (vk.team) {
-		label = `Team: ${vk.team.name}`;
-	} else if (vk.customer) {
-		label = `Customer: ${vk.customer.name}`;
-	} else if (assignedUser) {
-		label = `User: ${assignedUser.name || assignedUser.email}`;
-	}
-
-	if (!label) {
-		return <span className="text-muted-foreground max-w-full truncate text-left text-sm">-</span>;
-	}
-
-	return (
-		<Tooltip>
-			<TooltipTrigger asChild>
-				<Badge variant="outline" className="block max-w-full truncate text-left" data-testid={`vk-assigned-to-tooltip-trigger-${vk.name}`}>
-					{label}
-				</Badge>
-			</TooltipTrigger>
-			<TooltipContent data-testid={`vk-assigned-to-tooltip-content-${vk.name}`}>{label}</TooltipContent>
-		</Tooltip>
-	);
-}
-
-function VKRateLimitCell({ vk }: { vk: VirtualKey }) {
-	const { displayRateLimit } = useVirtualKeyUsage(vk);
-	return <RateLimitDisplay rateLimits={displayRateLimit} calendarAligned={vk.calendar_aligned} />;
-}
-
 function VKActiveSwitch({
 	vk,
 	hasUpdateAccess,
@@ -148,15 +88,12 @@ function VKActiveSwitch({
 	hasUpdateAccess: boolean;
 	onToggle: (vk: VirtualKey, checked: boolean) => Promise<void>;
 }) {
-	const { isManagedByProfile } = useVirtualKeyUsage(vk);
-
 	return (
 		<Switch
 			checked={vk.is_active}
-			disabled={!hasUpdateAccess || isManagedByProfile}
-			aria-label={`${vk.is_active ? "Disable" : "Enable"} virtual key ${vk.name}`}
+			disabled={!hasUpdateAccess}
+			aria-label={`${vk.is_active ? "停用" : "启用"}虚拟 Key ${vk.name}`}
 			data-testid={`vk-active-switch-${vk.name}`}
-			title={isManagedByProfile ? "This virtual key is managed by an access profile." : undefined}
 			onAsyncCheckedChange={(checked) => onToggle(vk, checked)}
 		/>
 	);
@@ -178,7 +115,6 @@ function VKActionsMenu({
 	onDelete: (vkId: string) => void;
 }) {
 	const [isOpen, setIsOpen] = useState(false);
-	const { isManagedByProfile } = useVirtualKeyUsage(vk);
 	const [deleteOpen, setDeleteOpen] = useState(false);
 
 	return (
@@ -189,7 +125,7 @@ function VKActionsMenu({
 						variant="ghost"
 						size="icon"
 						className="h-8 w-8"
-						aria-label="Virtual key actions"
+						aria-label="虚拟 Key 操作"
 						data-testid={`vk-actions-btn-${vk.name}`}
 					>
 						<MoreHorizontal className="h-4 w-4" />
@@ -207,20 +143,19 @@ function VKActionsMenu({
 						}}
 					>
 						<Edit className="h-4 w-4" />
-						Edit
+						编辑
 					</DropdownMenuItem>
 					<DropdownMenuItem asChild className="cursor-pointer" data-testid={`vk-view-logs-btn-${vk.name}`}>
 						<Link to="/workspace/logs" search={{ virtual_key_ids: [vk.id] }} onClick={() => setIsOpen(false)}>
 							<ScrollText className="h-4 w-4" />
-							View logs
+							查看日志
 						</Link>
 					</DropdownMenuItem>
 					<DropdownMenuItem
 						variant="destructive"
 						className="cursor-pointer"
-						disabled={!hasDeleteAccess || isManagedByProfile}
+						disabled={!hasDeleteAccess}
 						data-testid={`vk-delete-btn-${vk.name}`}
-						title={isManagedByProfile ? "This virtual key is managed by an access profile and can't be deleted here." : undefined}
 						onSelect={(e) => {
 							e.preventDefault();
 							setDeleteOpen(true);
@@ -228,29 +163,29 @@ function VKActionsMenu({
 						}}
 					>
 						<Trash2 className="h-4 w-4" />
-						Delete
+						删除
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
 			<AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Delete Virtual Key</AlertDialogTitle>
+						<AlertDialogTitle>删除虚拟 Key</AlertDialogTitle>
 						<AlertDialogDescription>
-							Are you sure you want to delete &quot;
+							确定要删除 &quot;
 							{vk.name.length > 20 ? `${vk.name.slice(0, 20)}...` : vk.name}
-							&quot;? This action cannot be undone.
+							&quot;? 此操作无法撤销。
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel data-testid={`vk-delete-cancel-${vk.name}`}>Cancel</AlertDialogCancel>
+						<AlertDialogCancel data-testid={`vk-delete-cancel-${vk.name}`}>取消</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => onDelete(vk.id)}
 							disabled={isDeleting}
 							className="bg-destructive hover:bg-destructive/90"
 							data-testid={`vk-delete-confirm-${vk.name}`}
 						>
-							{isDeleting ? "Deleting..." : "Delete"}
+							{isDeleting ? "正在删除..." : "删除"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -262,15 +197,9 @@ function VKActionsMenu({
 interface VirtualKeysTableProps {
 	virtualKeys: VirtualKey[];
 	totalCount: number;
-	teams: Team[];
-	customers: Customer[];
 	search: string;
 	debouncedSearch: string;
 	onSearchChange: (value: string) => void;
-	customerFilter: string;
-	onCustomerFilterChange: (value: string) => void;
-	teamFilter: string;
-	onTeamFilterChange: (value: string) => void;
 	offset: number;
 	limit: number;
 	onOffsetChange: (offset: number) => void;
@@ -285,15 +214,9 @@ interface VirtualKeysTableProps {
 export default function VirtualKeysTable({
 	virtualKeys,
 	totalCount,
-	teams,
-	customers,
 	search,
 	debouncedSearch,
 	onSearchChange,
-	customerFilter,
-	onCustomerFilterChange,
-	teamFilter,
-	onTeamFilterChange,
 	offset,
 	limit,
 	onOffsetChange,
@@ -379,7 +302,7 @@ export default function VirtualKeysTable({
 	const handleDelete = async (vkId: string) => {
 		try {
 			await deleteVirtualKey(vkId).unwrap();
-			toast.success("Virtual key deleted successfully");
+			toast.success("虚拟 Key 已删除");
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
@@ -391,7 +314,7 @@ export default function VirtualKeysTable({
 				vkId: vk.id,
 				data: { is_active: checked },
 			}).unwrap();
-			toast.success(`Virtual key ${checked ? "enabled" : "disabled"}`);
+			toast.success(`虚拟 Key 已${checked ? "启用" : "停用"}`);
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 			throw error;
@@ -423,9 +346,9 @@ export default function VirtualKeysTable({
 
 			const failureCount = result.errors ? Object.keys(result.errors).length : 0;
 			if (failureCount > 0) {
-				toast.warning(`Rotated ${result.virtual_keys.length} virtual keys. ${failureCount} failed.`);
+				toast.warning(`已轮换 ${result.virtual_keys.length} 个虚拟 Key。${failureCount} 个失败。`);
 			} else {
-				toast.success(`Rotated ${result.virtual_keys.length} virtual keys`);
+				toast.success(`已轮换 ${result.virtual_keys.length} 个虚拟 Key`);
 			}
 		} catch (error) {
 			toast.error(getErrorMessage(error));
@@ -472,9 +395,7 @@ export default function VirtualKeysTable({
 					limit,
 					offset: newOffset,
 					search: debouncedSearch || undefined,
-					customer_id: customerFilter || undefined,
-					team_id: teamFilter || undefined,
-					sort_by: (sortBy as "name" | "budget_spent" | "created_at" | "status") || undefined,
+					sort_by: (sortBy as "name" | "created_at" | "status") || undefined,
 					order: (order as "asc" | "desc") || undefined,
 				}).then((result) => {
 					if (result.data?.virtual_keys?.length) {
@@ -495,9 +416,7 @@ export default function VirtualKeysTable({
 					limit,
 					offset: newOffset,
 					search: debouncedSearch || undefined,
-					customer_id: customerFilter || undefined,
-					team_id: teamFilter || undefined,
-					sort_by: (sortBy as "name" | "budget_spent" | "created_at" | "status") || undefined,
+					sort_by: (sortBy as "name" | "created_at" | "status") || undefined,
 					order: (order as "asc" | "desc") || undefined,
 				}).then((result) => {
 					if (result.data?.virtual_keys?.length) {
@@ -521,14 +440,14 @@ export default function VirtualKeysTable({
 		setRevealedKeys(newRevealed);
 	};
 
-	const maskKey = (key: string, revealed: boolean) => {
-		if (revealed) return key;
-		return key.substring(0, 8) + "•".repeat(Math.max(0, key.length - 8));
+	const maskKey = (keyValue: string, revealed: boolean) => {
+		if (revealed) return keyValue;
+		return keyValue.substring(0, 8) + "•".repeat(Math.max(0, keyValue.length - 8));
 	};
 
 	const { copy: copyToClipboard } = useCopyToClipboard();
 
-	const hasActiveFilters = debouncedSearch || customerFilter || teamFilter;
+	const hasActiveFilters = debouncedSearch;
 
 	const toggleSort = (column: string) => {
 		if (sortBy === column) {
@@ -546,7 +465,7 @@ export default function VirtualKeysTable({
 	const handleExportCSV = async () => {
 		if (exportScope === "current_page") {
 			downloadCSV(virtualKeysToCSV(virtualKeys));
-			toast.success(`Exported ${virtualKeys.length} virtual keys`);
+			toast.success(`已导出 ${virtualKeys.length} 个虚拟 Key`);
 			setShowExportDialog(false);
 			return;
 		}
@@ -560,18 +479,16 @@ export default function VirtualKeysTable({
 				limit: fetchLimit,
 				offset: 0,
 				search: debouncedSearch || undefined,
-				customer_id: customerFilter || undefined,
-				team_id: teamFilter || undefined,
-				sort_by: (sortBy as "name" | "budget_spent" | "created_at" | "status") || undefined,
+				sort_by: (sortBy as "name" | "created_at" | "status") || undefined,
 				order: (order as "asc" | "desc") || undefined,
 				export: true,
 			}).unwrap();
 
 			downloadCSV(virtualKeysToCSV(result.virtual_keys));
-			toast.success(`Exported ${result.virtual_keys.length} virtual keys`);
+			toast.success(`已导出 ${result.virtual_keys.length} 个虚拟 Key`);
 			setShowExportDialog(false);
 		} catch (error) {
-			toast.error(`Export failed: ${getErrorMessage(error)}`);
+			toast.error(`导出失败： ${getErrorMessage(error)}`);
 		}
 	};
 
@@ -599,8 +516,6 @@ export default function VirtualKeysTable({
 				{showVirtualKeySheet && (
 					<VirtualKeySheet
 						virtualKey={editingVirtualKey}
-						teams={teams}
-						customers={customers}
 						onSave={handleVirtualKeySaved}
 						onCancel={() => setShowVirtualKeySheet(false)}
 					/>
@@ -615,8 +530,6 @@ export default function VirtualKeysTable({
 			{showVirtualKeySheet && (
 				<VirtualKeySheet
 					virtualKey={editingVirtualKey}
-					teams={teams}
-					customers={customers}
 					onSave={handleVirtualKeySaved}
 					onCancel={() => setShowVirtualKeySheet(false)}
 				/>
@@ -636,12 +549,12 @@ export default function VirtualKeysTable({
 			<Dialog open={showExportDialog} onOpenChange={setShowExportDialog}>
 				<DialogContent className="sm:max-w-[425px]">
 					<DialogHeader className="pb-0">
-						<DialogTitle>Export Virtual Keys</DialogTitle>
-						<DialogDescription>Download as CSV with current filters and sorting applied.</DialogDescription>
+						<DialogTitle>导出虚拟 Key</DialogTitle>
+						<DialogDescription>按当前筛选和排序导出 CSV。</DialogDescription>
 					</DialogHeader>
 					<div className="space-y-4">
 						<div className="space-y-2">
-							<Label className="text-sm">Export scope</Label>
+							<Label className="text-sm">导出范围</Label>
 							<div className="grid grid-cols-2 gap-2" data-testid="vk-export-scope">
 								<button
 									type="button"
@@ -653,8 +566,8 @@ export default function VirtualKeysTable({
 											: "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground",
 									)}
 								>
-									<span className="font-medium">Current page</span>
-									<span className="text-muted-foreground text-xs">{virtualKeys.length} entries</span>
+									<span className="font-medium">当前页</span>
+									<span className="text-muted-foreground text-xs">{virtualKeys.length} 条</span>
 								</button>
 								<button
 									type="button"
@@ -666,8 +579,8 @@ export default function VirtualKeysTable({
 											: "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground",
 									)}
 								>
-									<span className="font-medium">All entries</span>
-									<span className="text-muted-foreground text-xs">{totalCount} total</span>
+									<span className="font-medium">全部记录</span>
+									<span className="text-muted-foreground text-xs">共 {totalCount} 条</span>
 								</button>
 							</div>
 						</div>
@@ -675,13 +588,13 @@ export default function VirtualKeysTable({
 						{exportScope === "all" && (
 							<div className="space-y-2">
 								<Label htmlFor="export-max-limit" className="text-sm">
-									Max entries <span className="text-muted-foreground font-normal">(optional)</span>
+									最大导出条数 <span className="text-muted-foreground font-normal">（可选）</span>
 								</Label>
 								<Input
 									id="export-max-limit"
 									type="number"
 									min="1"
-									placeholder={`Leave blank for all ${totalCount}`}
+									placeholder={`留空表示全部 ${totalCount}`}
 									value={exportMaxLimit}
 									onChange={(e) => setExportMaxLimit(e.target.value)}
 									data-testid="vk-export-max-limit"
@@ -691,32 +604,30 @@ export default function VirtualKeysTable({
 
 						{hasActiveFilters && (
 							<p className="text-muted-foreground text-xs">
-								Filters applied:{" "}
-								{[debouncedSearch && `search "${debouncedSearch}"`, customerFilter && "customer filter", teamFilter && "team filter"]
-									.filter(Boolean)
-									.join(", ")}
+								已应用筛选：{" "}
+								{[debouncedSearch && `搜索 "${debouncedSearch}"`].filter(Boolean).join(", ")}
 							</p>
 						)}
 
 						<div className="text-muted-foreground flex items-center gap-2">
 							<ShieldCheck className="h-3.5 w-3.5 shrink-0" />
-							<p className="text-xs">API tokens are excluded from the export.</p>
+							<p className="text-xs">导出文件不包含 API token。</p>
 						</div>
 					</div>
 					<DialogFooter className="pt-0">
 						<Button variant="outline" onClick={() => setShowExportDialog(false)} disabled={isExporting}>
-							Cancel
+							取消
 						</Button>
 						<Button onClick={handleExportCSV} disabled={isExporting} data-testid="vk-export-confirm-btn">
 							{isExporting ? (
 								<>
 									<Loader2 className="h-4 w-4 animate-spin" />
-									Exporting...
+									正在导出...
 								</>
 							) : (
 								<>
 									<Download className="h-4 w-4" />
-									Export CSV
+									导出 CSV
 								</>
 							)}
 						</Button>
@@ -727,21 +638,19 @@ export default function VirtualKeysTable({
 			<AlertDialog open={showBulkRotateDialog} onOpenChange={setShowBulkRotateDialog}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Rotate selected virtual keys?</AlertDialogTitle>
+						<AlertDialogTitle>轮换选中的虚拟 Key？</AlertDialogTitle>
 						<AlertDialogDescription>
-							This will replace the secret value for {selectedCount} selected virtual {selectedCount === 1 ? "key" : "keys"}. IDs, budgets,
-							rate limits, provider permissions, MCP access, and assignments stay the same. Previous key values will stop working
-							immediately.
+							这会替换 {selectedCount} 个已选虚拟 Key 的密钥值。ID 和 Provider 访问保持不变，旧 Key 值会立即失效。
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel data-testid="vk-bulk-rotate-cancel-btn">Cancel</AlertDialogCancel>
+						<AlertDialogCancel data-testid="vk-bulk-rotate-cancel-btn">取消</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={handleBulkRotate}
 							disabled={isBulkRotating || selectedCount === 0}
 							data-testid="vk-bulk-rotate-confirm-btn"
 						>
-							{isBulkRotating ? "Rotating..." : "Rotate Selected"}
+							{isBulkRotating ? "正在轮换..." : "轮换选中项"}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
@@ -750,8 +659,8 @@ export default function VirtualKeysTable({
 			<div className="flex min-h-0 w-full grow flex-col overflow-hidden">
 				<div className="mb-4 flex shrink-0 items-center justify-between">
 					<div>
-						<h2 className="text-lg font-semibold">Virtual Keys</h2>
-						<p className="text-muted-foreground text-sm">Manage virtual keys, their permissions, budgets, and rate limits.</p>
+						<h2 className="text-lg font-semibold">虚拟 Key</h2>
+						<p className="text-muted-foreground text-sm">管理虚拟 Key 和 Provider 访问。</p>
 					</div>
 					<div className="flex items-center gap-2">
 						{selectedCount > 0 && (
@@ -762,16 +671,16 @@ export default function VirtualKeysTable({
 								data-testid="vk-bulk-rotate-btn"
 							>
 								<RotateCcw className="h-4 w-4" />
-								Rotate selected ({selectedCount})
+								轮换选中项 ({selectedCount})
 							</Button>
 						)}
 						<Button variant="outline" onClick={openExportDialog} disabled={virtualKeys.length === 0} data-testid="vk-export-btn">
 							<Download className="h-4 w-4" />
-							Export CSV
+							导出 CSV
 						</Button>
 						<Button onClick={handleAddVirtualKey} disabled={!hasCreateAccess} data-testid="create-vk-btn">
 							<Plus className="h-4 w-4" />
-							Add Virtual Key
+							添加虚拟 Key
 						</Button>
 					</div>
 				</div>
@@ -781,56 +690,35 @@ export default function VirtualKeysTable({
 					<div className="relative max-w-sm flex-1">
 						<Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
 						<Input
-							aria-label="Search virtual keys by name"
-							placeholder="Search by name..."
+							aria-label="按名称搜索虚拟 Key"
+							placeholder="按名称搜索..."
 							value={search}
 							onChange={(e) => onSearchChange(e.target.value)}
 							className="pl-9"
 							data-testid="vk-search-input"
 						/>
 					</div>
-					<ComboboxSelect
-						data-testid="vk-customer-filter"
-						options={customers.map((c) => ({ label: c.name, value: c.id }))}
-						value={customerFilter || null}
-						onValueChange={(val) => onCustomerFilterChange(val ?? "")}
-						placeholder="All Customers"
-						className="h-9 w-[180px]"
-					/>
-					{customerFilter && teamFilter && <span className="text-muted-foreground text-xs font-medium">or</span>}
-					<ComboboxSelect
-						data-testid="vk-team-filter"
-						options={teams.map((t) => ({ label: t.name, value: t.id }))}
-						value={teamFilter || null}
-						onValueChange={(val) => onTeamFilterChange(val ?? "")}
-						placeholder="All Teams"
-						className="h-9 w-[180px]"
-					/>
 				</div>
 
 				<div className="mb-2 min-h-0 grow overflow-hidden rounded-sm border">
-					<Table containerClassName="h-full overflow-auto" className="w-full min-w-[1528px] table-fixed" data-testid="vk-table">
+					<Table containerClassName="h-full overflow-auto" className="w-full min-w-[1080px] table-fixed" data-testid="vk-table">
 						<TableHeader className="bg-muted sticky top-0 z-20">
 							<TableRow>
 								<TableHead className="w-[48px]">
 									<Checkbox
 										checked={allVisibleSelected || (someVisibleSelected ? "indeterminate" : false)}
 										onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
-										aria-label="Select all virtual keys on this page"
+										aria-label="选择本页所有虚拟 Key"
 										data-testid="vk-select-all-checkbox"
 									/>
 								</TableHead>
 								<TableHead className="w-[250px]">
-									<SortableHeader column="name" label="Name" />
+									<SortableHeader column="name" label="名称" />
 								</TableHead>
-								<TableHead className="w-[160px]">Assigned To</TableHead>
 								<TableHead className="w-[440px]">Key</TableHead>
-								<TableHead className="w-[200px]">
-									<SortableHeader column="budget_spent" label="Budget" />
-								</TableHead>
-								<TableHead className="w-[200px]">Rate Limits</TableHead>
+								<TableHead className="w-[180px]">Provider</TableHead>
 								<TableHead className="w-[120px]">
-									<SortableHeader column="status" label="Status" />
+									<SortableHeader column="status" label="状态" />
 								</TableHead>
 								<TableHead className={`bg-muted sticky right-0 z-30 w-[56px] text-right ${PIN_SHADOW_RIGHT}`}></TableHead>
 							</TableRow>
@@ -838,8 +726,8 @@ export default function VirtualKeysTable({
 						<TableBody>
 							{virtualKeys.length === 0 ? (
 								<TableRow>
-									<TableCell colSpan={8} className="h-24 text-center">
-										<span className="text-muted-foreground text-sm">No matching virtual keys found.</span>
+									<TableCell colSpan={6} className="h-24 text-center">
+										<span className="text-muted-foreground text-sm">没有找到匹配的虚拟 Key。</span>
 									</TableCell>
 								</TableRow>
 							) : (
@@ -857,15 +745,12 @@ export default function VirtualKeysTable({
 												<Checkbox
 													checked={selectedIds.has(vk.id)}
 													onCheckedChange={(checked) => toggleSelectVirtualKey(vk.id, checked === true)}
-													aria-label={`Select virtual key ${vk.name}`}
+													aria-label={`选择虚拟 Key ${vk.name}`}
 													data-testid={`vk-select-checkbox-${vk.name}`}
 												/>
 											</TableCell>
 											<TableCell className="max-w-[200px]">
 												<div className="truncate font-medium">{vk.name}</div>
-											</TableCell>
-											<TableCell>
-												<VKAssignedToCell vk={vk} />
 											</TableCell>
 											<TableCell onClick={(e) => e.stopPropagation()}>
 												<div className="flex items-center gap-2">
@@ -893,10 +778,22 @@ export default function VirtualKeysTable({
 												</div>
 											</TableCell>
 											<TableCell>
-												<VKBudgetCell vk={vk} />
-											</TableCell>
-											<TableCell>
-												<VKRateLimitCell vk={vk} />
+												<div className="flex flex-wrap gap-1">
+													{vk.provider_configs?.length ? (
+														vk.provider_configs.slice(0, 3).map((config) => (
+															<Badge key={`${vk.id}-${config.provider}`} variant="outline" className="text-xs">
+																{config.provider}
+															</Badge>
+														))
+													) : (
+														<span className="text-muted-foreground text-sm">无</span>
+													)}
+													{vk.provider_configs && vk.provider_configs.length > 3 && (
+														<Badge variant="secondary" className="text-xs">
+															+{vk.provider_configs.length - 3}
+														</Badge>
+													)}
+												</div>
 											</TableCell>
 											<TableCell onClick={(e) => e.stopPropagation()}>
 												<VKActiveSwitch vk={vk} hasUpdateAccess={hasUpdateAccess} onToggle={handleToggleActive} />
@@ -926,8 +823,7 @@ export default function VirtualKeysTable({
 				{totalCount > 0 && (
 					<div className="flex shrink-0 items-center justify-between text-xs" data-testid="pagination">
 						<div className="text-muted-foreground flex items-center gap-2">
-							{(offset + 1).toLocaleString()}-{Math.min(offset + limit, totalCount).toLocaleString()} of {totalCount.toLocaleString()}{" "}
-							entries
+							第 {(offset + 1).toLocaleString()}-{Math.min(offset + limit, totalCount).toLocaleString()} 条，共 {totalCount.toLocaleString()} 条
 						</div>
 
 						<div className="flex items-center gap-2">
@@ -937,15 +833,15 @@ export default function VirtualKeysTable({
 								onClick={() => onOffsetChange(Math.max(0, offset - limit))}
 								disabled={offset === 0}
 								data-testid="vk-pagination-prev-btn"
-								aria-label="Previous page"
+								aria-label="上一页"
 							>
 								<ChevronLeft className="size-3" />
 							</Button>
 
 							<div className="flex items-center gap-1">
-								<span>Page</span>
+								<span>第</span>
 								<span>{Math.floor(offset / limit) + 1}</span>
-								<span>of {Math.ceil(totalCount / limit)}</span>
+								<span>/ {Math.ceil(totalCount / limit)} 页</span>
 							</div>
 
 							<Button
@@ -954,7 +850,7 @@ export default function VirtualKeysTable({
 								onClick={() => onOffsetChange(offset + limit)}
 								disabled={offset + limit >= totalCount}
 								data-testid="vk-pagination-next-btn"
-								aria-label="Next page"
+								aria-label="下一页"
 							>
 								<ChevronRight className="size-3" />
 							</Button>

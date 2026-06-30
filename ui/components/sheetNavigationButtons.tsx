@@ -53,7 +53,7 @@ export function SheetNavigationButtons({
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent className="flex items-center gap-1.5 px-2 py-1 text-xs">
-					Prev {prevKeys && <ShortcutKeys keys={prevKeys} />}
+					上一条 {prevKeys && <ShortcutKeys keys={prevKeys} />}
 				</TooltipContent>
 			</Tooltip>
 			<Tooltip delayDuration={0}>
@@ -70,7 +70,7 @@ export function SheetNavigationButtons({
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent className="flex items-center gap-1.5 px-2 py-1 text-xs">
-					Next {nextKeys && <ShortcutKeys keys={nextKeys} />}
+					下一条 {nextKeys && <ShortcutKeys keys={nextKeys} />}
 				</TooltipContent>
 			</Tooltip>
 		</div>

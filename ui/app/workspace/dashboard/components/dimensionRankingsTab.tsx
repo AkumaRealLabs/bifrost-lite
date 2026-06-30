@@ -29,7 +29,7 @@ function TopDimensionTooltip({ active, payload }: any) {
 	return (
 		<div className="rounded-sm border border-zinc-200 bg-white px-3 py-2 shadow-lg dark:border-zinc-700 dark:bg-zinc-900">
 			<div className="mb-1 text-xs text-zinc-500">{data.displayName}</div>
-			<div className="text-sm font-medium">{data.total_requests.toLocaleString()} requests</div>
+			<div className="text-sm font-medium">{data.total_requests.toLocaleString()} 次请求</div>
 		</div>
 	);
 }
@@ -77,11 +77,11 @@ function TopDimensionChart({
 
 	return (
 		<ChartCard
-			title={`Top ${dimensionLabel}s`}
+			title={`${dimensionLabel} Top 排行`}
 			loading={loading}
 			testId={`${testIdPrefix}-top-chart`}
 			className="z-[1] h-full"
-			totalLabel={attributed && actualTotal === null ? "Total Requests (attributed)" : "Total Requests"}
+			totalLabel={attributed && actualTotal === null ? "总请求数（归因）" : "总请求数"}
 			total={
 				actualTotal !== null ? (
 					<NumberFlow value={actualTotal} format={COMPACT_NUMBER_FORMAT} />
@@ -91,25 +91,24 @@ function TopDimensionChart({
 			}
 			totalTooltip={
 				grandTotal === null ? undefined : actualTotal !== null ? (
-					<div className="max-w-[240px] text-xs opacity-80">Actual number of requests sent</div>
+					<div className="max-w-[240px] text-xs opacity-80">实际发送的请求数</div>
 				) : attributed ? (
 					<div className="space-y-1">
 						<div className="max-w-[240px] text-xs opacity-80">
-							Attributed - a request counts toward each {dimensionLabel.toLowerCase()} it belongs to, so this can exceed the actual request
-							count.
+							归因统计：一个请求会计入它所属的每个 {dimensionLabel}，因此可能高于实际请求数。
 						</div>
 					</div>
 				) : (
 					grandTotal.toLocaleString("en-US")
 				)
 			}
-			secondaryTotalLabel="Attributed Requests"
+			secondaryTotalLabel="归因请求数"
 			secondaryTotal={actualTotal !== null ? <NumberFlow value={attributedTotal ?? 0} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 			secondaryTotalTooltip={
 				actualTotal === null ? undefined : (
 					<div className="space-y-1">
 						<div className="max-w-[240px] text-xs opacity-80">
-							A request counts toward each {dimensionLabel.toLowerCase()} it belongs to, so this can exceed the total request count.
+							一个请求会计入它所属的每个 {dimensionLabel}，因此可能高于总请求数。
 						</div>
 					</div>
 				)
@@ -160,7 +159,7 @@ function TopDimensionChart({
 						</ResponsiveContainer>
 					</ChartErrorBoundary>
 				) : (
-					<div className="text-muted-foreground flex h-full items-center justify-center text-sm">No data available</div>
+					<div className="text-muted-foreground flex h-full items-center justify-center text-sm">暂无数据</div>
 				)}
 			</div>
 			<div className="py-2">
@@ -229,12 +228,12 @@ function DimensionRankingsTabImpl({ data, loading, dimensionLabel, testIdPrefix,
 			) : !data?.rankings?.length ? (
 				<Card className="rounded-sm p-4 shadow-none">
 					<div className="text-muted-foreground flex h-[200px] items-center justify-center text-sm">
-						No {dimensionLabel.toLowerCase()} usage data available for this time period.
+						当前时间范围内没有 {dimensionLabel} 用量数据。
 					</div>
 				</Card>
 			) : (
 				<Card className="rounded-sm p-2 shadow-none" data-testid={`${testIdPrefix}-table`}>
-					<span className="text-primary pl-2 text-sm font-medium">{dimensionLabel} Rankings</span>
+					<span className="text-primary pl-2 text-sm font-medium">{dimensionLabel} 排行</span>
 					<Table>
 						<TableHeader>
 							<TableRow>
@@ -242,7 +241,7 @@ function DimensionRankingsTabImpl({ data, loading, dimensionLabel, testIdPrefix,
 								<TableHead>{dimensionLabel}</TableHead>
 								<TableHead className="text-right">
 									<SortableHeader
-										label="Requests"
+										label="请求"
 										field="total_requests"
 										currentSort={sortField}
 										currentOrder={sortOrder}
@@ -259,7 +258,7 @@ function DimensionRankingsTabImpl({ data, loading, dimensionLabel, testIdPrefix,
 									/>
 								</TableHead>
 								<TableHead className="text-right">
-									<SortableHeader label="Cost" field="total_cost" currentSort={sortField} currentOrder={sortOrder} onSort={handleSort} />
+									<SortableHeader label="成本" field="total_cost" currentSort={sortField} currentOrder={sortOrder} onSort={handleSort} />
 								</TableHead>
 							</TableRow>
 						</TableHeader>

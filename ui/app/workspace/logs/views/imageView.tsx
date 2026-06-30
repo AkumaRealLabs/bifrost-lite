@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { BifrostImageGenerationOutput, ImageEditInput, ImageVariationInput } from "@/lib/types/logs";
+import { BifrostImageGenerationOutput, ImageEditInput } from "@/lib/types/logs";
 import { Image, ChevronLeft, ChevronRight } from "lucide-react";
 import { ImageMessage } from "@/components/chat/ImageMessage";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,6 @@ interface ImageGenerationInput {
 interface ImageViewProps {
 	imageInput?: ImageGenerationInput;
 	imageEditInput?: ImageEditInput;
-	imageVariationInput?: ImageVariationInput;
 	imageOutput?: BifrostImageGenerationOutput;
 	requestType?: string;
 }
@@ -34,13 +33,10 @@ function getMethodTypeLabel(requestType?: string): string {
 	if (normalizedType.includes("image_edit")) {
 		return RequestTypeLabels[normalizedType as keyof typeof RequestTypeLabels] || "Image Edit";
 	}
-	if (normalizedType.includes("image_variation")) {
-		return RequestTypeLabels[normalizedType as keyof typeof RequestTypeLabels] || "Image Variation";
-	}
 	return RequestTypeLabels[normalizedType as keyof typeof RequestTypeLabels] || "Image Generation";
 }
 
-export default function ImageView({ imageInput, imageEditInput, imageVariationInput, imageOutput, requestType }: ImageViewProps) {
+export default function ImageView({ imageInput, imageEditInput, imageOutput, requestType }: ImageViewProps) {
 	const [currentIndex, setCurrentIndex] = useState(0);
 
 	// Get all valid images
@@ -109,24 +105,6 @@ export default function ImageView({ imageInput, imageEditInput, imageVariationIn
 							<div className="text-muted-foreground mb-2 text-xs font-medium">PROMPT</div>
 							<div className="font-mono text-xs">{imageEditInput.prompt}</div>
 						</div>
-					</div>
-				</div>
-			)}
-
-			{/* Image Variation Input */}
-			{imageVariationInput && imageVariationInput.image?.image && (
-				<div className="w-full rounded-sm border">
-					<div className="flex items-center gap-2 border-b px-6 py-2 text-sm font-medium">
-						<Image className="h-4 w-4" />
-						{methodTypeLabel} Input
-					</div>
-					<div className="space-y-4 p-6">
-						<div className="text-muted-foreground mb-2 text-xs font-medium">INPUT IMAGE</div>
-						<img
-							src={getImageSrc(imageVariationInput.image.image)}
-							alt="Input image"
-							className="max-h-48 max-w-48 rounded border object-contain"
-						/>
 					</div>
 				</div>
 			)}

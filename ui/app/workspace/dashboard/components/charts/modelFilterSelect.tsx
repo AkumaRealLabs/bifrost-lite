@@ -12,7 +12,7 @@ export function ModelFilterSelect({
 	models,
 	selectedModel,
 	onModelChange,
-	placeholder = "All Models",
+	placeholder = "全部模型",
 	"data-testid": testId,
 }: ModelFilterSelectProps) {
 	return (

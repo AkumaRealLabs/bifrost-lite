@@ -3,11 +3,11 @@ import { Form, FormControl, FormDescription, FormField, FormItem, FormLabel, For
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { cleanLitePathOverrides, toLiteAllowedRequests } from "@/lib/constants/lite";
 import { getErrorMessage, setProviderFormDirtyState, useAppDispatch } from "@/lib/store";
 import { useUpdateProviderMutation } from "@/lib/store/apis/providersApi";
 import { BaseProvider, ModelProvider } from "@/lib/types/config";
 import { formCustomProviderConfigSchema } from "@/lib/types/schemas";
-import { cleanPathOverrides } from "@/lib/utils/validation";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect, useMemo } from "react";
@@ -30,31 +30,17 @@ export function ApiStructureFormFragment({ provider }: Props) {
 	const hasUpdateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Update);
 	const dispatch = useAppDispatch();
 	const [updateProvider, { isLoading: isUpdatingProvider }] = useUpdateProviderMutation();
+	const getDefaultValues = (): FormCustomProviderConfig => ({
+		base_provider_type: provider.custom_provider_config?.base_provider_type ?? "openai",
+		is_key_less: provider.custom_provider_config?.is_key_less ?? false,
+		allowed_requests: toLiteAllowedRequests(provider.custom_provider_config?.allowed_requests as Partial<Record<string, boolean>> | undefined),
+		request_path_overrides: cleanLitePathOverrides(provider.custom_provider_config?.request_path_overrides),
+	});
+
 	const form = useForm<FormCustomProviderConfig>({
 		resolver: zodResolver(formCustomProviderConfigSchema),
 		mode: "onChange",
-		defaultValues: {
-			base_provider_type: provider.custom_provider_config?.base_provider_type ?? "openai",
-			is_key_less: provider.custom_provider_config?.is_key_less ?? false,
-			allowed_requests: {
-				text_completion: provider.custom_provider_config?.allowed_requests?.text_completion ?? true,
-				text_completion_stream: provider.custom_provider_config?.allowed_requests?.text_completion_stream ?? true,
-				chat_completion: provider.custom_provider_config?.allowed_requests?.chat_completion ?? true,
-				chat_completion_stream: provider.custom_provider_config?.allowed_requests?.chat_completion_stream ?? true,
-				responses: provider.custom_provider_config?.allowed_requests?.responses ?? true,
-				responses_stream: provider.custom_provider_config?.allowed_requests?.responses_stream ?? true,
-				embedding: provider.custom_provider_config?.allowed_requests?.embedding ?? true,
-				speech: provider.custom_provider_config?.allowed_requests?.speech ?? true,
-				speech_stream: provider.custom_provider_config?.allowed_requests?.speech_stream ?? true,
-				transcription: provider.custom_provider_config?.allowed_requests?.transcription ?? true,
-				transcription_stream: provider.custom_provider_config?.allowed_requests?.transcription_stream ?? true,
-				count_tokens: provider.custom_provider_config?.allowed_requests?.count_tokens ?? true,
-				list_models: provider.custom_provider_config?.allowed_requests?.list_models ?? true,
-				ocr: provider.custom_provider_config?.allowed_requests?.ocr ?? true,
-				ocr_stream: provider.custom_provider_config?.allowed_requests?.ocr_stream ?? true,
-			},
-			request_path_overrides: provider.custom_provider_config?.request_path_overrides ?? undefined,
-		},
+		defaultValues: getDefaultValues(),
 	});
 
 	useEffect(() => {
@@ -62,7 +48,7 @@ export function ApiStructureFormFragment({ provider }: Props) {
 	}, [form.formState.isDirty]);
 
 	useEffect(() => {
-		form.reset(provider.custom_provider_config);
+		form.reset(getDefaultValues());
 	}, [form, provider.name, provider.custom_provider_config]);
 
 	const onSubmit = (data: FormCustomProviderConfig) => {
@@ -73,7 +59,7 @@ export function ApiStructureFormFragment({ provider }: Props) {
 					base_provider_type: data.base_provider_type as unknown as BaseProvider,
 					is_key_less: data.is_key_less ?? false,
 					allowed_requests: data.allowed_requests,
-					request_path_overrides: cleanPathOverrides(data.request_path_overrides),
+					request_path_overrides: cleanLitePathOverrides(data.request_path_overrides),
 				},
 			}),
 		)
@@ -116,6 +102,7 @@ export function ApiStructureFormFragment({ provider }: Props) {
 										<SelectItem value="bedrock">AWS Bedrock</SelectItem>
 										<SelectItem value="cohere">Cohere</SelectItem>
 										<SelectItem value="gemini">Gemini</SelectItem>
+										<SelectItem value="huggingface">HuggingFace</SelectItem>
 										<SelectItem value="replicate">Replicate</SelectItem>
 									</SelectContent>
 								</Select>

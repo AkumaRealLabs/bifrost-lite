@@ -1,6 +1,6 @@
 import { configureStore } from "@reduxjs/toolkit";
 import { baseApi } from "./apis/baseApi";
-import { appReducer, pluginReducer, providerReducer } from "./slices";
+import { appReducer, providerReducer } from "./slices";
 import { reducers as enterpriseReducers, type EnterpriseState } from "@enterprise/lib/store/slices";
 // Importing enterprise APIs triggers their self-injection into baseApi
 import "@enterprise/lib/store/apis";
@@ -13,8 +13,6 @@ export const store = configureStore({
 		app: appReducer,
 		// Provider state slice
 		provider: providerReducer,
-		// Plugin state slice
-		plugin: pluginReducer,
 		// Enterprise reducers (if available)
 		...enterpriseReducers,
 	},

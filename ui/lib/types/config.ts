@@ -7,7 +7,7 @@ import { SecretVar } from "./schemas";
 export type KnownProvider = (typeof KnownProvidersNames)[number];
 
 // Base provider names - all supported base providers
-export type BaseProvider = "openai" | "anthropic" | "cohere" | "gemini" | "bedrock" | "replicate" | "fireworks";
+export type BaseProvider = "openai" | "anthropic" | "cohere" | "gemini" | "bedrock" | "huggingface" | "replicate";
 
 // Branded type for custom provider names to prevent collision with known providers
 export type CustomProviderName = string & { readonly __brand: "CustomProviderName" };
@@ -236,18 +236,6 @@ export interface ConcurrencyAndBufferSize {
 	buffer_size: number;
 }
 
-// Proxy types matching Go's schemas.ProxyType
-export type ProxyType = "none" | "http" | "socks5" | "environment";
-
-// ProxyConfig matching Go's schemas.ProxyConfig
-export interface ProxyConfig {
-	type: ProxyType;
-	url?: SecretVar;
-	username?: SecretVar;
-	password?: SecretVar;
-	ca_cert_pem?: SecretVar;
-}
-
 // Request types matching Go's schemas.RequestType
 export type RequestType =
 	| "list_models"
@@ -267,7 +255,6 @@ export type RequestType =
 	| "image_generation_stream"
 	| "image_edit"
 	| "image_edit_stream"
-	| "image_variation"
 	| "ocr"
 	| "ocr_stream"
 	| "video_generation"
@@ -287,7 +274,6 @@ export type RequestType =
 	| "file_retrieve"
 	| "file_delete"
 	| "file_content"
-	| "mcp_tool_execution"
 	| "container_create"
 	| "container_list"
 	| "container_retrieve"
@@ -296,48 +282,43 @@ export type RequestType =
 	| "container_file_list"
 	| "container_file_retrieve"
 	| "container_file_content"
-	| "container_file_delete"
-	| "websocket_responses"
-	| "realtime";
+	| "container_file_delete";
 
 // AllowedRequests matching Go's schemas.AllowedRequests
 export interface AllowedRequests {
-	text_completion: boolean;
-	text_completion_stream: boolean;
+	list_models: boolean;
 	chat_completion: boolean;
 	chat_completion_stream: boolean;
 	responses: boolean;
 	responses_stream: boolean;
-	embedding: boolean;
-	speech: boolean;
-	speech_stream: boolean;
-	transcription: boolean;
-	transcription_stream: boolean;
 	image_generation: boolean;
 	image_generation_stream: boolean;
 	image_edit: boolean;
 	image_edit_stream: boolean;
-	image_variation: boolean;
+	text_completion?: boolean;
+	text_completion_stream?: boolean;
+	embedding?: boolean;
+	speech?: boolean;
+	speech_stream?: boolean;
+	transcription?: boolean;
+	transcription_stream?: boolean;
 	ocr?: boolean;
 	ocr_stream?: boolean;
-	count_tokens: boolean;
-	list_models: boolean;
-	rerank: boolean;
-	video_generation: boolean;
-	video_retrieve: boolean;
-	video_download: boolean;
-	video_delete: boolean;
-	video_list: boolean;
-	video_remix: boolean;
-	websocket_responses: boolean;
-	realtime: boolean;
+	count_tokens?: boolean;
+	rerank?: boolean;
+	video_generation?: boolean;
+	video_retrieve?: boolean;
+	video_download?: boolean;
+	video_delete?: boolean;
+	video_list?: boolean;
+	video_remix?: boolean;
 }
 
 // CustomProviderConfig matching Go's schemas.CustomProviderConfig
 export interface CustomProviderConfig {
-	base_provider_type: KnownProvider;
+	base_provider_type: BaseProvider;
 	is_key_less?: boolean;
-	allowed_requests?: AllowedRequests;
+	allowed_requests: AllowedRequests;
 	request_path_overrides?: Record<string, string>;
 }
 
@@ -350,7 +331,6 @@ export interface OpenAIConfig {
 export interface ModelProviderConfig {
 	network_config?: NetworkConfig;
 	concurrency_and_buffer_size?: ConcurrencyAndBufferSize;
-	proxy_config?: ProxyConfig;
 	send_back_raw_request?: boolean;
 	send_back_raw_response?: boolean;
 	store_raw_request_response?: boolean;
@@ -378,24 +358,24 @@ export interface AddProviderRequest {
 	provider: ModelProviderName;
 	network_config?: NetworkConfig;
 	concurrency_and_buffer_size?: ConcurrencyAndBufferSize;
-	proxy_config?: ProxyConfig;
 	send_back_raw_request?: boolean;
 	send_back_raw_response?: boolean;
 	store_raw_request_response?: boolean;
 	custom_provider_config?: CustomProviderConfig;
 	openai_config?: OpenAIConfig;
+	description?: string;
 }
 
 // UpdateProviderRequest matching Go's UpdateProviderRequest
 export interface UpdateProviderRequest {
 	network_config: NetworkConfig;
 	concurrency_and_buffer_size: ConcurrencyAndBufferSize;
-	proxy_config?: ProxyConfig;
 	send_back_raw_request?: boolean;
 	send_back_raw_response?: boolean;
 	store_raw_request_response?: boolean;
 	custom_provider_config?: CustomProviderConfig;
 	openai_config?: OpenAIConfig;
+	description?: string;
 }
 
 export interface CreateProviderKeyRequest extends ModelProviderKey {}
@@ -432,8 +412,6 @@ export interface FrameworkConfig {
 	pricing_url: string;
 	pricing_sync_interval: number;
 	model_parameters_url: string;
-	mcp_library_url?: string;
-	mcp_library_sync_interval?: number;
 }
 
 // Auth config
@@ -442,40 +420,6 @@ export interface AuthConfig {
 	admin_password: SecretVar;
 	is_enabled: boolean;
 }
-
-// Global proxy type (for global proxy configuration, not per-provider)
-export type GlobalProxyType = "http" | "socks5" | "tcp";
-
-// Global proxy configuration matching Go's tables.GlobalProxyConfig
-export interface GlobalProxyConfig {
-	enabled: boolean;
-	type: GlobalProxyType;
-	url: string;
-	username?: string;
-	password?: string;
-	ca_cert_pem?: string;
-	no_proxy?: string;
-	timeout?: number;
-	skip_tls_verify?: boolean;
-	enable_for_scim: boolean;
-	enable_for_inference: boolean;
-	enable_for_api: boolean;
-}
-
-// Default GlobalProxyConfig
-export const DefaultGlobalProxyConfig: GlobalProxyConfig = {
-	enabled: false,
-	type: "http",
-	url: "",
-	username: "",
-	password: "",
-	no_proxy: "",
-	timeout: 30,
-	skip_tls_verify: false,
-	enable_for_scim: false,
-	enable_for_inference: false,
-	enable_for_api: false,
-};
 
 // Global header filter configuration matching Go's tables.GlobalHeaderFilterConfig
 // Controls which headers with the x-bf-eh-* prefix are forwarded to LLM providers
@@ -508,7 +452,6 @@ export interface BifrostConfig {
 	client_config: CoreConfig;
 	framework_config: FrameworkConfig;
 	auth_config?: AuthConfig;
-	proxy_config?: GlobalProxyConfig;
 	restart_required?: RestartRequiredConfig;
 	is_db_connected: boolean;
 	is_cache_connected: boolean;
@@ -544,20 +487,12 @@ export interface CoreConfig {
 	allowed_headers: string[];
 	max_request_body_size_mb: number;
 	compat: CompatConfig;
-	mcp_agent_depth: number;
-	mcp_tool_execution_timeout: number;
-	mcp_code_mode_binding_level?: string;
-	mcp_tool_sync_interval: number;
-	mcp_disable_auto_tool_inject: boolean;
-	mcp_enable_temp_token_auth: boolean;
-	async_job_result_ttl: number;
 	required_headers: string[];
 	logging_headers: string[];
 	whitelisted_routes: string[];
 	hide_deleted_virtual_keys_in_filters: boolean;
 	routing_chain_max_depth: number;
 	header_filter_config?: GlobalHeaderFilterConfig;
-	mcp_external_client_url?: SecretVar;
 }
 
 export const DefaultCoreConfig: CoreConfig = {
@@ -576,13 +511,6 @@ export const DefaultCoreConfig: CoreConfig = {
 	allowed_origins: [],
 	max_request_body_size_mb: 100,
 	compat: { convert_text_to_chat: false, convert_chat_to_responses: false, should_drop_params: false, should_convert_params: false },
-	mcp_agent_depth: 10,
-	mcp_tool_execution_timeout: 30,
-	mcp_code_mode_binding_level: "server",
-	mcp_tool_sync_interval: 10,
-	mcp_disable_auto_tool_inject: false,
-	mcp_enable_temp_token_auth: false,
-	async_job_result_ttl: 3600,
 	allowed_headers: [],
 	required_headers: [],
 	logging_headers: [],

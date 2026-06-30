@@ -4,7 +4,6 @@ import { getApiBaseUrl } from "@/lib/utils/port";
 import { createBaseQueryWithRefresh } from "@enterprise/lib/store/utils/baseQueryWithRefresh";
 import { clearOAuthStorage } from "@enterprise/lib/store/utils/tokenManager";
 import { createApi, fetchBaseQuery } from "@reduxjs/toolkit/query/react";
-import { getActiveTempToken, getSuppressGlobal401 } from "./tempToken";
 
 // Auth tokens are now stored in HTTP-only cookies (set by server)
 // No client-side token needed — handled by credentials: "include"
@@ -51,14 +50,6 @@ const baseQuery = fetchBaseQuery({
 		if (token) {
 			headers.set("Authorization", `Bearer ${token}`);
 		}
-		// Attach a temp token when a TempTokenScope wrapper is mounted. The
-		// dashboard cookie (if present) still takes precedence on the server
-		// side; the temp token is the fallback that rescues unauthenticated
-		// browsers visiting a scoped page.
-		const tempToken = getActiveTempToken();
-		if (tempToken) {
-			headers.set("X-Bifrost-Temp-Token", tempToken);
-		}
 		return headers;
 	},
 });
@@ -77,12 +68,6 @@ const baseQueryWithErrorHandling: typeof baseQueryWithRefresh = async (args: any
 
 		// Handle 401 for non-enterprise (no refresh available)
 		if (error?.status === 401 && !IS_ENTERPRISE) {
-			// When a TempTokenScope wrapper is active, the wrapped page handles
-			// its own 401 display (an "invalid/expired link" view). Skip the
-			// global redirect so the user stays on the page they opened.
-			if (getSuppressGlobal401()) {
-				return result;
-			}
 			clearAuthStorage();
 			if (typeof window !== "undefined" && !window.location.pathname.includes("/login")) {
 				const goto = window.location.pathname + window.location.search;
@@ -138,61 +123,15 @@ export const baseApi = createApi({
 	baseQuery: baseQueryWithErrorHandling,
 	tagTypes: [
 		"Logs",
-		"MCPLogs",
 		"Providers",
-		"MCPClients",
 		"Config",
-		"CacheConfig",
 		"VirtualKeys",
-		"Teams",
-		"Customers",
-		"Budgets",
-		"RateLimits",
-		"UsageStats",
-		"DebugStats",
-		"HealthCheck",
 		"DBKeys",
 		"ProviderKeys",
 		"Models",
 		"BaseModels",
-		"ModelConfigs",
-		"ProviderGovernance",
-		"Plugins",
-		"SCIMProviders",
-		"User",
-		"Guardrails",
-		"ClusterNodes",
-		"Users",
-		"GuardrailRules",
-		"Roles",
-		"Resources",
-		"Operations",
-		"Permissions",
-		"APIKeys",
-		"OAuth2Config",
-		"RoutingRules",
-		"PricingOverrides",
-		"MCPToolGroups",
-		"AuditLogs",
-		"UserGovernance",
-		"LargePayloadConfig",
-		"LoadBalancerConfig",
-		"Folders",
-		"Prompts",
-		"Versions",
 		"Sessions",
-		"AccessProfiles",
-		"BusinessUnits",
-		"PromptDeployments",
-		"AuthType",
-		"MCPSessions",
-		"MCPPerUserHeaderCredentials",
-		"MCPLibrary",
-		"FeatureFlags",
-		"ComplexityAnalyzerConfig",
-		"Skills",
-		"CircuitBreakerPolicies",
-		"CircuitBreakerState",
+		"PricingOverrides",
 	],
 	endpoints: () => ({}),
 });
