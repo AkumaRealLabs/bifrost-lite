@@ -185,6 +185,19 @@ func parseParentRequestIDFilter(ctx *fasthttp.RequestCtx) string {
 	return ""
 }
 
+func applyTTFBFilters(ctx *fasthttp.RequestCtx, filters *logstore.SearchFilters) {
+	if minTTFB := string(ctx.QueryArgs().Peek("min_ttfb_ms")); minTTFB != "" {
+		if val, err := strconv.ParseFloat(minTTFB, 64); err == nil {
+			filters.MinTTFBMs = &val
+		}
+	}
+	if maxTTFB := string(ctx.QueryArgs().Peek("max_ttfb_ms")); maxTTFB != "" {
+		if val, err := strconv.ParseFloat(maxTTFB, 64); err == nil {
+			filters.MaxTTFBMs = &val
+		}
+	}
+}
+
 type RedactedKeysManager interface {
 	GetAllRedactedKeys(ctx context.Context, ids []string) []schemas.Key
 	GetAllRedactedVirtualKeys(ctx context.Context, ids []string) []tables.TableVirtualKey
@@ -220,12 +233,15 @@ func (h *LoggingHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.GET("/api/logs/histogram/cost", lib.ChainMiddlewares(h.getLogsCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/models", lib.ChainMiddlewares(h.getLogsModelHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency", lib.ChainMiddlewares(h.getLogsLatencyHistogram, middlewares...))
+	r.GET("/api/logs/histogram/ttfb", lib.ChainMiddlewares(h.getLogsTTFBHistogram, middlewares...))
 	r.GET("/api/logs/histogram/cost/by-provider", lib.ChainMiddlewares(h.getLogsProviderCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/tokens/by-provider", lib.ChainMiddlewares(h.getLogsProviderTokenHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency/by-provider", lib.ChainMiddlewares(h.getLogsProviderLatencyHistogram, middlewares...))
+	r.GET("/api/logs/histogram/ttfb/by-provider", lib.ChainMiddlewares(h.getLogsProviderTTFBHistogram, middlewares...))
 	r.GET("/api/logs/histogram/cost/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/tokens/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionTokenHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionLatencyHistogram, middlewares...))
+	r.GET("/api/logs/ttfb/stats", lib.ChainMiddlewares(h.getLogsTTFBStats, middlewares...))
 	r.GET("/api/logs/dropped", lib.ChainMiddlewares(h.getDroppedRequests, middlewares...))
 	r.GET("/api/logs/filterdata", lib.ChainMiddlewares(h.getAvailableFilterData, middlewares...))
 	r.GET("/api/logs/rankings", lib.ChainMiddlewares(h.getModelRankings, middlewares...))
@@ -434,6 +450,7 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -497,7 +514,7 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 	// Sort parameters
 	pagination.SortBy = "timestamp" // Default sort field
 	if sortBy := string(ctx.QueryArgs().Peek("sort_by")); sortBy != "" {
-		if sortBy == "timestamp" || sortBy == "latency" || sortBy == "tokens" || sortBy == "cost" {
+		if sortBy == "timestamp" || sortBy == "latency" || sortBy == "ttfb_ms" || sortBy == "tokens" || sortBy == "cost" {
 			pagination.SortBy = sortBy
 		}
 	}
@@ -675,6 +692,7 @@ func (h *LoggingHandler) getLogsStats(ctx *fasthttp.RequestCtx) {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -834,6 +852,7 @@ func parseHistogramFilters(ctx *fasthttp.RequestCtx) *logstore.SearchFilters {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -930,6 +949,21 @@ func (h *LoggingHandler) getLogsLatencyHistogram(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, result)
 }
 
+// getLogsTTFBHistogram handles GET /api/logs/histogram/ttfb - Get time-bucketed streaming TTFB percentiles
+func (h *LoggingHandler) getLogsTTFBHistogram(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
+
+	result, err := h.logManager.GetTTFBHistogram(ctx, filters, bucketSizeSeconds)
+	if err != nil {
+		logger.Error("failed to get TTFB histogram: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("TTFB histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
 // getLogsProviderCostHistogram handles GET /api/logs/histogram/cost/by-provider - Get time-bucketed cost data with provider breakdown
 func (h *LoggingHandler) getLogsProviderCostHistogram(ctx *fasthttp.RequestCtx) {
 	filters := parseHistogramFilters(ctx)
@@ -969,6 +1003,54 @@ func (h *LoggingHandler) getLogsProviderLatencyHistogram(ctx *fasthttp.RequestCt
 	if err != nil {
 		logger.Error("failed to get provider latency histogram: %v", err)
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Provider latency histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
+// getLogsProviderTTFBHistogram handles GET /api/logs/histogram/ttfb/by-provider - Get time-bucketed streaming TTFB percentiles with provider breakdown
+func (h *LoggingHandler) getLogsProviderTTFBHistogram(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
+
+	result, err := h.logManager.GetProviderTTFBHistogram(ctx, filters, bucketSizeSeconds)
+	if err != nil {
+		logger.Error("failed to get provider TTFB histogram: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Provider TTFB histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
+func (h *LoggingHandler) getLogsTTFBStats(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+
+	windowSeconds := 900
+	if raw := string(ctx.QueryArgs().Peek("window_seconds")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			SendError(ctx, fasthttp.StatusBadRequest, "window_seconds must be greater than 0")
+			return
+		}
+		windowSeconds = parsed
+	}
+
+	minSamples := 20
+	if raw := string(ctx.QueryArgs().Peek("min_samples")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			SendError(ctx, fasthttp.StatusBadRequest, "min_samples must be greater than 0")
+			return
+		}
+		minSamples = parsed
+	}
+
+	result, err := h.logManager.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+	if err != nil {
+		logger.Error("failed to get TTFB stats: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("TTFB stats calculation failed: %v", err))
 		return
 	}
 
@@ -1170,6 +1252,15 @@ func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 		result.Overview.Latency = res
 		return nil
 	})
+	g.Go(func() error {
+		res, err := h.logManager.GetTTFBHistogram(gCtx, filters, bucketSizeSeconds)
+		if err != nil {
+			return fmt.Errorf("TTFB histogram: %w", err)
+		}
+		result.Overview.TTFB = res
+		return nil
+	})
+
 	// modelHistogram backs both the Overview "Model Usage" card and the Model
 	// Rankings "Top Models" chart; compute it once and share the pointer.
 	g.Go(func() error {
@@ -1207,6 +1298,15 @@ func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 		result.ProviderUsage.Latency = res
 		return nil
 	})
+	g.Go(func() error {
+		res, err := h.logManager.GetProviderTTFBHistogram(gCtx, filters, bucketSizeSeconds)
+		if err != nil {
+			return fmt.Errorf("provider TTFB histogram: %w", err)
+		}
+		result.ProviderUsage.TTFB = res
+		return nil
+	})
+
 	// ---- Model Rankings table ----
 	g.Go(func() error {
 		res, err := h.logManager.GetModelRankings(gCtx, filters)

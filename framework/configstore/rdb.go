@@ -216,6 +216,15 @@ func tableKeyFromSchemaKey(provider tables.TableProvider, key schemas.Key) (tabl
 
 // UpdateClientConfig updates the client configuration in the database.
 func (s *RDBConfigStore) UpdateClientConfig(ctx context.Context, config *ClientConfig) error {
+	var ttfbRoutingJSON string
+	if config.TTFBRouting != nil {
+		data, err := sonic.Marshal(config.TTFBRouting)
+		if err != nil {
+			return fmt.Errorf("failed to serialize ttfb routing config: %w", err)
+		}
+		ttfbRoutingJSON = string(data)
+	}
+
 	dbConfig := tables.TableClientConfig{
 		DropExcessRequests:                    config.DropExcessRequests,
 		InitialPoolSize:                       config.InitialPoolSize,
@@ -240,6 +249,7 @@ func (s *RDBConfigStore) UpdateClientConfig(ctx context.Context, config *ClientC
 		WhitelistedRoutes:                     config.WhitelistedRoutes,
 		HideDeletedVirtualKeysInFilters:       config.HideDeletedVirtualKeysInFilters,
 		RoutingChainMaxDepth:                  config.RoutingChainMaxDepth,
+		TTFBRoutingJSON:                       ttfbRoutingJSON,
 		HeaderFilterConfig:                    config.HeaderFilterConfig,
 		AllowPerRequestContentStorageOverride: config.AllowPerRequestContentStorageOverride,
 		AllowPerRequestRawOverride:            config.AllowPerRequestRawOverride,
@@ -450,6 +460,14 @@ func (s *RDBConfigStore) GetClientConfig(ctx context.Context) (*ClientConfig, er
 		}
 		return nil, err
 	}
+	var ttfbRouting *TTFBRoutingConfig
+	if dbConfig.TTFBRoutingJSON != "" {
+		var config TTFBRoutingConfig
+		if err := sonic.Unmarshal([]byte(dbConfig.TTFBRoutingJSON), &config); err != nil {
+			return nil, fmt.Errorf("failed to parse ttfb routing config: %w", err)
+		}
+		ttfbRouting = &config
+	}
 
 	return &ClientConfig{
 		DropExcessRequests:      dbConfig.DropExcessRequests,
@@ -477,6 +495,7 @@ func (s *RDBConfigStore) GetClientConfig(ctx context.Context) (*ClientConfig, er
 		WhitelistedRoutes:                     dbConfig.WhitelistedRoutes,
 		HideDeletedVirtualKeysInFilters:       dbConfig.HideDeletedVirtualKeysInFilters,
 		RoutingChainMaxDepth:                  dbConfig.RoutingChainMaxDepth,
+		TTFBRouting:                           ttfbRouting,
 		HeaderFilterConfig:                    dbConfig.HeaderFilterConfig,
 		AllowPerRequestContentStorageOverride: dbConfig.AllowPerRequestContentStorageOverride,
 		AllowPerRequestRawOverride:            dbConfig.AllowPerRequestRawOverride,

@@ -111,6 +111,7 @@ export function modelRankingsToCSV(data: ModelRankingsResponse | null): CSVData 
 		"Total Tokens",
 		"Total Cost ($)",
 		"Avg Latency (ms)",
+		"P95 TTFB (ms)",
 		"Requests Trend (%)",
 		"Tokens Trend (%)",
 		"Cost Trend (%)",
@@ -125,6 +126,7 @@ export function modelRankingsToCSV(data: ModelRankingsResponse | null): CSVData 
 		r.total_tokens,
 		r.total_cost,
 		r.avg_latency,
+		r.p95_ttfb_ms ?? 0,
 		r.trend.has_previous_period ? r.trend.requests_trend : "N/A",
 		r.trend.has_previous_period ? r.trend.tokens_trend : "N/A",
 		r.trend.has_previous_period ? r.trend.cost_trend : "N/A",
@@ -164,21 +166,18 @@ export interface DashboardData {
 	costData: CostHistogramResponse | null;
 	modelData: ModelHistogramResponse | null;
 	latencyData: LatencyHistogramResponse | null;
+	ttfbData: LatencyHistogramResponse | null;
 	// Provider Usage
 	providerCostData: ProviderCostHistogramResponse | null;
 	providerTokenData: ProviderTokenHistogramResponse | null;
 	providerLatencyData: ProviderLatencyHistogramResponse | null;
+	providerTTFBData: ProviderLatencyHistogramResponse | null;
 	// Rankings
 	rankingsData: ModelRankingsResponse | null;
 	virtualKeyRankingsData: DimensionRankingsResponse | null;
 }
 
-export type ExportTab =
-	| "all"
-	| "overview"
-	| "provider-usage"
-	| "rankings"
-	| "virtual-key-rankings";
+export type ExportTab = "all" | "overview" | "provider-usage" | "rankings" | "virtual-key-rankings";
 
 /** Return all CSV sections for the selected scope. Each entry becomes its own sheet / file section. */
 export function getCSVSections(data: DashboardData, tab: ExportTab): { name: string; csv: CSVData }[] {
@@ -191,6 +190,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "overview-cost", csv: overviewCostToCSV(data.costData) },
 			{ name: "overview-model-usage", csv: overviewModelUsageToCSV(data.modelData) },
 			{ name: "overview-latency", csv: overviewLatencyToCSV(data.latencyData) },
+			{ name: "overview-ttfb", csv: overviewLatencyToCSV(data.ttfbData, "TTFB") },
 		);
 	}
 
@@ -199,6 +199,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "provider-cost", csv: providerCostToCSV(data.providerCostData) },
 			{ name: "provider-tokens", csv: providerTokensToCSV(data.providerTokenData) },
 			{ name: "provider-latency", csv: providerLatencyToCSV(data.providerLatencyData) },
+			{ name: "provider-ttfb", csv: providerLatencyToCSV(data.providerTTFBData) },
 		);
 	}
 

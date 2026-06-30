@@ -348,6 +348,10 @@ func (p *LoggerPlugin) applyStreamingOutputToEntry(entry *logstore.Log, streamRe
 		latF := float64(streamResponse.Data.Latency)
 		entry.Latency = &latF
 	}
+	if streamResponse.Data.TimeToFirstToken > 0 {
+		ttfb := float64(streamResponse.Data.TimeToFirstToken)
+		entry.TTFBMs = &ttfb
+	}
 
 	// Update model and alias from resolved/requested model pair.
 	applyModelAlias(entry, streamResponse.RequestedModel, streamResponse.ResolvedModel)
@@ -652,6 +656,11 @@ func (p *LoggerPlugin) GetLatencyHistogram(ctx context.Context, filters logstore
 	return p.store.GetLatencyHistogram(ctx, filters, bucketSizeSeconds)
 }
 
+// GetTTFBHistogram returns time-bucketed streaming TTFB percentiles for the given filters
+func (p *LoggerPlugin) GetTTFBHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	return p.store.GetTTFBHistogram(ctx, filters, bucketSizeSeconds)
+}
+
 // GetProviderCostHistogram returns time-bucketed cost data with provider breakdown for the given filters
 func (p *LoggerPlugin) GetProviderCostHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	return p.store.GetProviderCostHistogram(ctx, filters, bucketSizeSeconds)
@@ -665,6 +674,16 @@ func (p *LoggerPlugin) GetProviderTokenHistogram(ctx context.Context, filters lo
 // GetProviderLatencyHistogram returns time-bucketed latency percentiles with provider breakdown for the given filters
 func (p *LoggerPlugin) GetProviderLatencyHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
 	return p.store.GetProviderLatencyHistogram(ctx, filters, bucketSizeSeconds)
+}
+
+// GetProviderTTFBHistogram returns time-bucketed streaming TTFB percentiles with provider breakdown for the given filters
+func (p *LoggerPlugin) GetProviderTTFBHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	return p.store.GetProviderTTFBHistogram(ctx, filters, bucketSizeSeconds)
+}
+
+// GetTTFBStats returns recent streaming TTFB stats by provider, model, and virtual key
+func (p *LoggerPlugin) GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
+	return p.store.GetTTFBStats(ctx, filters, window, minSamples)
 }
 
 func (p *LoggerPlugin) GetModelRankings(ctx context.Context, filters logstore.SearchFilters) (*logstore.ModelRankingResult, error) {

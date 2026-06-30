@@ -1,9 +1,11 @@
 import {
 	useGetLogsProviderCostHistogramQuery,
 	useGetLogsProviderLatencyHistogramQuery,
+	useGetLogsProviderTTFBHistogramQuery,
 	useGetLogsProviderTokenHistogramQuery,
 	useLazyGetLogsProviderCostHistogramQuery,
 	useLazyGetLogsProviderLatencyHistogramQuery,
+	useLazyGetLogsProviderTTFBHistogramQuery,
 	useLazyGetLogsProviderTokenHistogramQuery,
 } from "@/lib/store";
 import type { LogFilters } from "@/lib/types/logs";
@@ -69,14 +71,21 @@ export const ProviderUsageTabView = forwardRef<ProviderUsageTabViewHandle, Provi
 	const { data: providerCostData, isLoading: loadingProviderCost } = useGetLogsProviderCostHistogramQuery(fetchArg, skipOpts);
 	const { data: providerTokenData, isLoading: loadingProviderTokens } = useGetLogsProviderTokenHistogramQuery(fetchArg, skipOpts);
 	const { data: providerLatencyData, isLoading: loadingProviderLatency } = useGetLogsProviderLatencyHistogramQuery(fetchArg, skipOpts);
+	const { data: providerTTFBData, isLoading: loadingProviderTTFB } = useGetLogsProviderTTFBHistogramQuery(fetchArg, skipOpts);
 
 	const [triggerProviderCost] = useLazyGetLogsProviderCostHistogramQuery();
 	const [triggerProviderTokens] = useLazyGetLogsProviderTokenHistogramQuery();
 	const [triggerProviderLatency] = useLazyGetLogsProviderLatencyHistogramQuery();
+	const [triggerProviderTTFB] = useLazyGetLogsProviderTTFBHistogramQuery();
 
 	const loadData = useCallback(async () => {
-		await Promise.all([triggerProviderCost(fetchArg, true), triggerProviderTokens(fetchArg, true), triggerProviderLatency(fetchArg, true)]);
-	}, [fetchArg, triggerProviderCost, triggerProviderTokens, triggerProviderLatency]);
+		await Promise.all([
+			triggerProviderCost(fetchArg, true),
+			triggerProviderTokens(fetchArg, true),
+			triggerProviderLatency(fetchArg, true),
+			triggerProviderTTFB(fetchArg, true),
+		]);
+	}, [fetchArg, triggerProviderCost, triggerProviderTokens, triggerProviderLatency, triggerProviderTTFB]);
 
 	useImperativeHandle(
 		ref,
@@ -85,10 +94,11 @@ export const ProviderUsageTabView = forwardRef<ProviderUsageTabViewHandle, Provi
 				providerCostData: providerCostData ?? null,
 				providerTokenData: providerTokenData ?? null,
 				providerLatencyData: providerLatencyData ?? null,
+				providerTTFBData: providerTTFBData ?? null,
 			}),
 			loadData,
 		}),
-		[providerCostData, providerTokenData, providerLatencyData, loadData],
+		[providerCostData, providerTokenData, providerLatencyData, providerTTFBData, loadData],
 	);
 
 	const availableProviders = useMemo(
@@ -97,21 +107,25 @@ export const ProviderUsageTabView = forwardRef<ProviderUsageTabViewHandle, Provi
 				...(providerCostData?.providers ?? []),
 				...(providerTokenData?.providers ?? []),
 				...(providerLatencyData?.providers ?? []),
+				...(providerTTFBData?.providers ?? []),
 			]),
-		[providerCostData?.providers, providerTokenData?.providers, providerLatencyData?.providers],
+		[providerCostData?.providers, providerTokenData?.providers, providerLatencyData?.providers, providerTTFBData?.providers],
 	);
 	const providerCostProviders = useMemo(() => sanitizeSeriesLabels(providerCostData?.providers), [providerCostData?.providers]);
 	const providerTokenProviders = useMemo(() => sanitizeSeriesLabels(providerTokenData?.providers), [providerTokenData?.providers]);
 	const providerLatencyProviders = useMemo(() => sanitizeSeriesLabels(providerLatencyData?.providers), [providerLatencyData?.providers]);
+	const providerTTFBProviders = useMemo(() => sanitizeSeriesLabels(providerTTFBData?.providers), [providerTTFBData?.providers]);
 
 	return (
 		<ProviderUsageTab
 			providerCostData={providerCostData ?? null}
 			providerTokenData={providerTokenData ?? null}
 			providerLatencyData={providerLatencyData ?? null}
+			providerTTFBData={providerTTFBData ?? null}
 			loadingProviderCost={loadingProviderCost}
 			loadingProviderTokens={loadingProviderTokens}
 			loadingProviderLatency={loadingProviderLatency}
+			loadingProviderTTFB={loadingProviderTTFB}
 			startTime={startTime}
 			endTime={endTime}
 			providerCostChartType={providerCostChartType}
@@ -124,6 +138,7 @@ export const ProviderUsageTabView = forwardRef<ProviderUsageTabViewHandle, Provi
 			providerCostProviders={providerCostProviders}
 			providerTokenProviders={providerTokenProviders}
 			providerLatencyProviders={providerLatencyProviders}
+			providerTTFBProviders={providerTTFBProviders}
 			onProviderCostChartToggle={onProviderCostChartToggle}
 			onProviderTokenChartToggle={onProviderTokenChartToggle}
 			onProviderLatencyChartToggle={onProviderLatencyChartToggle}

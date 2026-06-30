@@ -278,9 +278,7 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 				</Card>
 			) : !rankingsData?.rankings?.length ? (
 				<Card className="rounded-sm p-4 shadow-none">
-					<div className="text-muted-foreground flex h-[200px] items-center justify-center text-sm">
-						当前时间范围内没有模型用量数据。
-					</div>
+					<div className="text-muted-foreground flex h-[200px] items-center justify-center text-sm">当前时间范围内没有模型用量数据。</div>
 				</Card>
 			) : (
 				<Card className="rounded-sm p-2 shadow-none" data-testid="dashboard-model-rankings-table">
@@ -329,6 +327,7 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 										onSort={handleSort}
 									/>
 								</TableHead>
+								<TableHead className="text-right">TTFB P95</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -381,6 +380,9 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 											<span>{formatLatency(entry.avg_latency)}</span>
 											<TrendBadge value={entry.trend.latency_trend} positiveIsGood={false} isNew={!entry.trend.has_previous_period} />
 										</div>
+									</TableCell>
+									<TableCell className="text-right">
+										<span>{entry.p95_ttfb_ms && entry.p95_ttfb_ms > 0 ? formatLatency(entry.p95_ttfb_ms) : "-"}</span>
 									</TableCell>
 								</TableRow>
 							))}

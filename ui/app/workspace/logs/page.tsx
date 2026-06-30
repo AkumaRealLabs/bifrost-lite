@@ -159,7 +159,7 @@ export default function LogsPage() {
 		() => ({
 			limit: urlState.limit,
 			offset: urlState.offset,
-			sort_by: urlState.sort_by as "timestamp" | "latency" | "tokens" | "cost",
+			sort_by: urlState.sort_by as "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost",
 			order: urlState.order as "asc" | "desc",
 		}),
 		[urlState.limit, urlState.offset, urlState.sort_by, urlState.order],
@@ -381,8 +381,7 @@ export default function LogsPage() {
 				title: "成功率",
 				value: <NumberFlow value={stats?.success_rate ?? 0} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="%" />,
 				icon: <CheckCircle className="size-4" />,
-				description:
-					"系统视角的成功率。每一次 fallback 都计为一次独立尝试；同一请求内的重试按一次尝试统计。",
+				description: "系统视角的成功率。每一次 fallback 都计为一次独立尝试；同一请求内的重试按一次尝试统计。",
 			},
 			{
 				title: "用户成功率",
@@ -451,6 +450,7 @@ export default function LogsPage() {
 			provider: "Provider",
 			model: "模型",
 			latency: "延迟",
+			ttfb_ms: "TTFB",
 			tokens: "Tokens",
 			cost: "成本",
 			virtual_key: "Virtual Key",

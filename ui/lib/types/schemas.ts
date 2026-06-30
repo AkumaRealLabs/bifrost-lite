@@ -447,7 +447,12 @@ export type OpenAIConfigFormSchema = z.infer<typeof openaiConfigFormSchema>;
 
 // Allowed requests schema
 export const allowedRequestsSchema = z
-	.object(Object.fromEntries(LiteRequestTypes.map((requestType) => [requestType, z.boolean()])) as Record<(typeof LiteRequestTypes)[number], z.ZodBoolean>)
+	.object(
+		Object.fromEntries(LiteRequestTypes.map((requestType) => [requestType, z.boolean()])) as Record<
+			(typeof LiteRequestTypes)[number],
+			z.ZodBoolean
+		>,
+	)
 	.strict();
 
 const liteBaseProviderSchema = z.enum(LiteBaseProviders);
@@ -600,6 +605,15 @@ const providerBackedCacheConfigSchema = baseCacheConfigSchema
 
 export const cacheConfigSchema = z.union([directCacheConfigSchema, providerBackedCacheConfigSchema]);
 
+// Core config schema
+const ttfbRoutingConfigSchema = z.object({
+	enabled: z.boolean().default(false),
+	window_seconds: z.number().int().min(1).optional(),
+	min_samples: z.number().int().min(1).optional(),
+	threshold_ms: z.number().positive().optional(),
+	min_penalty_factor: z.number().positive().max(1).optional(),
+});
+
 export const coreConfigSchema = z.object({
 	drop_excess_requests: z.boolean().default(false),
 	initial_pool_size: z.number().min(1).default(10),
@@ -610,6 +624,7 @@ export const coreConfigSchema = z.object({
 	hide_deleted_virtual_keys_in_filters: z.boolean().default(false),
 	allowed_origins: z.array(z.string()).default(["*"]),
 	max_request_body_size_mb: z.number().min(1).default(100),
+	ttfb_routing: ttfbRoutingConfigSchema.optional(),
 });
 
 // Bifrost config schema

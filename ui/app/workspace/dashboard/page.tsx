@@ -135,12 +135,7 @@ export default function DashboardPage() {
 	const modelRankingsRef = useRef<ModelRankingsTabViewHandle>(null);
 	const virtualKeyRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
 
-	const allRefs = [
-		overviewRef,
-		providerRef,
-		modelRankingsRef,
-		virtualKeyRankingsRef,
-	];
+	const allRefs = [overviewRef, providerRef, modelRankingsRef, virtualKeyRankingsRef];
 
 	const getDashboardData = useCallback((): DashboardData => {
 		const merged: Partial<DashboardData> = {};
@@ -153,9 +148,11 @@ export default function DashboardPage() {
 			costData: null,
 			modelData: null,
 			latencyData: null,
+			ttfbData: null,
 			providerCostData: null,
 			providerTokenData: null,
 			providerLatencyData: null,
+			providerTTFBData: null,
 			rankingsData: null,
 			virtualKeyRankingsData: null,
 			...merged,

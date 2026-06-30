@@ -43,6 +43,14 @@ type CompatConfig struct {
 	ShouldConvertParams    bool `json:"should_convert_params"`
 }
 
+type TTFBRoutingConfig struct {
+	Enabled          bool     `json:"enabled"`
+	WindowSeconds    *int     `json:"window_seconds,omitempty"`
+	MinSamples       *int     `json:"min_samples,omitempty"`
+	ThresholdMs      *float64 `json:"threshold_ms,omitempty"`
+	MinPenaltyFactor *float64 `json:"min_penalty_factor,omitempty"`
+}
+
 // UnmarshalJSON defaults all bool fields to true when absent from JSON.
 func (c *CompatConfig) UnmarshalJSON(data []byte) error {
 	type compatConfig struct {
@@ -88,6 +96,7 @@ type ClientConfig struct {
 	WhitelistedRoutes                     []string                         `json:"whitelisted_routes,omitempty"`         // Routes that bypass auth middleware
 	HideDeletedVirtualKeysInFilters       bool                             `json:"hide_deleted_virtual_keys_in_filters"` // Hide deleted virtual keys from logs filter data
 	RoutingChainMaxDepth                  int                              `json:"routing_chain_max_depth"`              // Maximum depth for routing rule chain evaluation (default: 10)
+	TTFBRouting                           *TTFBRoutingConfig               `json:"ttfb_routing,omitempty"`               // Optional TTFB-aware VK provider weighting
 	ConfigHash                            string                           `json:"-"`                                    // Config hash for reconciliation (not serialized)
 	DumpErrorsInConsoleLogs               bool                             `json:"dump_errors_in_console_logs"`          // Dump error details in console logs
 }
@@ -172,6 +181,15 @@ func (c *ClientConfig) GenerateClientConfigHash() (string, error) {
 	if c.RoutingChainMaxDepth > 0 {
 		hash.Write([]byte("routingChainMaxDepth:" + strconv.Itoa(c.RoutingChainMaxDepth)))
 	}
+	if c.TTFBRouting != nil {
+		data, err := sonic.Marshal(c.TTFBRouting)
+		if err != nil {
+			return "", err
+		}
+		hash.Write([]byte("ttfbRouting:"))
+		hash.Write(data)
+	}
+
 	// Only hash non-default value to avoid legacy config hash churn on upgrade.
 	if c.AllowPerRequestContentStorageOverride {
 		hash.Write([]byte("allowPerRequestContentStorageOverride:true"))
