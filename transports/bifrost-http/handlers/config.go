@@ -937,7 +937,7 @@ func validateProviderScoringConfig(config *configstore.ProviderScoringConfig) er
 	if config.Weights != nil {
 		sum := config.Weights.Availability + config.Weights.TTFB + config.Weights.Cost
 		if config.Weights.Availability <= 0 || config.Weights.TTFB < 0 || config.Weights.Cost < 0 || sum <= 0 {
-			return fmt.Errorf("provider_scoring.weights must be positive and sum to a value greater than 0")
+			return fmt.Errorf("provider_scoring.weights: availability must be > 0, ttfb and cost must be >= 0, and sum must be > 0")
 		}
 	}
 	return nil

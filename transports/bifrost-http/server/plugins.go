@@ -135,6 +135,13 @@ func (s *BifrostHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
 		}
 		if s.Config.ClientConfig.TTFBRouting != nil {
 			config.TTFBRouting = s.Config.ClientConfig.TTFBRouting
+		} else if pluginCfg := s.getPluginConfig(governance.PluginName); pluginCfg != nil && pluginCfg.Config != nil {
+			fileConfig, err := MarshalPluginConfig[governance.Config](pluginCfg.Config)
+			if err != nil {
+				logger.Warn("failed to parse governance plugin config: %v", err)
+			} else if fileConfig.TTFBRouting != nil {
+				config.TTFBRouting = fileConfig.TTFBRouting
+			}
 		}
 		if s.Config.ClientConfig.ProviderScoring != nil {
 			config.ProviderScoring = s.Config.ClientConfig.ProviderScoring
@@ -142,8 +149,8 @@ func (s *BifrostHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
 			fileConfig, err := MarshalPluginConfig[governance.Config](pluginCfg.Config)
 			if err != nil {
 				logger.Warn("failed to parse governance plugin config: %v", err)
-			} else if fileConfig.TTFBRouting != nil {
-				config.TTFBRouting = fileConfig.TTFBRouting
+			} else if fileConfig.ProviderScoring != nil {
+				config.ProviderScoring = fileConfig.ProviderScoring
 			}
 		}
 		s.registerPluginWithStatus(ctx, governance.PluginName, nil, config, false)

@@ -63,6 +63,7 @@ export default function PerformanceTuningView() {
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
 	const [localConfig, setLocalConfig] = useState<CoreConfig>(DefaultCoreConfig);
 	const [needsRestart, setNeedsRestart] = useState<boolean>(false);
+	const [providerScoringTouched, setProviderScoringTouched] = useState(false);
 
 	const [localValues, setLocalValues] = useState<{
 		initial_pool_size: string;
@@ -83,7 +84,8 @@ export default function PerformanceTuningView() {
 	useEffect(() => {
 		if (bifrostConfig && config) {
 			const ttfbRouting = normalizeTTFBRouting(config.ttfb_routing);
-			setLocalConfig({ ...config, ttfb_routing: ttfbRouting, provider_scoring: normalizeProviderScoring(config.provider_scoring) });
+			setLocalConfig({ ...config, ttfb_routing: ttfbRouting });
+			setProviderScoringTouched(false);
 			setLocalValues({
 				initial_pool_size: config?.initial_pool_size?.toString() || "1000",
 				max_request_body_size_mb: config?.max_request_body_size_mb?.toString() || "100",
@@ -102,10 +104,18 @@ export default function PerformanceTuningView() {
 			localConfig.initial_pool_size !== config.initial_pool_size ||
 			localConfig.max_request_body_size_mb !== config.max_request_body_size_mb ||
 			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing) ||
-			JSON.stringify(normalizeProviderScoring(localConfig.provider_scoring)) !==
-				JSON.stringify(normalizeProviderScoring(config.provider_scoring))
+			(providerScoringTouched &&
+				(localConfig.provider_scoring?.enabled ?? false) !== (config.provider_scoring?.enabled ?? false))
 		);
-	}, [config, localConfig]);
+	}, [config, localConfig, providerScoringTouched]);
+
+	const handleProviderScoringToggle = useCallback((checked: boolean) => {
+		setProviderScoringTouched(true);
+		setLocalConfig((prev) => ({
+			...prev,
+			provider_scoring: { ...normalizeProviderScoring(prev.provider_scoring ?? config?.provider_scoring), enabled: checked },
+		}));
+	}, [config?.provider_scoring]);
 
 	const handlePoolSizeChange = useCallback((value: string) => {
 		setLocalValues((prev) => ({ ...prev, initial_pool_size: value }));
@@ -190,12 +200,12 @@ export default function PerformanceTuningView() {
 				return;
 			}
 
-			if (!bifrostConfig) {
+			if (!bifrostConfig || !config) {
 				toast.error("配置尚未加载，请刷新后重试。");
 				return;
 			}
 			const nextConfig: CoreConfig = {
-				...localConfig,
+				...config,
 				initial_pool_size: poolSize,
 				max_request_body_size_mb: maxBodySize,
 				ttfb_routing: {
@@ -206,13 +216,19 @@ export default function PerformanceTuningView() {
 					min_penalty_factor: ttfbMinPenaltyFactor,
 				},
 			};
+			if (providerScoringTouched) {
+				nextConfig.provider_scoring = {
+					...normalizeProviderScoring(localConfig.provider_scoring ?? config.provider_scoring),
+					enabled: localConfig.provider_scoring?.enabled ?? false,
+				};
+			}
 			await updateCoreConfig({ ...bifrostConfig, client_config: nextConfig }).unwrap();
 			setNeedsRestart(false);
 			toast.success("性能设置已更新");
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
-	}, [bifrostConfig, localConfig, localValues, updateCoreConfig]);
+	}, [bifrostConfig, config, localConfig, localValues, providerScoringTouched, updateCoreConfig]);
 
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-4">
@@ -271,6 +287,26 @@ export default function PerformanceTuningView() {
 						/>
 					</div>
 					{needsRestart && <RestartWarning />}
+				</div>
+
+				<div className="space-y-4 rounded-sm border p-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<label htmlFor="provider-scoring-enabled" className="text-sm font-medium">
+								智能路由评分
+							</label>
+							<p className="text-muted-foreground text-sm">
+								优先级：高可用 &gt; TTFB &gt; 成本。仅影响 VK 自动路由。统计窗口、阈值、权重等请通过 API 配置
+								client_config.provider_scoring。
+							</p>
+						</div>
+						<Switch
+							id="provider-scoring-enabled"
+							checked={localConfig.provider_scoring?.enabled ?? config?.provider_scoring?.enabled ?? false}
+							onCheckedChange={handleProviderScoringToggle}
+							disabled={!hasSettingsUpdateAccess}
+						/>
+					</div>
 				</div>
 
 				<div className="space-y-4 rounded-sm border p-4">

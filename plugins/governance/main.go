@@ -33,12 +33,12 @@ const (
 
 // Config is the configuration for the governance plugin
 type Config struct {
-	IsVkMandatory         *bool              `json:"is_vk_mandatory"`
-	RequiredHeaders       *[]string          `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
-	IsEnterprise          bool               `json:"is_enterprise"`
-	DisableAutoToolInject *bool              `json:"disable_auto_tool_inject"`
-	RoutingChainMaxDepth  *int               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
-	TTFBRouting           *TTFBRoutingConfig           `json:"ttfb_routing"`
+	IsVkMandatory         *bool                              `json:"is_vk_mandatory"`
+	RequiredHeaders       *[]string                          `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
+	IsEnterprise          bool                               `json:"is_enterprise"`
+	DisableAutoToolInject *bool                              `json:"disable_auto_tool_inject"`
+	RoutingChainMaxDepth  *int                               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
+	TTFBRouting           *TTFBRoutingConfig                 `json:"ttfb_routing"`
 	ProviderScoring       *configstore.ProviderScoringConfig `json:"provider_scoring"`
 }
 
@@ -119,9 +119,9 @@ type GovernancePlugin struct {
 	logger       schemas.Logger
 
 	// Transport dependencies
-	inMemoryStore    InMemoryStore
-	ttfbStats        TTFBStatsProvider
-	reliabilityStats ProviderReliabilityStatsProvider
+	inMemoryStore         InMemoryStore
+	ttfbStats             TTFBStatsProvider
+	reliabilityStats      ProviderReliabilityStatsProvider
 	providerPriceOverride func(providerName string) (float64, bool) // tests only
 	testCooldownGet       func(context.Context, time.Time) ([]configstore.ProviderCooldownState, error)
 	testCooldownUpsert    func(context.Context, configstore.ProviderCooldownState) error

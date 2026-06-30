@@ -60,14 +60,14 @@ type ProviderScoringWeights struct {
 
 // ProviderScoringConfig enables availability-first VK auto routing with cooldown and composite scoring.
 type ProviderScoringConfig struct {
-	Enabled                       bool                    `json:"enabled"`
-	WindowSeconds                 *int                    `json:"window_seconds,omitempty"`
-	MinSamples                    *int                    `json:"min_samples,omitempty"`
-	ErrorRateThreshold            *float64                `json:"error_rate_threshold,omitempty"`
-	ConsecutiveFailuresThreshold  *int                    `json:"consecutive_failures_threshold,omitempty"`
-	CooldownSeconds               *int                    `json:"cooldown_seconds,omitempty"`
-	TTFBThresholdMs               *float64                `json:"ttfb_threshold_ms,omitempty"`
-	Weights                       *ProviderScoringWeights `json:"weights,omitempty"`
+	Enabled                      bool                    `json:"enabled"`
+	WindowSeconds                *int                    `json:"window_seconds,omitempty"`
+	MinSamples                   *int                    `json:"min_samples,omitempty"`
+	ErrorRateThreshold           *float64                `json:"error_rate_threshold,omitempty"`
+	ConsecutiveFailuresThreshold *int                    `json:"consecutive_failures_threshold,omitempty"`
+	CooldownSeconds              *int                    `json:"cooldown_seconds,omitempty"`
+	TTFBThresholdMs              *float64                `json:"ttfb_threshold_ms,omitempty"`
+	Weights                      *ProviderScoringWeights `json:"weights,omitempty"`
 }
 
 // NormalizeProviderScoringConfig fills defaults for provider scoring.
@@ -104,10 +104,10 @@ func NormalizeProviderScoringConfig(config *ProviderScoringConfig) ProviderScori
 			if config.Weights.Availability > 0 {
 				weights.Availability = config.Weights.Availability
 			}
-			if config.Weights.TTFB > 0 {
+			if config.Weights.TTFB >= 0 {
 				weights.TTFB = config.Weights.TTFB
 			}
-			if config.Weights.Cost > 0 {
+			if config.Weights.Cost >= 0 {
 				weights.Cost = config.Weights.Cost
 			}
 		}

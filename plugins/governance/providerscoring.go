@@ -25,7 +25,6 @@ type ProviderReliabilityStatsProvider interface {
 	GetProviderReliabilityStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.ProviderReliabilityStatsResult, error)
 }
 
-
 func parseProviderPriceRMBPerDao(description string) (float64, bool) {
 	description = strings.TrimSpace(description)
 	if description == "" {

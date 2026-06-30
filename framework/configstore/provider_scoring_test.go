@@ -44,3 +44,13 @@ func TestGenerateClientConfigHashIncludesProviderScoring(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, h1, h2)
 }
+
+func TestNormalizeProviderScoringConfigZeroSecondaryWeights(t *testing.T) {
+	zero := 0.0
+	got := NormalizeProviderScoringConfig(&ProviderScoringConfig{
+		Weights: &ProviderScoringWeights{Availability: 1.0, TTFB: zero, Cost: zero},
+	})
+	require.NotNil(t, got.Weights)
+	assert.InDelta(t, 0, got.Weights.TTFB, 0.0001)
+	assert.InDelta(t, 0, got.Weights.Cost, 0.0001)
+}

@@ -258,6 +258,76 @@
             }
           },
           "additionalProperties": false
+        },
+        "provider_scoring": {
+          "type": "object",
+          "description": "Optional availability-first virtual-key provider scoring and cooldown routing. Disabled by default.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable composite provider scoring for VK auto routing",
+              "default": false
+            },
+            "window_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Recent log window for reliability and TTFB statistics",
+              "default": 120
+            },
+            "min_samples": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum samples before applying penalties or cooldown triggers",
+              "default": 5
+            },
+            "error_rate_threshold": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Error rate in window that triggers provider cooldown",
+              "default": 0.3
+            },
+            "consecutive_failures_threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Consecutive failures that trigger immediate cooldown",
+              "default": 3
+            },
+            "cooldown_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Duration to skip a provider in auto routing after cooldown trigger",
+              "default": 300
+            },
+            "ttfb_threshold_ms": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "P95 TTFB reference threshold for scoring",
+              "default": 2500
+            },
+            "weights": {
+              "type": "object",
+              "properties": {
+                "availability": {
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "default": 0.7
+                },
+                "ttfb": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0.2
+                },
+                "cost": {
+                  "type": "number",
+                  "minimum": 0,
+                  "default": 0.1
+                }
+              },
+              "additionalProperties": false
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -1543,6 +1613,69 @@
                           "maximum": 1,
                           "description": "Lowest multiplier applied to the original provider weight",
                           "default": 0.2
+                        }
+                      },
+                      "additionalProperties": false
+                    },
+                    "provider_scoring": {
+                      "type": "object",
+                      "description": "Optional availability-first virtual-key provider scoring and cooldown routing. Disabled by default.",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "default": false
+                        },
+                        "window_seconds": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "default": 120
+                        },
+                        "min_samples": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "default": 5
+                        },
+                        "error_rate_threshold": {
+                          "type": "number",
+                          "minimum": 0,
+                          "maximum": 1,
+                          "default": 0.3
+                        },
+                        "consecutive_failures_threshold": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "default": 3
+                        },
+                        "cooldown_seconds": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "default": 300
+                        },
+                        "ttfb_threshold_ms": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "default": 2500
+                        },
+                        "weights": {
+                          "type": "object",
+                          "properties": {
+                            "availability": {
+                              "type": "number",
+                              "exclusiveMinimum": 0,
+                              "default": 0.7
+                            },
+                            "ttfb": {
+                              "type": "number",
+                              "minimum": 0,
+                              "default": 0.2
+                            },
+                            "cost": {
+                              "type": "number",
+                              "minimum": 0,
+                              "default": 0.1
+                            }
+                          },
+                          "additionalProperties": false
                         }
                       },
                       "additionalProperties": false
