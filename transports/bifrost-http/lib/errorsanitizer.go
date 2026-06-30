@@ -35,7 +35,15 @@ func shouldHideErrorDetails(_ *schemas.BifrostError, field *schemas.ErrorField) 
 		message += " " + field.Error.Error()
 	}
 
-	return containsStackTrace(message) || containsSQLDetails(message)
+	return containsStackTrace(message) ||
+		containsSQLDetails(message) ||
+		containsInternalRoutingConfigDetails(message)
+}
+
+func containsInternalRoutingConfigDetails(message string) bool {
+	lower := strings.ToLower(message)
+	return strings.Contains(lower, "no keys found for provider") ||
+		strings.Contains(lower, "no keys found that support model")
 }
 
 func containsStackTrace(message string) bool {
