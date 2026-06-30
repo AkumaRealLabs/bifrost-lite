@@ -54,7 +54,7 @@ func TestGetDashboard(t *testing.T) {
 	}{
 		{
 			name:       "success includes all sections",
-			query:      "providers=openai&models=gpt-4&tool_names=calculator&server_labels=primary",
+			query:      "providers=openai&models=gpt-4",
 			wantStatus: fasthttp.StatusOK,
 			assert: func(t *testing.T, mgr *dashboardLogManager, body []byte) {
 				t.Helper()
@@ -62,7 +62,7 @@ func TestGetDashboard(t *testing.T) {
 				if err := json.Unmarshal(body, &payload); err != nil {
 					t.Fatalf("decode dashboard response: %v", err)
 				}
-				for _, key := range []string{"meta", "overview", "provider_usage", "model_rankings", "dimension_rankings", "mcp"} {
+				for _, key := range []string{"meta", "overview", "provider_usage", "model_rankings", "dimension_rankings"} {
 					if _, ok := payload[key]; !ok {
 						t.Fatalf("expected top-level key %q in response", key)
 					}
@@ -80,9 +80,6 @@ func TestGetDashboard(t *testing.T) {
 				if got := mgr.lastLLMFilters.Providers; len(got) != 1 || got[0] != "openai" {
 					t.Fatalf("expected LLM providers filter, got %#v", got)
 				}
-				if got := mgr.lastMCPFilters.ToolNames; len(got) != 1 || got[0] != "calculator" {
-					t.Fatalf("expected MCP tool_names filter, got %#v", got)
-				}
 			},
 		},
 		{
@@ -98,23 +95,6 @@ func TestGetDashboard(t *testing.T) {
 							t.Fatalf("expected error payload, got partial dashboard: %s", string(body))
 						}
 					}
-				}
-			},
-		},
-		{
-			name:       "MCP filters are isolated from LLM filters",
-			query:      "providers=openai&models=gpt-4&tool_names=calculator,clock&server_labels=primary&virtual_key_ids=vk-llm",
-			wantStatus: fasthttp.StatusOK,
-			assert: func(t *testing.T, mgr *dashboardLogManager, body []byte) {
-				t.Helper()
-				if len(mgr.lastLLMFilters.Providers) != 1 || mgr.lastLLMFilters.Providers[0] != "openai" {
-					t.Fatalf("expected LLM providers filter, got %#v", mgr.lastLLMFilters.Providers)
-				}
-				if len(mgr.lastMCPFilters.ToolNames) != 2 {
-					t.Fatalf("expected MCP tool filters, got %#v", mgr.lastMCPFilters.ToolNames)
-				}
-				if mgr.lastLLMFilters.ContentSearch == "calculator" {
-					t.Fatal("MCP tool_names leaked into LLM filters")
 				}
 			},
 		},
@@ -151,7 +131,6 @@ func TestGetDashboard(t *testing.T) {
 type dashboardLogManager struct {
 	failStats      bool
 	lastLLMFilters logstore.SearchFilters
-	lastMCPFilters logstore.MCPToolLogSearchFilters
 }
 
 func (m *dashboardLogManager) GetLog(ctx context.Context, id string) (*logstore.Log, error) {
@@ -254,32 +233,9 @@ func (m *dashboardLogManager) DeleteLogs(ctx context.Context, ids []string) erro
 func (m *dashboardLogManager) RecalculateCosts(ctx context.Context, filters *logstore.SearchFilters, limit int) (*loggingplugin.RecalculateCostResult, error) {
 	return nil, nil
 }
-func (m *dashboardLogManager) GetMCPToolLog(ctx context.Context, id string) (*logstore.MCPToolLog, error) {
-	return nil, nil
-}
-func (m *dashboardLogManager) SearchMCPToolLogs(ctx context.Context, filters *logstore.MCPToolLogSearchFilters, pagination *logstore.PaginationOptions) (*logstore.MCPToolLogSearchResult, error) {
-	return nil, nil
-}
-func (m *dashboardLogManager) GetMCPToolLogStats(ctx context.Context, filters *logstore.MCPToolLogSearchFilters) (*logstore.MCPToolLogStats, error) {
-	return nil, nil
-}
 func (m *dashboardLogManager) GetAvailableToolNames(ctx context.Context, limit int, query string) ([]string, error) {
 	return nil, nil
 }
 func (m *dashboardLogManager) GetAvailableServerLabels(ctx context.Context, limit int, query string) ([]string, error) {
 	return nil, nil
 }
-func (m *dashboardLogManager) GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]loggingplugin.KeyPair, error) {
-	return nil, nil
-}
-func (m *dashboardLogManager) GetMCPHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPHistogramResult, error) {
-	m.lastMCPFilters = filters
-	return &logstore.MCPHistogramResult{}, nil
-}
-func (m *dashboardLogManager) GetMCPCostHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPCostHistogramResult, error) {
-	return &logstore.MCPCostHistogramResult{}, nil
-}
-func (m *dashboardLogManager) GetMCPTopTools(ctx context.Context, filters logstore.MCPToolLogSearchFilters, limit int) (*logstore.MCPTopToolsResult, error) {
-	return &logstore.MCPTopToolsResult{}, nil
-}
-func (m *dashboardLogManager) DeleteMCPToolLogs(ctx context.Context, ids []string) error { return nil }
