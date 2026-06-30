@@ -134,10 +134,6 @@ func hydrateOpenAIRequestFromLargePayloadMetadata(ctx *fasthttp.RequestCtx, bifr
 		if hasStream && r.Stream == nil {
 			r.Stream = schemas.Ptr(streamRequested)
 		}
-	case *openai.OpenAIImageVariationRequest:
-		if r.Model == "" {
-			r.Model = metadata.Model
-		}
 	case *openai.OpenAIVideoGenerationRequest:
 		if r.Model == "" {
 			r.Model = metadata.Model
@@ -254,9 +250,6 @@ func AzureEndpointPreHook(handlerStore lib.HandlerStore) func(ctx *fasthttp.Requ
 		case *openai.OpenAIImageEditRequest:
 			r.Model = setModel(r.Model)
 
-		case *openai.OpenAIImageVariationRequest:
-			r.Model = setModel(r.Model)
-
 		case *schemas.BifrostListModelsRequest:
 			if deploymentProviderStr != "" {
 				r.Provider = schemas.ModelProvider(deploymentProviderStr)
@@ -311,9 +304,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 
 			case strings.HasSuffix(path, "/images/edits"):
 				return schemas.ImageEditRequest
-
-			case strings.HasSuffix(path, "/images/variations"):
-				return schemas.ImageVariationRequest
 			}
 
 			return schemas.UnknownRequest
@@ -337,8 +327,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 					return &openai.OpenAIImageGenerationRequest{}
 				case schemas.ImageEditRequest:
 					return &openai.OpenAIImageEditRequest{}
-				case schemas.ImageVariationRequest:
-					return &openai.OpenAIImageVariationRequest{}
 				default:
 					return &openai.OpenAIChatRequest{}
 				}
@@ -346,7 +334,7 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 			return &openai.OpenAIChatRequest{}
 		},
 		// Dynamic RequestParser: dispatch to the correct multipart parser for
-		// transcription/image-edit/image-variation, fall through to default JSON
+		// transcription/image-edit, fall through to default JSON
 		// parsing (nil return) for everything else.
 		RequestParser: func(ctx *fasthttp.RequestCtx, req interface{}) error {
 			switch req.(type) {
@@ -354,8 +342,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 				return parseTranscriptionMultipartRequest(ctx, req)
 			case *openai.OpenAIImageEditRequest:
 				return parseOpenAIImageEditMultipartRequest(ctx, req)
-			case *openai.OpenAIImageVariationRequest:
-				return parseOpenAIImageVariationMultipartRequest(ctx, req)
 			default:
 				// JSON-based request — parse manually here since returning nil
 				// would mean "no error, parsing done" but body wasn't parsed.
@@ -403,10 +389,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 			} else if openaiReq, ok := req.(*openai.OpenAIImageEditRequest); ok {
 				return &schemas.BifrostRequest{
 					ImageEditRequest: openaiReq.ToBifrostImageEditRequest(ctx),
-				}, nil
-			} else if openaiReq, ok := req.(*openai.OpenAIImageVariationRequest); ok {
-				return &schemas.BifrostRequest{
-					ImageVariationRequest: openaiReq.ToBifrostImageVariationRequest(ctx),
 				}, nil
 			}
 			return nil, errors.New("invalid request type")
@@ -711,24 +693,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 					}
 				}
 				return resp.WithDefaults(), nil
-			},
-			AsyncResponsesResponseConverter: func(ctx *schemas.BifrostContext, resp *schemas.AsyncJobResponse, responsesResponseConverter ResponsesResponseConverter) (interface{}, map[string]string, error) {
-				bifrostResponse := &schemas.BifrostResponsesResponse{
-					ID:     &resp.ID,
-					Status: bifrost.Ptr(string(resp.Status)),
-				}
-				if resp.Status == schemas.AsyncJobStatusCompleted {
-					responsesResp, ok := resp.Result.(*schemas.BifrostResponsesResponse)
-					if !ok {
-						return nil, nil, errors.New("invalid responses response type")
-					}
-					bifrostResponse = responsesResp
-				}
-				response, err := responsesResponseConverter(ctx, bifrostResponse)
-				if err != nil {
-					return nil, nil, err
-				}
-				return response, nil, nil
 			},
 			ErrorConverter: func(ctx *schemas.BifrostContext, err *schemas.BifrostError) interface{} {
 				return err
@@ -1083,57 +1047,6 @@ func CreateOpenAIRouteConfigs(pathPrefix string, handlerStore lib.HandlerStore) 
 			},
 		})
 	}
-	for _, path := range []string{
-		"/v1/images/variations",
-		"/images/variations",
-	} {
-		routes = append(routes, RouteConfig{
-			Type:        RouteConfigTypeOpenAI,
-			Path:        pathPrefix + path,
-			Method:      "POST",
-			PreCallback: openAILargePayloadPreHook,
-			GetHTTPRequestType: func(ctx *fasthttp.RequestCtx) schemas.RequestType {
-				return schemas.ImageVariationRequest
-			},
-			GetRequestTypeInstance: func(ctx context.Context) interface{} {
-				return &openai.OpenAIImageVariationRequest{}
-			},
-			RequestParser: parseOpenAIImageVariationMultipartRequest,
-			RequestConverter: func(ctx *schemas.BifrostContext, req interface{}) (*schemas.BifrostRequest, error) {
-				if imageVariationReq, ok := req.(*openai.OpenAIImageVariationRequest); ok {
-					return &schemas.BifrostRequest{
-						ImageVariationRequest: imageVariationReq.ToBifrostImageVariationRequest(ctx),
-					}, nil
-				}
-				return nil, errors.New("invalid image variation request type")
-			},
-			ImageGenerationResponseConverter: func(ctx *schemas.BifrostContext, resp *schemas.BifrostImageGenerationResponse) (interface{}, error) {
-				if resp.ExtraFields.Provider == schemas.OpenAI {
-					if resp.ExtraFields.RawResponse != nil {
-						return resp.ExtraFields.RawResponse, nil
-					}
-				}
-				return resp, nil
-			},
-			ErrorConverter: func(ctx *schemas.BifrostContext, err *schemas.BifrostError) interface{} {
-				return err
-			},
-			StreamConfig: &StreamConfig{
-				ImageGenerationStreamResponseConverter: func(ctx *schemas.BifrostContext, resp *schemas.BifrostImageGenerationStreamResponse) (string, interface{}, error) {
-					if resp.ExtraFields.Provider == schemas.OpenAI {
-						if resp.ExtraFields.RawResponse != nil {
-							return string(resp.Type), resp.ExtraFields.RawResponse, nil
-						}
-					}
-					return string(resp.Type), resp, nil
-				},
-				ErrorConverter: func(ctx *schemas.BifrostContext, err *schemas.BifrostError) interface{} {
-					return err
-				},
-			},
-		})
-	}
-
 	// generate video endpoint
 	for _, path := range []string{
 		"/v1/videos",
@@ -2972,67 +2885,6 @@ func extractContainerAndFileIDFromPath(handlerStore lib.HandlerStore) PreRequest
 	}
 }
 
-// OpenAIWSResponsesPaths returns WebSocket GET paths for the Responses API.
-// Mirrors the HTTP POST paths from CreateOpenAIRouteConfigs for /v1/responses and /responses.
-// No /deployments/ paths — model is specified in event body, not URL.
-func OpenAIWSResponsesPaths(pathPrefix string) []string {
-	basePaths := []string{
-		"/v1/responses",
-		"/responses",
-		"/openai/responses",
-	}
-	paths := make([]string, 0, len(basePaths))
-	for _, p := range basePaths {
-		paths = append(paths, pathPrefix+p)
-	}
-	return paths
-}
-
-// OpenAIRealtimePaths returns WebSocket GET paths for the Realtime API.
-// Azure GA uses /openai/v1/realtime?model=..., preview uses /openai/realtime?deployment=...
-// No /deployments/ paths — model is always in query params.
-func OpenAIRealtimePaths(pathPrefix string) []string {
-	basePaths := []string{
-		"/v1/realtime",
-		"/realtime",
-		"/openai/realtime",
-	}
-	paths := make([]string, 0, len(basePaths))
-	for _, p := range basePaths {
-		paths = append(paths, pathPrefix+p)
-	}
-	return paths
-}
-
-// OpenAIRealtimeWebRTCCallsPaths returns HTTP POST paths for the GA /realtime/calls
-// WebRTC SDP exchange endpoint (multipart sdp + session format).
-func OpenAIRealtimeWebRTCCallsPaths(pathPrefix string) []string {
-	basePaths := []string{
-		"/v1/realtime/calls",
-		"/realtime/calls",
-		"/openai/realtime/calls",
-	}
-	paths := make([]string, 0, len(basePaths))
-	for _, p := range basePaths {
-		paths = append(paths, pathPrefix+p)
-	}
-	return paths
-}
-
-// OpenAIRealtimeClientSecretPaths returns HTTP POST paths for OpenAI-compatible
-// realtime client secret creation aliases.
-func OpenAIRealtimeClientSecretPaths(pathPrefix string) []string {
-	basePaths := []string{
-		"/v1/realtime/client_secrets",
-		"/v1/realtime/sessions",
-	}
-	paths := make([]string, 0, len(basePaths))
-	for _, p := range basePaths {
-		paths = append(paths, pathPrefix+p)
-	}
-	return paths
-}
-
 // NewOpenAIRouter creates a new OpenAIRouter with the given bifrost client.
 func NewOpenAIRouter(client *bifrost.Bifrost, handlerStore lib.HandlerStore, logger schemas.Logger) *OpenAIRouter {
 	routes := CreateOpenAIRouteConfigs("/openai", handlerStore)
@@ -3296,89 +3148,6 @@ func parseOpenAIImageEditMultipartRequest(ctx *fasthttp.RequestCtx, req interfac
 		imageEditReq.Fallbacks = fallbackValues
 	}
 
-	return nil
-}
-
-// parseOpenAIImageVariationMultipartRequest parses multipart/form-data for image variation requests
-func parseOpenAIImageVariationMultipartRequest(ctx *fasthttp.RequestCtx, req interface{}) error {
-	imageVariationReq, ok := req.(*openai.OpenAIImageVariationRequest)
-	if !ok {
-		return errors.New("invalid request type for image variation")
-	}
-
-	// Parse multipart form
-	form, err := ctx.MultipartForm()
-	if err != nil {
-		return err
-	}
-
-	// Extract model (required)
-	modelValues := form.Value["model"]
-	if len(modelValues) == 0 || modelValues[0] == "" {
-		return errors.New("model field is required")
-	}
-	imageVariationReq.Model = modelValues[0]
-
-	// Extract image (required) - handle both "image[]" and "image"
-	var imageFiles []*multipart.FileHeader
-	if imageFilesArray := form.File["image[]"]; len(imageFilesArray) > 0 {
-		imageFiles = imageFilesArray
-	} else if imageFilesSingle := form.File["image"]; len(imageFilesSingle) > 0 {
-		imageFiles = imageFilesSingle
-	}
-
-	if len(imageFiles) == 0 {
-		return errors.New("at least one image is required")
-	}
-
-	// Read first image file (image variation only uses the first image)
-	fileHeader := imageFiles[0]
-	file, err := fileHeader.Open()
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	// Read file data
-	fileData, err := io.ReadAll(file)
-	if err != nil {
-		return err
-	}
-
-	// Create image variation input
-	imageVariationReq.Input = &schemas.ImageVariationInput{
-		Image: schemas.ImageInput{
-			Image: fileData,
-		},
-	}
-
-	// Extract optional parameters
-	if nValues := form.Value["n"]; len(nValues) > 0 && nValues[0] != "" {
-		n, err := strconv.Atoi(nValues[0])
-		if err != nil {
-			return errors.New("invalid n value")
-		}
-		imageVariationReq.N = &n
-	}
-
-	if sizeValues := form.Value["size"]; len(sizeValues) > 0 && sizeValues[0] != "" {
-		size := sizeValues[0]
-		imageVariationReq.Size = &size
-	}
-
-	if responseFormatValues := form.Value["response_format"]; len(responseFormatValues) > 0 && responseFormatValues[0] != "" {
-		responseFormat := responseFormatValues[0]
-		imageVariationReq.ResponseFormat = &responseFormat
-	}
-
-	if userValues := form.Value["user"]; len(userValues) > 0 && userValues[0] != "" {
-		user := userValues[0]
-		imageVariationReq.User = &user
-	}
-	// Extract fallbacks
-	if fallbackValues := form.Value["fallbacks"]; len(fallbackValues) > 0 {
-		imageVariationReq.Fallbacks = fallbackValues
-	}
 	return nil
 }
 

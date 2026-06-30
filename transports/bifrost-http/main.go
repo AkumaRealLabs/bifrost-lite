@@ -2,10 +2,12 @@
 // for text and chat completions using various AI model providers (OpenAI, Anthropic, Bedrock, Mistral, Ollama, etc.).
 //
 // The HTTP service provides the following main endpoints:
-//   - /v1/completions: For text completion requests
+//   - /v1/models: For model listing requests
 //   - /v1/chat/completions: For chat completion requests
-//   - /v1/mcp/tool/execute: For MCP tool execution requests
-//   - /providers/*: For provider configuration management
+//   - /v1/responses: For Responses API requests
+//   - /v1/images/generations: For image generation requests
+//   - /v1/images/edits: For image edit requests
+//   - /api/providers/* and /api/virtual-keys/*: For Lite administration
 //
 // Configuration is handled through a JSON config file, high-performance ConfigStore, and environment variables:
 //   - Use -app-dir flag to specify the application data directory (contains config.json and logs)
@@ -15,7 +17,7 @@
 // ConfigStore Features:
 //   - Pure in-memory storage for ultra-fast config access
 //   - Environment variable processing for secure configuration management
-//   - Real-time configuration updates via HTTP API
+//   - Configuration updates via HTTP API
 //   - Explicit persistence control via POST /config/save endpoint
 //   - Provider-specific key config support (Azure, Bedrock, Vertex)
 //   - Thread-safe operations with concurrent request handling
@@ -66,7 +68,6 @@ import (
 	schemas "github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/transports/bifrost-http/handlers"
 	"github.com/maximhq/bifrost/transports/bifrost-http/lib"
-	"github.com/maximhq/bifrost/transports/bifrost-http/profiling"
 	bifrostServer "github.com/maximhq/bifrost/transports/bifrost-http/server"
 )
 
@@ -89,7 +90,7 @@ var server *bifrostServer.BifrostHTTPServer
 
 func init() {
 	if Version == "" {
-		Version = "v1.0.0"
+		Version = "v1.6.0"
 	}
 	// Set default host from environment variable or use localhost
 	defaultHost := os.Getenv("BIFROST_HOST")
@@ -138,9 +139,6 @@ func main() {
 
 `, versionLine)
 
-	// Start profiling
-	pprofServer := profiling.Start()
-
 	// Configure logger from flags
 	logger.SetOutputType(schemas.LoggerOutputType(server.LogOutputStyle))
 	logger.SetLevel(schemas.LogLevel(server.LogLevel))
@@ -161,16 +159,6 @@ func main() {
 	if err != nil {
 		logger.Error("failed to start server: %v", err)
 		os.Exit(1)
-	}
-	// server.Start() blocks until SIGINT/SIGTERM triggers graceful shutdown, so
-	// by here the main server is draining/done. Shut the pprof server down too
-	// to let any in-flight profile requests finish instead of being killed.
-	if pprofServer != nil {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-		defer cancel()
-		if err := pprofServer.Shutdown(shutdownCtx); err != nil {
-			logger.Warn("pprof server shutdown error: %v", err)
-		}
 	}
 	logger.Info("🏁 server stopped")
 }
