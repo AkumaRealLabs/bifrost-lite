@@ -106,7 +106,7 @@ export function LogsDataTable({
 			const { id, desc } = newSorting[0];
 			onPaginationChange({
 				...pagination,
-				sort_by: id as "timestamp" | "latency" | "tokens" | "cost",
+				sort_by: id as "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost",
 				order: desc ? "desc" : "asc",
 			});
 		}

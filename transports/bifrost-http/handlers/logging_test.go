@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net"
 	"testing"
+	"time"
 
 	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/queryscope"
@@ -167,6 +168,9 @@ func (m *dashboardLogManager) GetModelHistogram(ctx context.Context, filters *lo
 func (m *dashboardLogManager) GetLatencyHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
 	return &logstore.LatencyHistogramResult{}, nil
 }
+func (m *dashboardLogManager) GetTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	return &logstore.LatencyHistogramResult{}, nil
+}
 func (m *dashboardLogManager) GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	return &logstore.ProviderCostHistogramResult{}, nil
 }
@@ -175,6 +179,12 @@ func (m *dashboardLogManager) GetProviderTokenHistogram(ctx context.Context, fil
 }
 func (m *dashboardLogManager) GetProviderLatencyHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
 	return &logstore.ProviderLatencyHistogramResult{}, nil
+}
+func (m *dashboardLogManager) GetProviderTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	return &logstore.ProviderLatencyHistogramResult{}, nil
+}
+func (m *dashboardLogManager) GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
+	return &logstore.TTFBStatsResult{}, nil
 }
 func (m *dashboardLogManager) GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error) {
 	return &logstore.ModelRankingResult{}, nil

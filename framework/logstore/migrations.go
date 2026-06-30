@@ -264,6 +264,7 @@ var logstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"logs_add_customer_array_gin_indexes_v1"}, run: migrationAddCustomerArrayGINIndexes},
 	{IDs: []string{"logs_recreate_filter_customers_matview_multivalue"}, run: migrationRecreateFilterCustomersMatView},
 	{IDs: []string{"logs_add_canonical_model_columns_v2"}, run: migrationAddCanonicalModelColumns},
+	{IDs: []string{"logs_add_ttfb_ms_column"}, run: migrationAddTTFBMsColumn},
 }
 
 // areThereAnyPendingMigrations returns true if there are any pending migrations to be applied.
@@ -1962,6 +1963,11 @@ var performanceIndexes = []performanceIndexDef{
 	},
 	{
 		table: "logs",
+		name:  "idx_logs_ttfb_ms",
+		sql:   "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_logs_ttfb_ms ON logs(ttfb_ms) WHERE ttfb_ms IS NOT NULL",
+	},
+	{
+		table: "logs",
 		name:  "idx_logs_total_tokens",
 		sql:   "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_logs_total_tokens ON logs(total_tokens)",
 	},
@@ -2845,6 +2851,29 @@ func migrationRecreateFilterUsersMatView(ctx context.Context, db *gorm.DB, logge
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error while recreating filter users matview: %s", err.Error())
+	}
+	return nil
+}
+
+func migrationAddTTFBMsColumn(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "logs_add_ttfb_ms_column"
+	logger.Info("[logstore] starting migration %s", migrationName)
+	defer logger.Info("[logstore] finished migration %s", migrationName)
+	opts := *migrator.DefaultOptions
+	opts.UseTransaction = true
+	m := migrator.New(db, &opts, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return addColumnIfNotExists(tx, logger, &Log{}, "TTFBMs")
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &Log{}, "TTFBMs")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error while adding ttfb_ms column: %s", err.Error())
 	}
 	return nil
 }

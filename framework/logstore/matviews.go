@@ -1700,6 +1700,9 @@ func (s *RDBLogStore) getModelRankingsFromMatView(ctx context.Context, filters S
 		}
 		rankings = append(rankings, mrt)
 	}
+	if err := s.attachModelRankingTTFB(ctx, filters, rankings); err != nil {
+		return nil, err
+	}
 	return &ModelRankingResult{Rankings: rankings}, nil
 }
 

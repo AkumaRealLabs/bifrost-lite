@@ -10,12 +10,14 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/google/uuid"
 	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/configstore"
 	configstoreTables "github.com/maximhq/bifrost/framework/configstore/tables"
+	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/plugins/governance/complexity"
 )
@@ -31,11 +33,55 @@ const (
 
 // Config is the configuration for the governance plugin
 type Config struct {
-	IsVkMandatory         *bool     `json:"is_vk_mandatory"`
-	RequiredHeaders       *[]string `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
-	IsEnterprise          bool      `json:"is_enterprise"`
-	DisableAutoToolInject *bool     `json:"disable_auto_tool_inject"`
-	RoutingChainMaxDepth  *int      `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
+	IsVkMandatory         *bool              `json:"is_vk_mandatory"`
+	RequiredHeaders       *[]string          `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
+	IsEnterprise          bool               `json:"is_enterprise"`
+	DisableAutoToolInject *bool              `json:"disable_auto_tool_inject"`
+	RoutingChainMaxDepth  *int               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
+	TTFBRouting           *TTFBRoutingConfig `json:"ttfb_routing"`
+}
+
+type TTFBRoutingConfig = configstore.TTFBRoutingConfig
+
+type TTFBStatsProvider interface {
+	GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error)
+}
+
+type weightedProviderConfig struct {
+	config          configstoreTables.TableVirtualKeyProviderConfig
+	originalWeight  float64
+	effectiveWeight float64
+	penaltyFactor   float64
+}
+
+func normalizeTTFBRoutingConfig(config *TTFBRoutingConfig) TTFBRoutingConfig {
+	resolved := TTFBRoutingConfig{
+		Enabled: false,
+	}
+	windowSeconds := 900
+	minSamples := 20
+	thresholdMs := 2500.0
+	minPenaltyFactor := 0.2
+	if config != nil {
+		resolved.Enabled = config.Enabled
+		if config.WindowSeconds != nil && *config.WindowSeconds > 0 {
+			windowSeconds = *config.WindowSeconds
+		}
+		if config.MinSamples != nil && *config.MinSamples > 0 {
+			minSamples = *config.MinSamples
+		}
+		if config.ThresholdMs != nil && *config.ThresholdMs > 0 {
+			thresholdMs = *config.ThresholdMs
+		}
+		if config.MinPenaltyFactor != nil && *config.MinPenaltyFactor > 0 && *config.MinPenaltyFactor <= 1 {
+			minPenaltyFactor = *config.MinPenaltyFactor
+		}
+	}
+	resolved.WindowSeconds = &windowSeconds
+	resolved.MinSamples = &minSamples
+	resolved.ThresholdMs = &thresholdMs
+	resolved.MinPenaltyFactor = &minPenaltyFactor
+	return resolved
 }
 
 type InMemoryStore interface {
@@ -73,6 +119,7 @@ type GovernancePlugin struct {
 
 	// Transport dependencies
 	inMemoryStore InMemoryStore
+	ttfbStats     TTFBStatsProvider
 
 	cfgMutex sync.RWMutex
 
@@ -80,6 +127,7 @@ type GovernancePlugin struct {
 	requiredHeaders       *[]string // pointer to live config slice; lowercased at check time
 	isEnterprise          bool
 	disableAutoToolInject *bool
+	ttfbRouting           TTFBRoutingConfig
 
 	complexityAnalyzer atomic.Pointer[complexity.ComplexityAnalyzer]
 }
@@ -131,12 +179,17 @@ func Init(
 	governanceConfig *configstore.GovernanceConfig,
 	modelCatalog *modelcatalog.ModelCatalog,
 	inMemoryStore InMemoryStore,
+	ttfbStatsProviders ...TTFBStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
 	}
 	if modelCatalog == nil {
 		logger.Warn("governance plugin requires model catalog to calculate cost, all LLM cost calculations will be skipped.")
+	}
+	var ttfbStats TTFBStatsProvider
+	if len(ttfbStatsProviders) > 0 {
+		ttfbStats = ttfbStatsProviders[0]
 	}
 
 	// Handle nil config - use safe defaults
@@ -149,6 +202,10 @@ func Init(
 		requiredHeaders = config.RequiredHeaders
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
+	}
+	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	if config != nil {
+		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -224,6 +281,8 @@ func Init(
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
 		inMemoryStore:         inMemoryStore,
+		ttfbStats:             ttfbStats,
+		ttfbRouting:           ttfbRouting,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, governanceConfig))
 	return plugin, nil
@@ -249,6 +308,7 @@ func InitFromStore(
 	configStore configstore.ConfigStore,
 	modelCatalog *modelcatalog.ModelCatalog,
 	inMemoryStore InMemoryStore,
+	ttfbStatsProviders ...TTFBStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
@@ -258,6 +318,10 @@ func InitFromStore(
 	}
 	if governanceStore == nil {
 		return nil, fmt.Errorf("governance store is nil")
+	}
+	var ttfbStats TTFBStatsProvider
+	if len(ttfbStatsProviders) > 0 {
+		ttfbStats = ttfbStatsProviders[0]
 	}
 	// Handle nil config - use safe defaults
 	var isVkMandatory *bool
@@ -269,6 +333,10 @@ func InitFromStore(
 		requiredHeaders = config.RequiredHeaders
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
+	}
+	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	if config != nil {
+		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -314,6 +382,8 @@ func InitFromStore(
 		requiredHeaders:       requiredHeaders,
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
+		ttfbStats:             ttfbStats,
+		ttfbRouting:           ttfbRouting,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, nil))
 	return plugin, nil
@@ -525,12 +595,7 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 		return nil
 	}
 
-	weightedConfigs := make([]configstoreTables.TableVirtualKeyProviderConfig, 0, len(allowedProviderConfigs))
-	for _, config := range allowedProviderConfigs {
-		if config.Weight != nil {
-			weightedConfigs = append(weightedConfigs, config)
-		}
-	}
+	weightedConfigs := p.buildEffectiveProviderWeights(ctx, allowedProviderConfigs, virtualKey, modelStr)
 
 	if len(weightedConfigs) == 0 {
 		// All allowed configs survived the model-allowance / budget / rate-limit filters,
@@ -544,22 +609,30 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	var selectedProvider schemas.ModelProvider
 	totalWeight := 0.0
 	for _, config := range weightedConfigs {
-		totalWeight += getWeight(config.Weight)
+		totalWeight += config.effectiveWeight
+	}
+	if totalWeight <= 0 {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("All weighted provider configs for model %s have zero effective weight; selecting first configured provider", modelStr))
+		totalWeight = weightedConfigs[0].effectiveWeight
+		if totalWeight <= 0 {
+			totalWeight = 1
+			weightedConfigs[0].effectiveWeight = 1
+		}
 	}
 	// Generate random number between 0 and totalWeight
 	randomValue := rand.Float64() * totalWeight
 	// Select provider based on weighted random selection
 	currentWeight := 0.0
 	for _, config := range weightedConfigs {
-		currentWeight += getWeight(config.Weight)
+		currentWeight += config.effectiveWeight
 		if randomValue <= currentWeight {
-			selectedProvider = schemas.ModelProvider(config.Provider)
+			selectedProvider = schemas.ModelProvider(config.config.Provider)
 			break
 		}
 	}
 	// Fallback: if no provider was selected (shouldn't happen but guard against FP issues)
 	if selectedProvider == "" {
-		selectedProvider = schemas.ModelProvider(weightedConfigs[0].Provider)
+		selectedProvider = schemas.ModelProvider(weightedConfigs[0].config.Provider)
 	}
 
 	p.logger.Debug("[governance] Selected provider: %s", selectedProvider)
@@ -581,14 +654,15 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	schemas.AppendToContextList(ctx, schemas.BifrostContextKeyRoutingEnginesUsed, schemas.RoutingEngineGovernance)
 
 	if len(existingFallbacks) == 0 && len(weightedConfigs) > 1 {
-		fallbackConfigs := append([]configstoreTables.TableVirtualKeyProviderConfig(nil), weightedConfigs...)
+		fallbackConfigs := append([]weightedProviderConfig(nil), weightedConfigs...)
 		sort.Slice(fallbackConfigs, func(i, j int) bool {
-			return getWeight(fallbackConfigs[i].Weight) > getWeight(fallbackConfigs[j].Weight)
+			return fallbackConfigs[i].effectiveWeight > fallbackConfigs[j].effectiveWeight
 		})
 
 		// Filter out the selected provider and create fallbacks array
 		fallbacks := make([]schemas.Fallback, 0, len(fallbackConfigs)-1)
-		for _, config := range fallbackConfigs {
+		for _, weightedConfig := range fallbackConfigs {
+			config := weightedConfig.config
 			if config.Provider == string(selectedProvider) {
 				continue
 			}
@@ -610,6 +684,96 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	}
 
 	return nil
+}
+
+func (p *GovernancePlugin) buildEffectiveProviderWeights(ctx *schemas.BifrostContext, configs []configstoreTables.TableVirtualKeyProviderConfig, virtualKey *configstoreTables.TableVirtualKey, model string) []weightedProviderConfig {
+	weighted := make([]weightedProviderConfig, 0, len(configs))
+	for _, config := range configs {
+		if config.Weight == nil {
+			continue
+		}
+		original := getWeight(config.Weight)
+		weighted = append(weighted, weightedProviderConfig{
+			config:          config,
+			originalWeight:  original,
+			effectiveWeight: original,
+			penaltyFactor:   1,
+		})
+	}
+
+	if len(weighted) == 0 || !p.ttfbRouting.Enabled {
+		return weighted
+	}
+	if p.ttfbStats == nil {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, "TTFB routing enabled but logstore stats provider is unavailable; using original provider weights")
+		return weighted
+	}
+
+	windowSeconds := 900
+	if p.ttfbRouting.WindowSeconds != nil && *p.ttfbRouting.WindowSeconds > 0 {
+		windowSeconds = *p.ttfbRouting.WindowSeconds
+	}
+	minSamples := 20
+	if p.ttfbRouting.MinSamples != nil && *p.ttfbRouting.MinSamples > 0 {
+		minSamples = *p.ttfbRouting.MinSamples
+	}
+	thresholdMs := 2500.0
+	if p.ttfbRouting.ThresholdMs != nil && *p.ttfbRouting.ThresholdMs > 0 {
+		thresholdMs = *p.ttfbRouting.ThresholdMs
+	}
+	minFactor := 0.2
+	if p.ttfbRouting.MinPenaltyFactor != nil && *p.ttfbRouting.MinPenaltyFactor > 0 && *p.ttfbRouting.MinPenaltyFactor <= 1 {
+		minFactor = *p.ttfbRouting.MinPenaltyFactor
+	}
+
+	filters := logstore.SearchFilters{Models: []string{model}}
+	if virtualKey != nil && virtualKey.ID != "" {
+		filters.VirtualKeyIDs = []string{virtualKey.ID}
+	}
+	stats, err := p.ttfbStats.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+	if err != nil {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("TTFB routing stats unavailable for model %s: %v; using original provider weights", model, err))
+		return weighted
+	}
+
+	statsByProvider := make(map[string]logstore.TTFBStatsEntry, len(stats.Stats))
+	for _, entry := range stats.Stats {
+		if entry.Model != model {
+			continue
+		}
+		current, exists := statsByProvider[entry.Provider]
+		if !exists || entry.SampleCount > current.SampleCount {
+			statsByProvider[entry.Provider] = entry
+		}
+	}
+
+	for i := range weighted {
+		entry, ok := statsByProvider[weighted[i].config.Provider]
+		if !ok {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: no TTFB samples; using original weight %.2f", weighted[i].config.Provider, model, weighted[i].originalWeight))
+			continue
+		}
+		if !entry.HasMinSamples {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: %d samples below minimum %d; using original weight %.2f", weighted[i].config.Provider, model, entry.SampleCount, minSamples, weighted[i].originalWeight))
+			continue
+		}
+		if entry.P95TTFBMs <= thresholdMs {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing kept provider %s model %s at original weight %.2f: p95 %.0fms <= %.0fms", weighted[i].config.Provider, model, weighted[i].originalWeight, entry.P95TTFBMs, thresholdMs))
+			continue
+		}
+		factor := thresholdMs / entry.P95TTFBMs
+		if factor < minFactor {
+			factor = minFactor
+		}
+		if factor > 1 {
+			factor = 1
+		}
+		weighted[i].penaltyFactor = factor
+		weighted[i].effectiveWeight = weighted[i].originalWeight * factor
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing penalized provider %s model %s: p95 %.0fms > %.0fms, weight %.2f -> %.2f", weighted[i].config.Provider, model, entry.P95TTFBMs, thresholdMs, weighted[i].originalWeight, weighted[i].effectiveWeight))
+	}
+
+	return weighted
 }
 
 // publishRoutingAllowlist records, for downstream routing layers, which of the VK's configured

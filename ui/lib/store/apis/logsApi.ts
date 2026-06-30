@@ -17,6 +17,7 @@ import {
 	ProviderTokenHistogramResponse,
 	RankingDimension,
 	RecalculateCostResponse,
+	TTFBStatsResponse,
 	TokenHistogramResponse,
 } from "@/lib/types/logs";
 import { baseApi } from "./baseApi";
@@ -60,6 +61,8 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	}
 	if (filters.min_latency !== undefined) params.min_latency = filters.min_latency;
 	if (filters.max_latency !== undefined) params.max_latency = filters.max_latency;
+	if (filters.min_ttfb_ms !== undefined) params.min_ttfb_ms = filters.min_ttfb_ms;
+	if (filters.max_ttfb_ms !== undefined) params.max_ttfb_ms = filters.max_ttfb_ms;
 	if (filters.min_tokens !== undefined) params.min_tokens = filters.min_tokens;
 	if (filters.max_tokens !== undefined) params.max_tokens = filters.max_tokens;
 	if (filters.missing_cost_only) params.missing_cost_only = "true";
@@ -213,6 +216,20 @@ export const logsApi = baseApi.injectEndpoints({
 			providesTags: ["Logs"],
 		}),
 
+		// Get streaming TTFB histogram with percentiles
+		getLogsTTFBHistogram: builder.query<
+			LatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttfb",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
 		// Get provider cost histogram with provider breakdown
 		getLogsProviderCostHistogram: builder.query<
 			ProviderCostHistogramResponse,
@@ -251,6 +268,39 @@ export const logsApi = baseApi.injectEndpoints({
 			query: ({ filters }) => ({
 				url: "/logs/histogram/latency/by-provider",
 				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
+		// Get provider streaming TTFB histogram with provider breakdown
+		getLogsProviderTTFBHistogram: builder.query<
+			ProviderLatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttfb/by-provider",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
+		getLogsTTFBStats: builder.query<
+			TTFBStatsResponse,
+			{
+				filters: LogFilters;
+				window_seconds?: number;
+				min_samples?: number;
+			}
+		>({
+			query: ({ filters, window_seconds, min_samples }) => ({
+				url: "/logs/ttfb/stats",
+				params: {
+					...buildFilterParams(filters),
+					...(window_seconds ? { window_seconds } : {}),
+					...(min_samples ? { min_samples } : {}),
+				},
 			}),
 			providesTags: ["Logs"],
 		}),
@@ -356,9 +406,12 @@ export const {
 	useGetLogsCostHistogramQuery,
 	useGetLogsModelHistogramQuery,
 	useGetLogsLatencyHistogramQuery,
+	useGetLogsTTFBHistogramQuery,
 	useGetLogsProviderCostHistogramQuery,
 	useGetLogsProviderTokenHistogramQuery,
 	useGetLogsProviderLatencyHistogramQuery,
+	useGetLogsProviderTTFBHistogramQuery,
+	useGetLogsTTFBStatsQuery,
 	useGetLogSessionSummaryByIdQuery,
 	useGetDroppedRequestsQuery,
 	useGetAvailableFilterDataQuery,
@@ -370,9 +423,12 @@ export const {
 	useLazyGetLogsCostHistogramQuery,
 	useLazyGetLogsModelHistogramQuery,
 	useLazyGetLogsLatencyHistogramQuery,
+	useLazyGetLogsTTFBHistogramQuery,
 	useLazyGetLogsProviderCostHistogramQuery,
 	useLazyGetLogsProviderTokenHistogramQuery,
 	useLazyGetLogsProviderLatencyHistogramQuery,
+	useLazyGetLogsProviderTTFBHistogramQuery,
+	useLazyGetLogsTTFBStatsQuery,
 	useGetModelRankingsQuery,
 	useGetDimensionRankingsQuery,
 	useLazyGetModelRankingsQuery,

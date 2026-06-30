@@ -51,6 +51,9 @@ type LogManager interface {
 	// GetLatencyHistogram returns time-bucketed latency percentiles for the given filters
 	GetLatencyHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error)
 
+	// GetTTFBHistogram returns time-bucketed streaming TTFB percentiles for the given filters
+	GetTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error)
+
 	// GetProviderCostHistogram returns time-bucketed cost data with provider breakdown for the given filters
 	GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error)
 
@@ -59,6 +62,12 @@ type LogManager interface {
 
 	// GetProviderLatencyHistogram returns time-bucketed latency percentiles with provider breakdown for the given filters
 	GetProviderLatencyHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error)
+
+	// GetProviderTTFBHistogram returns time-bucketed streaming TTFB percentiles with provider breakdown for the given filters
+	GetProviderTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error)
+
+	// GetTTFBStats returns recent streaming TTFB stats by provider, model, and virtual key
+	GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error)
 
 	// GetModelRankings returns models ranked by usage with trend comparison
 	GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error)
@@ -199,6 +208,13 @@ func (p *PluginLogManager) GetLatencyHistogram(ctx context.Context, filters *log
 	return p.plugin.GetLatencyHistogram(ctx, *filters, bucketSizeSeconds)
 }
 
+func (p *PluginLogManager) GetTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetTTFBHistogram(ctx, *filters, bucketSizeSeconds)
+}
+
 func (p *PluginLogManager) GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	if filters == nil {
 		return nil, fmt.Errorf("filters cannot be nil")
@@ -218,6 +234,20 @@ func (p *PluginLogManager) GetProviderLatencyHistogram(ctx context.Context, filt
 		return nil, fmt.Errorf("filters cannot be nil")
 	}
 	return p.plugin.GetProviderLatencyHistogram(ctx, *filters, bucketSizeSeconds)
+}
+
+func (p *PluginLogManager) GetProviderTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetProviderTTFBHistogram(ctx, *filters, bucketSizeSeconds)
+}
+
+func (p *PluginLogManager) GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetTTFBStats(ctx, *filters, window, minSamples)
 }
 
 func (p *PluginLogManager) GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error) {

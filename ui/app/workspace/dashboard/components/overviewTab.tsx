@@ -29,6 +29,7 @@ export interface OverviewTabProps {
 	costData: CostHistogramResponse | null;
 	modelData: ModelHistogramResponse | null;
 	latencyData: LatencyHistogramResponse | null;
+	ttfbData: LatencyHistogramResponse | null;
 	logsStats: LogStats | null;
 
 	// Loading states
@@ -37,6 +38,7 @@ export interface OverviewTabProps {
 	loadingCost: boolean;
 	loadingModels: boolean;
 	loadingLatency: boolean;
+	loadingTTFB: boolean;
 	loadingStats: boolean;
 
 	// Time range
@@ -77,12 +79,14 @@ function OverviewTabImpl({
 	costData,
 	modelData,
 	latencyData,
+	ttfbData,
 	logsStats,
 	loadingHistogram,
 	loadingTokens,
 	loadingCost,
 	loadingModels,
 	loadingLatency,
+	loadingTTFB,
 	loadingStats,
 	startTime,
 	endTime,
@@ -147,6 +151,19 @@ function OverviewTabImpl({
 		}
 		return count > 0 ? weighted / count : null;
 	}, [latencyData]);
+
+	const ttfbAvg = useMemo(() => {
+		if (!ttfbData?.buckets || ttfbData.buckets.length === 0) return null;
+		let weighted = 0;
+		let count = 0;
+		for (const b of ttfbData.buckets) {
+			const reqs = b.total_requests ?? 0;
+			if (reqs === 0) continue;
+			weighted += (b.avg_latency ?? 0) * reqs;
+			count += reqs;
+		}
+		return count > 0 ? weighted / count : null;
+	}, [ttfbData]);
 
 	return (
 		<>
@@ -416,6 +433,45 @@ function OverviewTabImpl({
 					}
 				>
 					<LatencyChart data={latencyData} chartType={latencyChartType} startTime={startTime} endTime={endTime} />
+				</ChartCard>
+
+				{/* TTFB Chart */}
+				<ChartCard
+					title="TTFB"
+					loading={loadingTTFB}
+					testId="chart-ttfb"
+					totalLabel="平均"
+					total={
+						ttfbAvg !== null ? (
+							<NumberFlow value={ttfbAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
+						) : undefined
+					}
+					totalTooltip={ttfbAvg !== null ? `${ttfbAvg.toLocaleString("en-US", { maximumFractionDigits: 6 })}ms` : undefined}
+					legend={
+						<div className={CHART_HEADER_LEGEND_CLASS}>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
+								<span className="text-muted-foreground">平均</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
+								<span className="text-muted-foreground">P90</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p95 }} />
+								<span className="text-muted-foreground">P95</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p99 }} />
+								<span className="text-muted-foreground">P99</span>
+							</span>
+						</div>
+					}
+					controls={
+						<ChartTypeToggle chartType={latencyChartType} onToggle={onLatencyChartToggle} data-testid="dashboard-ttfb-chart-toggle" />
+					}
+				>
+					<LatencyChart data={ttfbData} chartType={latencyChartType} startTime={startTime} endTime={endTime} metricLabel="TTFB" />
 				</ChartCard>
 			</div>
 		</>

@@ -564,6 +564,7 @@ export interface LogEntry {
 	tools?: Tool[];
 	tool_calls?: ToolCall[];
 	latency?: number;
+	ttfb_ms?: number | null;
 	token_usage?: LLMUsage;
 	cache_debug?: CacheDebug;
 	cost?: number; // Cost in dollars (total cost of the request - includes cache lookup cost)
@@ -596,6 +597,8 @@ export interface LogFilters {
 	period?: string; // relative period ("1h","6h","24h","7d","30d"); computed server-side, takes precedence over start_time/end_time
 	min_latency?: number;
 	max_latency?: number;
+	min_ttfb_ms?: number;
+	max_ttfb_ms?: number;
 	min_tokens?: number;
 	max_tokens?: number;
 	missing_cost_only?: boolean;
@@ -607,7 +610,7 @@ export interface LogFilters {
 export interface Pagination {
 	limit: number;
 	offset: number;
-	sort_by: "timestamp" | "latency" | "tokens" | "cost";
+	sort_by: "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost";
 	order: "asc" | "desc";
 }
 
@@ -763,6 +766,24 @@ export interface ProviderLatencyHistogramResponse {
 	buckets: ProviderLatencyHistogramBucket[];
 	bucket_size_seconds: number;
 	providers: string[];
+}
+
+export interface TTFBStatsEntry {
+	provider: string;
+	model: string;
+	virtual_key_id?: string;
+	sample_count: number;
+	avg_ttfb_ms: number;
+	p90_ttfb_ms: number;
+	p95_ttfb_ms: number;
+	p99_ttfb_ms: number;
+	has_min_samples: boolean;
+}
+
+export interface TTFBStatsResponse {
+	window_seconds: number;
+	min_samples: number;
+	stats: TTFBStatsEntry[];
 }
 
 export interface LogsResponse {
@@ -1048,6 +1069,7 @@ export interface ModelRankingEntry {
 	total_tokens: number;
 	total_cost: number;
 	avg_latency: number;
+	p95_ttfb_ms?: number;
 	trend: ModelRankingTrend;
 }
 

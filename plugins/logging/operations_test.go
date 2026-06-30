@@ -820,6 +820,28 @@ func TestApplyNonStreamingOutputToEntryContentLoggingDisabled(t *testing.T) {
 	if entry.OutputMessageParsed != nil {
 		t.Error("expected OutputMessageParsed to be nil when contentLoggingEnabled=false")
 	}
+	if entry.TTFBMs != nil {
+		t.Fatalf("expected non-streaming response to leave TTFBMs nil, got %v", *entry.TTFBMs)
+	}
+}
+
+func TestApplyStreamingOutputToEntryStoresTTFB(t *testing.T) {
+	plugin := &LoggerPlugin{}
+	entry := &logstore.Log{}
+
+	plugin.applyStreamingOutputToEntry(entry, &streaming.ProcessedStreamResponse{
+		Data: &streaming.AccumulatedData{
+			Latency:          4200,
+			TimeToFirstToken: 1234,
+		},
+	}, false, true)
+
+	if entry.TTFBMs == nil {
+		t.Fatal("expected streaming response to set TTFBMs")
+	}
+	if *entry.TTFBMs != 1234 {
+		t.Fatalf("TTFBMs = %v, want 1234", *entry.TTFBMs)
+	}
 }
 
 // TestApplyNonStreamingOutputToEntryContentLoggingEnabled verifies that output fields are

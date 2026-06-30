@@ -1260,12 +1260,23 @@ func TestDeleteProvider_RemovesVirtualKeyProviderConfigs(t *testing.T) {
 func TestUpdateClientConfig(t *testing.T) {
 	store := setupRDBTestStore(t)
 	ctx := context.Background()
+	windowSeconds := 300
+	minSamples := 12
+	thresholdMs := 1800.0
+	minPenaltyFactor := 0.35
 
 	config := &ClientConfig{
 		EnableLogging:        new(true),
 		InitialPoolSize:      100,
 		LogRetentionDays:     30,
 		MaxRequestBodySizeMB: 50,
+		TTFBRouting: &TTFBRoutingConfig{
+			Enabled:          true,
+			WindowSeconds:    &windowSeconds,
+			MinSamples:       &minSamples,
+			ThresholdMs:      &thresholdMs,
+			MinPenaltyFactor: &minPenaltyFactor,
+		},
 	}
 
 	err := store.UpdateClientConfig(ctx, config)
@@ -1275,6 +1286,12 @@ func TestUpdateClientConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.EnableLogging != nil && *result.EnableLogging)
 	assert.Equal(t, 100, result.InitialPoolSize)
+	require.NotNil(t, result.TTFBRouting)
+	assert.True(t, result.TTFBRouting.Enabled)
+	assert.Equal(t, windowSeconds, *result.TTFBRouting.WindowSeconds)
+	assert.Equal(t, minSamples, *result.TTFBRouting.MinSamples)
+	assert.Equal(t, thresholdMs, *result.TTFBRouting.ThresholdMs)
+	assert.Equal(t, minPenaltyFactor, *result.TTFBRouting.MinPenaltyFactor)
 }
 
 func TestUpdateClientMetadata(t *testing.T) {

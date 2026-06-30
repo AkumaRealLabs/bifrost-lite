@@ -31,6 +31,7 @@ type SortBy string
 const (
 	SortByTimestamp SortBy = "timestamp"
 	SortByLatency   SortBy = "latency"
+	SortByTTFB      SortBy = "ttfb_ms"
 	SortByTokens    SortBy = "tokens"
 	SortByCost      SortBy = "cost"
 )
@@ -63,6 +64,8 @@ type SearchFilters struct {
 	EndTime           *time.Time        `json:"end_time,omitempty"`
 	MinLatency        *float64          `json:"min_latency,omitempty"`
 	MaxLatency        *float64          `json:"max_latency,omitempty"`
+	MinTTFBMs         *float64          `json:"min_ttfb_ms,omitempty"`
+	MaxTTFBMs         *float64          `json:"max_ttfb_ms,omitempty"`
 	MinTokens         *int              `json:"min_tokens,omitempty"`
 	MaxTokens         *int              `json:"max_tokens,omitempty"`
 	MinCost           *float64          `json:"min_cost,omitempty"`
@@ -189,6 +192,7 @@ type Log struct {
 	VideoDeleteOutput       string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.BifrostVideoDeleteResponse
 	CacheDebug              string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.BifrostCacheDebug
 	Latency                 *float64  `gorm:"index:idx_logs_latency" json:"latency,omitempty"`
+	TTFBMs                  *float64  `gorm:"column:ttfb_ms;index:idx_logs_ttfb_ms" json:"ttfb_ms,omitempty"`
 	TokenUsage              string    `gorm:"type:text" json:"-"`                                                                         // JSON serialized *schemas.LLMUsage
 	Cost                    *float64  `gorm:"index" json:"cost,omitempty"`                                                                // Cost in dollars (total cost of the request - includes cache lookup cost)
 	Status                  string    `gorm:"type:varchar(50);index;index:idx_logs_ts_provider_status,priority:3;not null" json:"status"` // "processing", "success", or "error"
@@ -1273,6 +1277,7 @@ type ModelRankingEntry struct {
 	TotalTokens   int64   `json:"total_tokens"`
 	TotalCost     float64 `json:"total_cost"`
 	AvgLatency    float64 `json:"avg_latency"`
+	P95TTFBMs     float64 `json:"p95_ttfb_ms"`
 }
 
 // ModelRankingTrend represents the percentage change compared to the previous period.
@@ -1416,6 +1421,7 @@ type DashboardOverview struct {
 	Cost     *CostHistogramResult    `json:"cost"`     // Cost over time, broken down by model
 	Models   *ModelHistogramResult   `json:"models"`   // Per-model usage over time
 	Latency  *LatencyHistogramResult `json:"latency"`  // Latency percentiles over time
+	TTFB     *LatencyHistogramResult `json:"ttfb"`     // Streaming TTFB percentiles over time
 }
 
 // DashboardProviderUsage holds the Provider Usage tab metrics.
@@ -1423,6 +1429,7 @@ type DashboardProviderUsage struct {
 	Cost    *ProviderCostHistogramResult    `json:"cost"`
 	Tokens  *ProviderTokenHistogramResult   `json:"tokens"`
 	Latency *ProviderLatencyHistogramResult `json:"latency"`
+	TTFB    *ProviderLatencyHistogramResult `json:"ttfb"`
 }
 
 // DashboardModelRankings holds the Model Rankings tab data.
@@ -1440,6 +1447,24 @@ type DashboardResult struct {
 	ProviderUsage     DashboardProviderUsage             `json:"provider_usage"`
 	ModelRankings     DashboardModelRankings             `json:"model_rankings"`
 	DimensionRankings map[string]*DimensionRankingResult `json:"dimension_rankings"`
+}
+
+type TTFBStatsEntry struct {
+	Provider      string  `json:"provider"`
+	Model         string  `json:"model"`
+	VirtualKeyID  string  `json:"virtual_key_id,omitempty"`
+	SampleCount   int64   `json:"sample_count"`
+	AvgTTFBMs     float64 `json:"avg_ttfb_ms"`
+	P90TTFBMs     float64 `json:"p90_ttfb_ms"`
+	P95TTFBMs     float64 `json:"p95_ttfb_ms"`
+	P99TTFBMs     float64 `json:"p99_ttfb_ms"`
+	HasMinSamples bool    `json:"has_min_samples"`
+}
+
+type TTFBStatsResult struct {
+	WindowSeconds int64            `json:"window_seconds"`
+	MinSamples    int              `json:"min_samples"`
+	Stats         []TTFBStatsEntry `json:"stats"`
 }
 
 // NodeUsageCursor identifies the last log row included in a node usage scan.

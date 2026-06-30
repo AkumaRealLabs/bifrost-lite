@@ -4,12 +4,14 @@ import {
 	useGetLogsLatencyHistogramQuery,
 	useGetLogsModelHistogramQuery,
 	useGetLogsStatsQuery,
+	useGetLogsTTFBHistogramQuery,
 	useGetLogsTokenHistogramQuery,
 	useLazyGetLogsCostHistogramQuery,
 	useLazyGetLogsHistogramQuery,
 	useLazyGetLogsLatencyHistogramQuery,
 	useLazyGetLogsModelHistogramQuery,
 	useLazyGetLogsStatsQuery,
+	useLazyGetLogsTTFBHistogramQuery,
 	useLazyGetLogsTokenHistogramQuery,
 } from "@/lib/store";
 import type { LogFilters } from "@/lib/types/logs";
@@ -81,6 +83,7 @@ export const OverviewTabView = forwardRef<OverviewTabViewHandle, OverviewTabView
 	const { data: costData, isLoading: loadingCost } = useGetLogsCostHistogramQuery(fetchArg, skipOpts);
 	const { data: modelData, isLoading: loadingModels } = useGetLogsModelHistogramQuery(fetchArg, skipOpts);
 	const { data: latencyData, isLoading: loadingLatency } = useGetLogsLatencyHistogramQuery(fetchArg, skipOpts);
+	const { data: ttfbData, isLoading: loadingTTFB } = useGetLogsTTFBHistogramQuery(fetchArg, skipOpts);
 	const { data: logsStats, isLoading: loadingStats } = useGetLogsStatsQuery(fetchArg, skipOpts);
 
 	const [triggerHistogram] = useLazyGetLogsHistogramQuery();
@@ -88,6 +91,7 @@ export const OverviewTabView = forwardRef<OverviewTabViewHandle, OverviewTabView
 	const [triggerCost] = useLazyGetLogsCostHistogramQuery();
 	const [triggerModels] = useLazyGetLogsModelHistogramQuery();
 	const [triggerLatency] = useLazyGetLogsLatencyHistogramQuery();
+	const [triggerTTFB] = useLazyGetLogsTTFBHistogramQuery();
 	const [triggerStats] = useLazyGetLogsStatsQuery();
 
 	const loadData = useCallback(async () => {
@@ -97,9 +101,10 @@ export const OverviewTabView = forwardRef<OverviewTabViewHandle, OverviewTabView
 			triggerCost(fetchArg, true),
 			triggerModels(fetchArg, true),
 			triggerLatency(fetchArg, true),
+			triggerTTFB(fetchArg, true),
 			triggerStats(fetchArg, true),
 		]);
-	}, [fetchArg, triggerHistogram, triggerTokens, triggerCost, triggerModels, triggerLatency, triggerStats]);
+	}, [fetchArg, triggerHistogram, triggerTokens, triggerCost, triggerModels, triggerLatency, triggerTTFB, triggerStats]);
 
 	useImperativeHandle(
 		ref,
@@ -110,10 +115,11 @@ export const OverviewTabView = forwardRef<OverviewTabViewHandle, OverviewTabView
 				costData: costData ?? null,
 				modelData: modelData ?? null,
 				latencyData: latencyData ?? null,
+				ttfbData: ttfbData ?? null,
 			}),
 			loadData,
 		}),
-		[histogramData, tokenData, costData, modelData, latencyData, loadData],
+		[histogramData, tokenData, costData, modelData, latencyData, ttfbData, loadData],
 	);
 
 	const costModels = useMemo(() => sanitizeSeriesLabels(costData?.models), [costData?.models]);
@@ -130,12 +136,14 @@ export const OverviewTabView = forwardRef<OverviewTabViewHandle, OverviewTabView
 			costData={costData ?? null}
 			modelData={modelData ?? null}
 			latencyData={latencyData ?? null}
+			ttfbData={ttfbData ?? null}
 			logsStats={logsStats ?? null}
 			loadingHistogram={loadingHistogram}
 			loadingTokens={loadingTokens}
 			loadingCost={loadingCost}
 			loadingModels={loadingModels}
 			loadingLatency={loadingLatency}
+			loadingTTFB={loadingTTFB}
 			loadingStats={loadingStats}
 			startTime={startTime}
 			endTime={endTime}

@@ -469,6 +469,14 @@ export interface CompatConfig {
 	should_convert_params: boolean;
 }
 
+export interface TTFBRoutingConfig {
+	enabled: boolean;
+	window_seconds?: number;
+	min_samples?: number;
+	threshold_ms?: number;
+	min_penalty_factor?: number;
+}
+
 // Core Bifrost configuration types
 export interface CoreConfig {
 	drop_excess_requests: boolean;
@@ -492,6 +500,7 @@ export interface CoreConfig {
 	whitelisted_routes: string[];
 	hide_deleted_virtual_keys_in_filters: boolean;
 	routing_chain_max_depth: number;
+	ttfb_routing?: TTFBRoutingConfig;
 	header_filter_config?: GlobalHeaderFilterConfig;
 }
 
@@ -517,6 +526,13 @@ export const DefaultCoreConfig: CoreConfig = {
 	whitelisted_routes: [],
 	hide_deleted_virtual_keys_in_filters: false,
 	routing_chain_max_depth: 10,
+	ttfb_routing: {
+		enabled: false,
+		window_seconds: 900,
+		min_samples: 20,
+		threshold_ms: 2500,
+		min_penalty_factor: 0.2,
+	},
 };
 
 // Semantic cache configuration types

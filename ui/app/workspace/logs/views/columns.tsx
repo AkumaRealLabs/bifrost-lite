@@ -243,6 +243,23 @@ export const createColumns = (
 			},
 		},
 		{
+			accessorKey: "ttfb_ms",
+			header: ({ column }) => (
+				<Button variant="ghost" data-testid="logs-ttfb-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+					TTFB
+					<ArrowUpDown className="ml-2 h-4 w-4" />
+				</Button>
+			),
+			size: 120,
+			cell: ({ row }) => {
+				const ttfb = row.original.ttfb_ms;
+				if (ttfb === undefined || ttfb === null) {
+					return <div className="pl-4 font-mono text-xs">-</div>;
+				}
+				return <div className="pl-4 font-mono text-[12px] tabular-nums">{formatLatency(ttfb)}</div>;
+			},
+		},
+		{
 			accessorKey: "tokens",
 			header: ({ column }) => (
 				<Button variant="ghost" data-testid="logs-tokens-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>

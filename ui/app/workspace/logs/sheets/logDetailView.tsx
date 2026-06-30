@@ -681,9 +681,9 @@ export function LogDetailView({
 						<span className="uppercase">{log.provider}</span>
 					</div>
 				</div>
-					<div className="border-border grid grid-cols-2 border-t md:grid-cols-6">
-						<HeroStat
-							label="Latency"
+				<div className="border-border grid grid-cols-2 border-t md:grid-cols-6">
+					<HeroStat
+						label="Latency"
 						valueClass="text-primary"
 						value={log.latency == null || isNaN(log.latency) ? "—" : formatLatency(log.latency)}
 						sub={(() => {
@@ -693,11 +693,17 @@ export function LogDetailView({
 							const startStr = format(start, "HH:mm:ss");
 							if (log.latency == null || isNaN(log.latency)) return startStr;
 							return `${startStr} → ${format(addMilliseconds(start, log.latency), "HH:mm:ss")}`;
-							})()}
-							hasRightBorder
-						/>
-						<HeroStat
-							label="Model"
+						})()}
+						hasRightBorder
+					/>
+					<HeroStat
+						label="TTFB"
+						value={log.ttfb_ms == null || isNaN(log.ttfb_ms) ? "—" : formatLatency(log.ttfb_ms)}
+						sub={log.stream ? "首个 chunk" : "非流式"}
+						hasRightBorder
+					/>
+					<HeroStat
+						label="Model"
 						mono
 						value={log.model || "—"}
 						sub={log.provider?.toLowerCase() || ""}
@@ -768,12 +774,17 @@ export function LogDetailView({
 									return d && !isNaN(d.getTime()) ? format(addMilliseconds(d, log.latency || 0), "yyyy-MM-dd hh:mm:ss aa") : "N/A";
 								})()}
 							/>
-								<LogEntryDetailsView
-									className="w-full"
-									label="Latency"
-									value={log.latency == null || isNaN(log.latency) ? "N/A" : <div>{log.latency.toFixed(2)}ms</div>}
-								/>
-							</div>
+							<LogEntryDetailsView
+								className="w-full"
+								label="Latency"
+								value={log.latency == null || isNaN(log.latency) ? "N/A" : <div>{log.latency.toFixed(2)}ms</div>}
+							/>
+							<LogEntryDetailsView
+								className="w-full"
+								label="TTFB"
+								value={log.ttfb_ms == null || isNaN(log.ttfb_ms) ? "-" : <div>{log.ttfb_ms.toFixed(2)}ms</div>}
+							/>
+						</div>
 					</div>
 					<DottedSeparator />
 					<div className="space-y-4">

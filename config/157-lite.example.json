@@ -12,7 +12,14 @@
     "initial_pool_size": 300,
     "log_retention_days": 30,
     "max_request_body_size_mb": 100,
-    "routing_chain_max_depth": 10
+    "routing_chain_max_depth": 10,
+    "ttfb_routing": {
+      "enabled": false,
+      "window_seconds": 900,
+      "min_samples": 20,
+      "threshold_ms": 2500,
+      "min_penalty_factor": 0.2
+    }
   },
   "config_store": {
     "enabled": true,

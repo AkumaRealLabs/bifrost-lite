@@ -221,6 +221,43 @@
           "minimum": 1,
           "description": "Maximum depth for routing rule chain evaluation",
           "default": 10
+        },
+        "ttfb_routing": {
+          "type": "object",
+          "description": "Optional TTFB-aware virtual-key provider weighting. Disabled by default; when enabled, only slow providers are penalized.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable TTFB-aware provider weight penalties",
+              "default": false
+            },
+            "window_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Recent log window, in seconds, used for TTFB statistics",
+              "default": 900
+            },
+            "min_samples": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum samples required before applying a provider penalty",
+              "default": 20
+            },
+            "threshold_ms": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Provider/model p95 TTFB threshold in milliseconds before penalties apply",
+              "default": 2500
+            },
+            "min_penalty_factor": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "Lowest multiplier applied to the original provider weight",
+              "default": 0.2
+            }
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -1472,6 +1509,43 @@
                     "is_enterprise": {
                       "type": "boolean",
                       "description": "Enable enterprise mode features"
+                    },
+                    "ttfb_routing": {
+                      "type": "object",
+                      "description": "Optional TTFB-aware virtual-key provider weighting. Disabled by default; when enabled, only slow providers are penalized.",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "Enable TTFB-aware provider weight penalties",
+                          "default": false
+                        },
+                        "window_seconds": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Recent log window, in seconds, used for TTFB statistics",
+                          "default": 900
+                        },
+                        "min_samples": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Minimum samples required before applying a provider penalty",
+                          "default": 20
+                        },
+                        "threshold_ms": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "description": "Provider/model p95 TTFB threshold in milliseconds before penalties apply",
+                          "default": 2500
+                        },
+                        "min_penalty_factor": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1,
+                          "description": "Lowest multiplier applied to the original provider weight",
+                          "default": 0.2
+                        }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false

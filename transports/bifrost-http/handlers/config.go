@@ -22,6 +22,7 @@ import (
 	"github.com/maximhq/bifrost/framework/encrypt"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/plugins/compat"
+	"github.com/maximhq/bifrost/plugins/governance"
 	"github.com/maximhq/bifrost/transports/bifrost-http/lib"
 	"github.com/valyala/fasthttp"
 )
@@ -271,6 +272,11 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("Invalid request format: %v", err))
 		return
 	}
+	if err := validateTTFBRoutingConfig(payload.ClientConfig.TTFBRouting); err != nil {
+		logger.Warn("invalid ttfb routing config: %v", err)
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Validating framework config
 	if payload.FrameworkConfig.PricingURL != nil && *payload.FrameworkConfig.PricingURL != modelcatalog.DefaultPricingURL {
@@ -298,6 +304,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	// Get current config with proper locking
 	currentConfig := h.store.ClientConfig
 	updatedConfig := currentConfig
+	ttfbRoutingChanged := !ttfbRoutingConfigEqual(payload.ClientConfig.TTFBRouting, currentConfig.TTFBRouting)
 
 	var restartReasons []string
 
@@ -412,6 +419,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	if payload.ClientConfig.RoutingChainMaxDepth > 0 {
 		updatedConfig.RoutingChainMaxDepth = payload.ClientConfig.RoutingChainMaxDepth
 	}
+	updatedConfig.TTFBRouting = payload.ClientConfig.TTFBRouting
 
 	// Handle HeaderFilterConfig changes
 	if !headerFilterConfigEqual(payload.ClientConfig.HeaderFilterConfig, currentConfig.HeaderFilterConfig) {
@@ -450,6 +458,21 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		logger.Warn("failed to reload client config from config store: %v", err)
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload client config from config store: %v", err))
 		return
+	}
+	if ttfbRoutingChanged {
+		builtinPlacement := schemas.PluginPlacementBuiltin
+		builtinOrder := 2
+		governanceCfg := &governance.Config{
+			IsVkMandatory:        &h.store.ClientConfig.EnforceAuthOnInference,
+			RequiredHeaders:      &h.store.ClientConfig.RequiredHeaders,
+			RoutingChainMaxDepth: &h.store.ClientConfig.RoutingChainMaxDepth,
+			TTFBRouting:          h.store.ClientConfig.TTFBRouting,
+		}
+		if err := h.configManager.ReloadPlugin(ctx, governance.PluginName, nil, governanceCfg, &builtinPlacement, &builtinOrder); err != nil {
+			logger.Warn("failed to reload governance plugin: %v", err)
+			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload governance plugin: %v", err))
+			return
+		}
 	}
 	// Fetching existing framework config
 	frameworkConfig, err := h.store.ConfigStore.GetFrameworkConfig(ctx)
@@ -687,6 +710,59 @@ func headerFilterConfigEqual(a, b *configstoreTables.GlobalHeaderFilterConfig) b
 		return false
 	}
 	return slices.Equal(a.Allowlist, b.Allowlist) && slices.Equal(a.Denylist, b.Denylist)
+}
+
+func ttfbRoutingConfigEqual(a, b *configstore.TTFBRoutingConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Enabled == b.Enabled &&
+		intPtrEqual(a.WindowSeconds, b.WindowSeconds) &&
+		intPtrEqual(a.MinSamples, b.MinSamples) &&
+		float64PtrEqual(a.ThresholdMs, b.ThresholdMs) &&
+		float64PtrEqual(a.MinPenaltyFactor, b.MinPenaltyFactor)
+}
+
+func intPtrEqual(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func float64PtrEqual(a, b *float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func validateTTFBRoutingConfig(config *configstore.TTFBRoutingConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.WindowSeconds != nil && *config.WindowSeconds <= 0 {
+		return fmt.Errorf("ttfb_routing.window_seconds must be greater than 0")
+	}
+	if config.MinSamples != nil && *config.MinSamples <= 0 {
+		return fmt.Errorf("ttfb_routing.min_samples must be greater than 0")
+	}
+	if config.ThresholdMs != nil && *config.ThresholdMs <= 0 {
+		return fmt.Errorf("ttfb_routing.threshold_ms must be greater than 0")
+	}
+	if config.MinPenaltyFactor != nil && (*config.MinPenaltyFactor <= 0 || *config.MinPenaltyFactor > 1) {
+		return fmt.Errorf("ttfb_routing.min_penalty_factor must be greater than 0 and less than or equal to 1")
+	}
+	return nil
 }
 
 // validateHeaderFilterConfig validates that no exact security header names are in the allowlist or denylist
