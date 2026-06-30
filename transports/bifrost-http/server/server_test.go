@@ -57,6 +57,7 @@ func TestUpdateKeyStatus_KeylessProviderUpdatesProviderStatusInMemory(t *testing
 				"mock-openai": {
 					CustomProviderConfig: &schemas.CustomProviderConfig{IsKeyLess: true},
 					Status:               "unknown",
+					Description:          `{"price_rmb_per_dao":0.045}`,
 				},
 			},
 		},
@@ -73,8 +74,11 @@ func TestUpdateKeyStatus_KeylessProviderUpdatesProviderStatusInMemory(t *testing
 	if provider.Status != string(schemas.KeyStatusListModelsFailed) {
 		t.Fatalf("expected provider status %q, got %q", schemas.KeyStatusListModelsFailed, provider.Status)
 	}
-	if provider.Description != "preview missing model" {
-		t.Fatalf("expected provider description to be updated, got %q", provider.Description)
+	if provider.Description != `{"price_rmb_per_dao":0.045}` {
+		t.Fatalf("expected provider description metadata to be preserved, got %q", provider.Description)
+	}
+	if provider.StatusDescription != "preview missing model" {
+		t.Fatalf("expected provider status description to be updated, got %q", provider.StatusDescription)
 	}
 	if len(store.calls) != 1 {
 		t.Fatalf("expected one status update call, got %d", len(store.calls))
@@ -113,8 +117,8 @@ func TestUpdateKeyStatus_EmptyKeyIDDoesNotOverwriteKeyedProviderStatus(t *testin
 	if provider.Status != "healthy" {
 		t.Fatalf("expected keyed provider status to remain unchanged, got %q", provider.Status)
 	}
-	if provider.Description != "" {
-		t.Fatalf("expected keyed provider description to remain unchanged, got %q", provider.Description)
+	if provider.Description != "" || provider.StatusDescription != "" {
+		t.Fatalf("expected keyed provider descriptions to remain unchanged, got description=%q status_description=%q", provider.Description, provider.StatusDescription)
 	}
 	if len(store.calls) != 1 {
 		t.Fatalf("expected one status update call, got %d", len(store.calls))

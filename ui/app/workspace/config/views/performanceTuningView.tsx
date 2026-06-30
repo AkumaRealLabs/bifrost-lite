@@ -3,11 +3,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
-import { CoreConfig, DefaultCoreConfig, TTFBRoutingConfig } from "@/lib/types/config";
+import { CoreConfig, DefaultCoreConfig, ProviderScoringConfig, TTFBRoutingConfig } from "@/lib/types/config";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const DEFAULT_PROVIDER_SCORING: Required<
+	Omit<ProviderScoringConfig, "weights"> & { weights: Required<NonNullable<ProviderScoringConfig["weights"]>> }
+> = {
+	enabled: false,
+	window_seconds: 120,
+	min_samples: 5,
+	error_rate_threshold: 0.3,
+	consecutive_failures_threshold: 3,
+	cooldown_seconds: 300,
+	ttfb_threshold_ms: 2500,
+	weights: { availability: 0.7, ttfb: 0.2, cost: 0.1 },
+};
+
+const normalizeProviderScoring = (config?: ProviderScoringConfig) => ({
+	...DEFAULT_PROVIDER_SCORING,
+	...config,
+	weights: { ...DEFAULT_PROVIDER_SCORING.weights, ...config?.weights },
+});
 
 const DEFAULT_TTFB_ROUTING: Required<TTFBRoutingConfig> = {
 	enabled: false,
@@ -44,6 +63,7 @@ export default function PerformanceTuningView() {
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
 	const [localConfig, setLocalConfig] = useState<CoreConfig>(DefaultCoreConfig);
 	const [needsRestart, setNeedsRestart] = useState<boolean>(false);
+	const [providerScoringTouched, setProviderScoringTouched] = useState(false);
 
 	const [localValues, setLocalValues] = useState<{
 		initial_pool_size: string;
@@ -65,6 +85,7 @@ export default function PerformanceTuningView() {
 		if (bifrostConfig && config) {
 			const ttfbRouting = normalizeTTFBRouting(config.ttfb_routing);
 			setLocalConfig({ ...config, ttfb_routing: ttfbRouting });
+			setProviderScoringTouched(false);
 			setLocalValues({
 				initial_pool_size: config?.initial_pool_size?.toString() || "1000",
 				max_request_body_size_mb: config?.max_request_body_size_mb?.toString() || "100",
@@ -82,9 +103,21 @@ export default function PerformanceTuningView() {
 		return (
 			localConfig.initial_pool_size !== config.initial_pool_size ||
 			localConfig.max_request_body_size_mb !== config.max_request_body_size_mb ||
-			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing)
+			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing) ||
+			(providerScoringTouched && (localConfig.provider_scoring?.enabled ?? false) !== (config.provider_scoring?.enabled ?? false))
 		);
-	}, [config, localConfig]);
+	}, [config, localConfig, providerScoringTouched]);
+
+	const handleProviderScoringToggle = useCallback(
+		(checked: boolean) => {
+			setProviderScoringTouched(true);
+			setLocalConfig((prev) => ({
+				...prev,
+				provider_scoring: { ...normalizeProviderScoring(prev.provider_scoring ?? config?.provider_scoring), enabled: checked },
+			}));
+		},
+		[config?.provider_scoring],
+	);
 
 	const handlePoolSizeChange = useCallback((value: string) => {
 		setLocalValues((prev) => ({ ...prev, initial_pool_size: value }));
@@ -169,12 +202,12 @@ export default function PerformanceTuningView() {
 				return;
 			}
 
-			if (!bifrostConfig) {
+			if (!bifrostConfig || !config) {
 				toast.error("配置尚未加载，请刷新后重试。");
 				return;
 			}
 			const nextConfig: CoreConfig = {
-				...localConfig,
+				...config,
 				initial_pool_size: poolSize,
 				max_request_body_size_mb: maxBodySize,
 				ttfb_routing: {
@@ -185,13 +218,19 @@ export default function PerformanceTuningView() {
 					min_penalty_factor: ttfbMinPenaltyFactor,
 				},
 			};
+			if (providerScoringTouched) {
+				nextConfig.provider_scoring = {
+					...normalizeProviderScoring(localConfig.provider_scoring ?? config.provider_scoring),
+					enabled: localConfig.provider_scoring?.enabled ?? false,
+				};
+			}
 			await updateCoreConfig({ ...bifrostConfig, client_config: nextConfig }).unwrap();
 			setNeedsRestart(false);
 			toast.success("性能设置已更新");
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
-	}, [bifrostConfig, localConfig, localValues, updateCoreConfig]);
+	}, [bifrostConfig, config, localConfig, localValues, providerScoringTouched, updateCoreConfig]);
 
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-4">
@@ -203,7 +242,7 @@ export default function PerformanceTuningView() {
 			<Alert variant="warning">
 				<AlertTriangle className="h-4 w-4" />
 				<AlertDescription>
-					初始池大小和最大请求体大小需要重启 Bifrost 后才会完全生效。TTFB 路由调度保存后会对下一次 VK 加权路由生效。
+					初始池大小和最大请求体大小需要重启 Bifrost 后才会完全生效。TTFB 路由与智能路由评分保存后会对下一次 VK 自动路由生效。
 				</AlertDescription>
 			</Alert>
 
@@ -250,6 +289,26 @@ export default function PerformanceTuningView() {
 						/>
 					</div>
 					{needsRestart && <RestartWarning />}
+				</div>
+
+				<div className="space-y-4 rounded-sm border p-4">
+					<div className="flex items-center justify-between gap-4">
+						<div className="space-y-0.5">
+							<label htmlFor="provider-scoring-enabled" className="text-sm font-medium">
+								智能路由评分
+							</label>
+							<p className="text-muted-foreground text-sm">
+								优先级：高可用 &gt; TTFB &gt; 成本。仅影响 VK 自动路由。统计窗口、阈值、权重等请通过 API 配置
+								client_config.provider_scoring。
+							</p>
+						</div>
+						<Switch
+							id="provider-scoring-enabled"
+							checked={localConfig.provider_scoring?.enabled ?? config?.provider_scoring?.enabled ?? false}
+							onCheckedChange={handleProviderScoringToggle}
+							disabled={!hasSettingsUpdateAccess}
+						/>
+					</div>
 				</div>
 
 				<div className="space-y-4 rounded-sm border p-4">

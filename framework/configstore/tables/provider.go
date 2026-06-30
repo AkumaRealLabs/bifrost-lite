@@ -53,8 +53,9 @@ type TableProvider struct {
 	ConfigHash string `gorm:"type:varchar(255);null" json:"config_hash"`
 
 	// Model discovery status tracking for keyless providers
-	Status      string `gorm:"type:varchar(50);default:'unknown'" json:"status"`
-	Description string `gorm:"type:text" json:"description,omitempty"`
+	Status            string `gorm:"type:varchar(50);default:'unknown'" json:"status"`
+	Description       string `gorm:"type:text" json:"description,omitempty"`
+	StatusDescription string `gorm:"type:text" json:"status_description,omitempty"`
 
 	EncryptionStatus string `gorm:"type:varchar(20);default:'plain_text'" json:"-"`
 }

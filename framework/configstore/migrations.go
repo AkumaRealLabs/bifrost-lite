@@ -178,5 +178,6 @@ func liteSchemaModels() []interface{} {
 		&tables.TableModelParameters{},
 		&tables.SessionsTable{},
 		&tables.TableDistributedLock{},
+		&tables.TableProviderCooldown{},
 	}
 }

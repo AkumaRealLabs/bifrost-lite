@@ -143,6 +143,16 @@ func (s *BifrostHTTPServer) loadBuiltinPlugins(ctx context.Context) error {
 				config.TTFBRouting = fileConfig.TTFBRouting
 			}
 		}
+		if s.Config.ClientConfig.ProviderScoring != nil {
+			config.ProviderScoring = s.Config.ClientConfig.ProviderScoring
+		} else if pluginCfg := s.getPluginConfig(governance.PluginName); pluginCfg != nil && pluginCfg.Config != nil {
+			fileConfig, err := MarshalPluginConfig[governance.Config](pluginCfg.Config)
+			if err != nil {
+				logger.Warn("failed to parse governance plugin config: %v", err)
+			} else if fileConfig.ProviderScoring != nil {
+				config.ProviderScoring = fileConfig.ProviderScoring
+			}
+		}
 		s.registerPluginWithStatus(ctx, governance.PluginName, nil, config, false)
 	} else {
 		s.markPluginDisabled(governance.PluginName)

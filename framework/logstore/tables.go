@@ -1467,6 +1467,23 @@ type TTFBStatsResult struct {
 	Stats         []TTFBStatsEntry `json:"stats"`
 }
 
+// ProviderReliabilityStatsEntry aggregates success/error counts for a provider in a window.
+type ProviderReliabilityStatsEntry struct {
+	Provider            string  `json:"provider"`
+	SampleCount         int64   `json:"sample_count"`
+	ErrorCount          int64   `json:"error_count"`
+	ErrorRate           float64 `json:"error_rate"`
+	ConsecutiveFailures int     `json:"consecutive_failures"`
+	HasMinSamples       bool    `json:"has_min_samples"`
+}
+
+// ProviderReliabilityStatsResult is returned by GetProviderReliabilityStats.
+type ProviderReliabilityStatsResult struct {
+	WindowSeconds int64                           `json:"window_seconds"`
+	MinSamples    int                             `json:"min_samples"`
+	Stats         []ProviderReliabilityStatsEntry `json:"stats"`
+}
+
 // NodeUsageCursor identifies the last log row included in a node usage scan.
 // The initial scan uses Timestamp + LogID because each ghost has a timestamp
 // lower bound. Once rows written with IncNumber are seen, subsequent scans use
