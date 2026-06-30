@@ -19,7 +19,7 @@ import (
 )
 
 var encryptionKey []byte
-var logger schemas.Logger	
+var logger schemas.Logger
 
 var ErrEncryptionKeyNotInitialized = errors.New("encryption key is not initialized")
 
@@ -107,8 +107,7 @@ func IsEnabled() bool {
 
 // Key returns a copy of the derived 32-byte encryption key, or nil if the
 // encryption key has not been initialized. The returned slice is a copy so
-// callers may not mutate the underlying key. Used by subsystems that need to
-// derive their own domain-separated subkeys (e.g. WebSocket ticket signing).
+// callers may not mutate the underlying key.
 func Key() []byte {
 	if encryptionKey == nil {
 		return nil

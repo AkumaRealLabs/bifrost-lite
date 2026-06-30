@@ -19,7 +19,7 @@ func TestResolveMatViewRefreshIntervalDefaults(t *testing.T) {
 }
 
 func TestRefreshMatViewsAdvisoryLockLifecycle(t *testing.T) {
-	_, db := setupPerfTestDB(t)
+	_, db := setupPostgresTestDB(t)
 
 	t.Run("normal refresh releases lock", func(t *testing.T) {
 		resetTestMatViewRefreshGate()
@@ -56,7 +56,7 @@ func TestRefreshMatViewsAdvisoryLockLifecycle(t *testing.T) {
 }
 
 func TestEnsureMatViewsSharesRefreshAdvisoryLock(t *testing.T) {
-	_, db := setupPerfTestDB(t)
+	_, db := setupPostgresTestDB(t)
 	ctx := context.Background()
 
 	require.NoError(t, db.Exec("DROP MATERIALIZED VIEW IF EXISTS mv_filter_users CASCADE").Error)

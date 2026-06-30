@@ -3,10 +3,8 @@ package logstore
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
-	"github.com/maximhq/bifrost/framework/objectstore"
 )
 
 // LogStoreType represents the type of log store.
@@ -70,37 +68,9 @@ type LogStore interface {
 	GetDistinctRoutingEngines(ctx context.Context, limit int, query string) ([]string, error)
 	GetDistinctStopReasons(ctx context.Context, limit int, query string) ([]string, error)
 	GetDistinctMetadataKeys(ctx context.Context, limit int, query string) (map[string][]string, error)
-
-	// MCP Tool Log histogram methods
-	GetMCPHistogram(ctx context.Context, filters MCPToolLogSearchFilters, bucketSizeSeconds int64) (*MCPHistogramResult, error)
-	GetMCPCostHistogram(ctx context.Context, filters MCPToolLogSearchFilters, bucketSizeSeconds int64) (*MCPCostHistogramResult, error)
-	GetMCPTopTools(ctx context.Context, filters MCPToolLogSearchFilters, limit int) (*MCPTopToolsResult, error)
-
-	// MCP Tool Log methods
-	CreateMCPToolLog(ctx context.Context, entry *MCPToolLog) error
-	BatchCreateMCPToolLogsIfNotExists(ctx context.Context, entries []*MCPToolLog) error
-	FindMCPToolLog(ctx context.Context, id string) (*MCPToolLog, error)
-	UpdateMCPToolLog(ctx context.Context, id string, entry any) error
-	SearchMCPToolLogs(ctx context.Context, filters MCPToolLogSearchFilters, pagination PaginationOptions) (*MCPToolLogSearchResult, error)
-	GetMCPToolLogStats(ctx context.Context, filters MCPToolLogSearchFilters) (*MCPToolLogStats, error)
-	HasMCPToolLogs(ctx context.Context) (bool, error)
-	DeleteMCPToolLogs(ctx context.Context, ids []string) error
-	FlushMCPToolLogs(ctx context.Context, since time.Time) error
-	GetAvailableToolNames(ctx context.Context, limit int, query string) ([]string, error)
-	GetAvailableServerLabels(ctx context.Context, limit int, query string) ([]string, error)
-	GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]MCPToolLog, error)
-
-	// Async Job methods
-	CreateAsyncJob(ctx context.Context, job *AsyncJob) error
-	FindAsyncJobByID(ctx context.Context, id string) (*AsyncJob, error)
-	UpdateAsyncJob(ctx context.Context, id string, updates map[string]interface{}) error
-	DeleteExpiredAsyncJobs(ctx context.Context) (int64, error)
-	DeleteStaleAsyncJobs(ctx context.Context, staleSince time.Time) (int64, error)
 }
 
 // NewLogStore creates a new log store based on the configuration.
-// When ObjectStorage is configured, the returned store is wrapped with a
-// HybridLogStore that offloads payloads to S3-compatible object storage.
 func NewLogStore(ctx context.Context, config *Config, logger schemas.Logger) (LogStore, error) {
 	if config == nil {
 		return nil, fmt.Errorf("logstore: config is nil")
@@ -129,19 +99,5 @@ func NewLogStore(ctx context.Context, config *Config, logger schemas.Logger) (Lo
 		return nil, err
 	}
 
-	// Optionally wrap with hybrid decorator for object storage offloading.
-	if config.ObjectStorage != nil {
-		objStore, objErr := objectstore.NewObjectStore(ctx, config.ObjectStorage, logger)
-		if objErr != nil {
-			_ = inner.Close(ctx)
-			return nil, fmt.Errorf("failed to create object store: %w", objErr)
-		}
-		if err := objStore.Ping(ctx); err != nil {
-			_ = objStore.Close()
-			_ = inner.Close(ctx)
-			return nil, fmt.Errorf("failed to ping object store: %w", err)
-		}
-		return newHybridLogStore(inner, objStore, config.ObjectStorage.GetPrefix(), logger, config.ObjectStorageExcludeFields), nil
-	}
 	return inner, nil
 }

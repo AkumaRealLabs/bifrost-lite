@@ -18,7 +18,6 @@ import (
 // SearchLogs query must complete without error and return every row.
 type malformedHistoryCase struct {
 	name          string
-	objectType    string // defaults to "chat.completion"; set to "realtime.turn" to test passthrough branch
 	inputHistory  string // raw TEXT stored in logs.input_history
 	respHistory   string // raw TEXT stored in logs.responses_input_history
 	shouldCrashPG bool   // true if the row would have aborted the pre-fix Postgres list query
@@ -148,12 +147,6 @@ func malformedHistoryCases() []malformedHistoryCase {
 			name:         "whitespace_only",
 			inputHistory: "   \t  ",
 		},
-		// ---------- realtime.turn passthrough: outer CASE bypasses safe function ----------
-		{
-			name:         "realtime_turn_malformed_passthrough",
-			objectType:   "realtime.turn",
-			inputHistory: `[{"role":"user"`, // malformed; must not crash even though safe fn is bypassed
-		},
 		// ---------- mirror column ----------
 		{
 			name:          "malformed_responses_input_history",
@@ -173,15 +166,11 @@ func malformedHistoryCases() []malformedHistoryCase {
 func insertMalformedLog(t *testing.T, db *gorm.DB, c malformedHistoryCase, ts time.Time) string {
 	t.Helper()
 	id := uuid.New().String()
-	objType := c.objectType
-	if objType == "" {
-		objType = "chat.completion"
-	}
 	err := db.Exec(`
 		INSERT INTO logs (id, timestamp, object_type, provider, model, status,
 			input_history, responses_input_history, created_at)
 		VALUES (?, ?, ?, 'openai', 'gpt-4', 'success', ?, ?, ?)
-	`, id, ts, objType, c.inputHistory, c.respHistory, ts).Error
+	`, id, ts, "chat.completion", c.inputHistory, c.respHistory, ts).Error
 	require.NoError(t, err, "failed to insert row for case %q", c.name)
 	return id
 }
@@ -229,7 +218,7 @@ func TestSearchLogs_MalformedInputHistory_SQLite(t *testing.T) {
 // which now routes through the bifrost_safe_jsonb PL/pgSQL helper. Skipped
 // when Postgres is unavailable.
 func TestSearchLogs_MalformedInputHistory_Postgres(t *testing.T) {
-	store, db := setupPerfTestDB(t)
+	store, db := setupPostgresTestDB(t)
 	runMalformedHistorySuite(t, store, db)
 }
 
@@ -239,7 +228,7 @@ func TestSearchLogs_MalformedInputHistory_Postgres(t *testing.T) {
 // function returns so we can also detect silent behaviour drift on the
 // happy path (e.g. canonical jsonb spacing changes between PG versions).
 func TestBifrostSafeJsonb_DirectInvocation(t *testing.T) {
-	_, db := setupPerfTestDB(t)
+	_, db := setupPostgresTestDB(t)
 
 	bs := "\\"
 	u0000 := bs + "u0000"
@@ -305,7 +294,7 @@ func TestBifrostSafeJsonb_DirectInvocation(t *testing.T) {
 // TestBifrostSafeJsonb_NullInput verifies the function handles SQL NULL
 // (distinct from empty string) by returning NULL without erroring.
 func TestBifrostSafeJsonb_NullInput(t *testing.T) {
-	_, db := setupPerfTestDB(t)
+	_, db := setupPostgresTestDB(t)
 
 	var got *string
 	err := db.Raw("SELECT bifrost_safe_jsonb(NULL::text)").Scan(&got).Error

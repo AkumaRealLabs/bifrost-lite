@@ -1518,27 +1518,6 @@ func TestCalculateCost_StreamRequestTypeNormalized(t *testing.T) {
 	assert.InDelta(t, 0.0125, cost, 1e-12)
 }
 
-func TestCalculateCost_WebSocketResponsesFallsBackToChatPricing(t *testing.T) {
-	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{
-		makeKey("gpt-4o", "openai", "chat"): chatPricing(0.000005, 0.000015),
-	})
-
-	resp := &schemas.BifrostResponse{
-		ResponsesStreamResponse: &schemas.BifrostResponsesStreamResponse{
-			Response: &schemas.BifrostResponsesResponse{
-				Usage: &schemas.ResponsesResponseUsage{InputTokens: 1000, OutputTokens: 500, TotalTokens: 1500},
-			},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.WebSocketResponsesRequest,
-				RoutingInfo: routingInfoFor(schemas.OpenAI, "gpt-4o"),
-			},
-		},
-	}
-
-	cost := s.CalculateCost(resp, nil)
-	assert.InDelta(t, 0.0125, cost, 1e-12)
-}
-
 func TestCalculateCost_NoPricingData(t *testing.T) {
 	s := testStoreWithPricing(nil)
 	resp := makeChatResponse(schemas.OpenAI, "unknown-model", &schemas.BifrostLLMUsage{
@@ -1600,14 +1579,6 @@ func TestGetPricing_ResponsesStreamFallsBackToChat(t *testing.T) {
 		makeKey("gpt-4o", "openai", "chat"): chatPricing(0.000005, 0.000015),
 	})
 	p := s.resolvePricing(schemas.RoutingInfo{Provider: "openai", Model: "gpt-4o"}, schemas.ResponsesStreamRequest, LookupScopes{Provider: "openai"})
-	assert.Equal(t, 0.000005, derefF(p.InputCostPerToken))
-}
-
-func TestGetPricing_RealtimeFallsBackToChat(t *testing.T) {
-	s := testStoreWithPricing(map[string]configstoreTables.TableModelPricing{
-		makeKey("gpt-4o", "openai", "chat"): chatPricing(0.000005, 0.000015),
-	})
-	p := s.resolvePricing(schemas.RoutingInfo{Provider: "openai", Model: "gpt-4o"}, schemas.RealtimeRequest, LookupScopes{Provider: "openai"})
 	assert.Equal(t, 0.000005, derefF(p.InputCostPerToken))
 }
 
@@ -1676,7 +1647,6 @@ func TestNormalizeStreamRequestType(t *testing.T) {
 		{schemas.TranscriptionStreamRequest, schemas.TranscriptionRequest},
 		{schemas.ImageGenerationStreamRequest, schemas.ImageGenerationRequest},
 		{schemas.ImageEditStreamRequest, schemas.ImageEditRequest},
-		{schemas.RealtimeRequest, schemas.RealtimeRequest},             // realtime is its own base type
 		{schemas.ChatCompletionRequest, schemas.ChatCompletionRequest}, // non-stream unchanged
 		{schemas.EmbeddingRequest, schemas.EmbeddingRequest},           // non-stream unchanged
 	}

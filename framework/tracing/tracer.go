@@ -18,13 +18,13 @@ import (
 // framework's TraceStore implementation.
 // It also embeds a streaming.Accumulator for centralized streaming chunk accumulation.
 type Tracer struct {
-	store              *TraceStore
-	accumulator        *streaming.Accumulator
-	pricingManager     *modelcatalog.ModelCatalog
-	logger             schemas.Logger
-	obsPlugins         atomic.Pointer[[]schemas.ObservabilityPlugin]
-	cachedHdrPatterns  atomic.Pointer[[]string]
-	flushWG            sync.WaitGroup
+	store             *TraceStore
+	accumulator       *streaming.Accumulator
+	pricingManager    *modelcatalog.ModelCatalog
+	logger            schemas.Logger
+	obsPlugins        atomic.Pointer[[]schemas.ObservabilityPlugin]
+	cachedHdrPatterns atomic.Pointer[[]string]
+	flushWG           sync.WaitGroup
 }
 
 // NewTracer creates a new Tracer wrapping the given TraceStore.
@@ -660,8 +660,7 @@ func (t *Tracer) Stop() {
 }
 
 // CompleteAndFlushTrace ends a trace and forwards it to any observability
-// plugins asynchronously. Realtime transports need this explicit flush because
-// they bypass the HTTP tracing middleware that normally injects completed traces.
+// plugins asynchronously for paths that bypass the HTTP tracing middleware.
 func (t *Tracer) CompleteAndFlushTrace(traceID string) {
 	if t == nil {
 		return
