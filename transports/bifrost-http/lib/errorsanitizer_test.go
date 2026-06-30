@@ -2,6 +2,7 @@ package lib
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/maximhq/bifrost/core/schemas"
@@ -65,7 +66,7 @@ func TestSanitizeBifrostErrorForClientPreservesClientValidationMessage(t *testin
 
 func TestSanitizeBifrostErrorForClientHidesInternalRoutingConfigDetails(t *testing.T) {
 	tests := []string{
-		"no keys found for provider: congmingai_openai_lv3 and model: gpt-5.5",
+		"no keys found for provider: provider-alpha and model: gpt-5.5",
 		"no keys found that support model: gpt-5.5",
 	}
 
@@ -113,5 +114,59 @@ func TestSanitizeBifrostErrorForClientPreservesNonSensitiveServerMessage(t *test
 
 	if sanitized.Error.Message != "failed to reload config" {
 		t.Fatalf("expected non-sensitive server message to be preserved, got %q", sanitized.Error.Message)
+	}
+}
+
+func TestSanitizeBifrostErrorForClientHidesRoutingFields(t *testing.T) {
+	aliasName := "internal-alias-name"
+	err := &schemas.BifrostError{
+		Error: &schemas.ErrorField{
+			Message: "Concurrency limit exceeded for account, please retry later",
+		},
+		ExtraFields: schemas.BifrostErrorExtraFields{
+			Provider:          "provider-alpha",
+			ResolvedModelUsed: "internal-resolved-model",
+			RoutingInfo: schemas.RoutingInfo{
+				Provider: "provider-alpha",
+				Model:    "internal-routing-model",
+				Key:      "key-prod-01",
+				ResolvedKeyAlias: &schemas.ResolvedKeyAlias{
+					ModelID:   "upstream-resolved-model",
+					ModelName: &aliasName,
+				},
+			},
+			KeyStatuses: []schemas.KeyStatus{{
+				KeyID:    "key-status-01",
+				Provider: "provider-beta",
+			}},
+		},
+	}
+
+	sanitized := SanitizeBifrostErrorForClient(err)
+	if sanitized.ExtraFields.Provider != "" {
+		t.Fatalf("expected provider to be cleared, got %q", sanitized.ExtraFields.Provider)
+	}
+	if sanitized.ExtraFields.ResolvedModelUsed != "" {
+		t.Fatalf("expected resolved model to be cleared, got %q", sanitized.ExtraFields.ResolvedModelUsed)
+	}
+	if sanitized.ExtraFields.RoutingInfo.Key != "" || sanitized.ExtraFields.RoutingInfo.ResolvedKeyAlias != nil {
+		t.Fatalf("expected routing info to be cleared, got %+v", sanitized.ExtraFields.RoutingInfo)
+	}
+	if len(sanitized.ExtraFields.KeyStatuses) != 0 {
+		t.Fatalf("expected key statuses to be cleared, got %+v", sanitized.ExtraFields.KeyStatuses)
+	}
+	if err.ExtraFields.Provider == "" || err.ExtraFields.RoutingInfo.Key == "" || err.ExtraFields.RoutingInfo.ResolvedKeyAlias == nil || len(err.ExtraFields.KeyStatuses) == 0 {
+		t.Fatal("expected original error to remain unchanged")
+	}
+
+	data, marshalErr := schemas.MarshalSorted(sanitized)
+	if marshalErr != nil {
+		t.Fatalf("failed to marshal sanitized error: %v", marshalErr)
+	}
+	body := string(data)
+	for _, sensitive := range []string{"provider-alpha", "provider-beta", "key-prod-01", "key-status-01", "internal-resolved-model", "upstream-resolved-model", aliasName} {
+		if strings.Contains(body, sensitive) {
+			t.Fatalf("sanitized JSON leaked %q: %s", sensitive, body)
+		}
 	}
 }

@@ -16,6 +16,10 @@ func SanitizeBifrostErrorForClient(err *schemas.BifrostError) *schemas.BifrostEr
 	}
 
 	sanitized := *err
+	sanitized.ExtraFields.RoutingInfo = schemas.RoutingInfo{}
+	sanitized.ExtraFields.Provider = ""
+	sanitized.ExtraFields.ResolvedModelUsed = ""
+	sanitized.ExtraFields.KeyStatuses = nil
 	if err.Error != nil {
 		errorField := *err.Error
 		if shouldHideErrorDetails(err, err.Error) {

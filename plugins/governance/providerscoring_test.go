@@ -168,6 +168,58 @@ func TestApplyProviderScoring_FailOpenWhenAllCooled(t *testing.T) {
 	assert.Len(t, got, 2)
 }
 
+func TestPostLLMHook_CoolsProviderOnAccountConcurrencyLimit(t *testing.T) {
+	tests := []struct {
+		name     string
+		err      *schemas.BifrostError
+		provider string
+	}{
+		{
+			name: "message_provider_extra_field",
+			err: &schemas.BifrostError{
+				Error: &schemas.ErrorField{Message: "Concurrency limit exceeded for account, please retry later"},
+				ExtraFields: schemas.BifrostErrorExtraFields{
+					Provider: "provider-alpha",
+				},
+			},
+			provider: "provider-alpha",
+		},
+		{
+			name: "code_routing_provider",
+			err: &schemas.BifrostError{
+				Error: &schemas.ErrorField{
+					Message: "please retry later",
+					Code:    schemas.Ptr("account_concurrency_full"),
+				},
+				ExtraFields: schemas.BifrostErrorExtraFields{
+					RoutingInfo: schemas.RoutingInfo{Provider: "provider-beta"},
+				},
+			},
+			provider: "provider-beta",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &fakeCooldownConfigStore{}
+			p := &GovernancePlugin{
+				logger:             NewMockLogger(),
+				testCooldownUpsert: store.UpsertProviderCooldown,
+			}
+
+			_, gotErr, err := p.PostLLMHook(schemas.NewBifrostContext(context.Background(), schemas.NoDeadline), nil, tt.err)
+			require.NoError(t, err)
+			require.Same(t, tt.err, gotErr)
+			require.Len(t, store.upserts, 1)
+
+			state := store.upserts[0]
+			assert.Equal(t, tt.provider, state.Provider)
+			assert.Equal(t, accountConcurrencyCooldownReason, state.Reason)
+			assert.Equal(t, 30*time.Second, state.CooldownUntil.Sub(state.UpdatedAt))
+		})
+	}
+}
+
 func TestParseProviderPriceRMBPerDao(t *testing.T) {
 	v, ok := parseProviderPriceRMBPerDao(`{"price_rmb_per_dao":0.045}`)
 	assert.True(t, ok)
