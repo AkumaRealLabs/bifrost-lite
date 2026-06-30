@@ -3,11 +3,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
-import { CoreConfig, DefaultCoreConfig, TTFBRoutingConfig } from "@/lib/types/config";
+import { CoreConfig, DefaultCoreConfig, ProviderScoringConfig, TTFBRoutingConfig } from "@/lib/types/config";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { AlertTriangle } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+
+const DEFAULT_PROVIDER_SCORING: Required<
+	Omit<ProviderScoringConfig, "weights"> & { weights: Required<NonNullable<ProviderScoringConfig["weights"]>> }
+> = {
+	enabled: false,
+	window_seconds: 120,
+	min_samples: 5,
+	error_rate_threshold: 0.3,
+	consecutive_failures_threshold: 3,
+	cooldown_seconds: 300,
+	ttfb_threshold_ms: 2500,
+	weights: { availability: 0.7, ttfb: 0.2, cost: 0.1 },
+};
+
+const normalizeProviderScoring = (config?: ProviderScoringConfig) => ({
+	...DEFAULT_PROVIDER_SCORING,
+	...config,
+	weights: { ...DEFAULT_PROVIDER_SCORING.weights, ...config?.weights },
+});
 
 const DEFAULT_TTFB_ROUTING: Required<TTFBRoutingConfig> = {
 	enabled: false,
@@ -64,7 +83,7 @@ export default function PerformanceTuningView() {
 	useEffect(() => {
 		if (bifrostConfig && config) {
 			const ttfbRouting = normalizeTTFBRouting(config.ttfb_routing);
-			setLocalConfig({ ...config, ttfb_routing: ttfbRouting });
+			setLocalConfig({ ...config, ttfb_routing: ttfbRouting, provider_scoring: normalizeProviderScoring(config.provider_scoring) });
 			setLocalValues({
 				initial_pool_size: config?.initial_pool_size?.toString() || "1000",
 				max_request_body_size_mb: config?.max_request_body_size_mb?.toString() || "100",
@@ -82,7 +101,9 @@ export default function PerformanceTuningView() {
 		return (
 			localConfig.initial_pool_size !== config.initial_pool_size ||
 			localConfig.max_request_body_size_mb !== config.max_request_body_size_mb ||
-			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing)
+			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing) ||
+			JSON.stringify(normalizeProviderScoring(localConfig.provider_scoring)) !==
+				JSON.stringify(normalizeProviderScoring(config.provider_scoring))
 		);
 	}, [config, localConfig]);
 
@@ -203,7 +224,7 @@ export default function PerformanceTuningView() {
 			<Alert variant="warning">
 				<AlertTriangle className="h-4 w-4" />
 				<AlertDescription>
-					初始池大小和最大请求体大小需要重启 Bifrost 后才会完全生效。TTFB 路由调度保存后会对下一次 VK 加权路由生效。
+					初始池大小和最大请求体大小需要重启 Bifrost 后才会完全生效。TTFB 路由与智能路由评分保存后会对下一次 VK 自动路由生效。
 				</AlertDescription>
 			</Alert>
 

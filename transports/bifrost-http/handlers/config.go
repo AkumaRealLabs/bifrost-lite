@@ -277,6 +277,11 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
 		return
 	}
+	if err := validateProviderScoringConfig(payload.ClientConfig.ProviderScoring); err != nil {
+		logger.Warn("invalid provider scoring config: %v", err)
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
+		return
+	}
 
 	// Validating framework config
 	if payload.FrameworkConfig.PricingURL != nil && *payload.FrameworkConfig.PricingURL != modelcatalog.DefaultPricingURL {
@@ -305,6 +310,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	currentConfig := h.store.ClientConfig
 	updatedConfig := currentConfig
 	ttfbRoutingChanged := !ttfbRoutingConfigEqual(payload.ClientConfig.TTFBRouting, currentConfig.TTFBRouting)
+		providerScoringChanged := !providerScoringConfigEqual(payload.ClientConfig.ProviderScoring, currentConfig.ProviderScoring)
 
 	var restartReasons []string
 
@@ -420,6 +426,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		updatedConfig.RoutingChainMaxDepth = payload.ClientConfig.RoutingChainMaxDepth
 	}
 	updatedConfig.TTFBRouting = payload.ClientConfig.TTFBRouting
+		updatedConfig.ProviderScoring = payload.ClientConfig.ProviderScoring
 
 	// Handle HeaderFilterConfig changes
 	if !headerFilterConfigEqual(payload.ClientConfig.HeaderFilterConfig, currentConfig.HeaderFilterConfig) {
@@ -459,7 +466,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload client config from config store: %v", err))
 		return
 	}
-	if ttfbRoutingChanged {
+	if ttfbRoutingChanged || providerScoringChanged {
 		builtinPlacement := schemas.PluginPlacementBuiltin
 		builtinOrder := 2
 		governanceCfg := &governance.Config{
@@ -866,6 +873,71 @@ func checkURLAccessibility(rawURL string) error {
 	}()
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	return nil
+}
+
+
+func providerScoringConfigEqual(a, b *configstore.ProviderScoringConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Enabled != b.Enabled {
+		return false
+	}
+	if !intPtrEqual(a.WindowSeconds, b.WindowSeconds) ||
+		!intPtrEqual(a.MinSamples, b.MinSamples) ||
+		!intPtrEqual(a.ConsecutiveFailuresThreshold, b.ConsecutiveFailuresThreshold) ||
+		!intPtrEqual(a.CooldownSeconds, b.CooldownSeconds) {
+		return false
+	}
+	if !float64PtrEqual(a.ErrorRateThreshold, b.ErrorRateThreshold) ||
+		!float64PtrEqual(a.TTFBThresholdMs, b.TTFBThresholdMs) {
+		return false
+	}
+	if (a.Weights == nil) != (b.Weights == nil) {
+		return false
+	}
+	if a.Weights != nil && b.Weights != nil {
+		if !float64PtrEqual(&a.Weights.Availability, &b.Weights.Availability) ||
+			!float64PtrEqual(&a.Weights.TTFB, &b.Weights.TTFB) ||
+			!float64PtrEqual(&a.Weights.Cost, &b.Weights.Cost) {
+			return false
+		}
+	}
+	return true
+}
+
+func validateProviderScoringConfig(config *configstore.ProviderScoringConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.WindowSeconds != nil && *config.WindowSeconds <= 0 {
+		return fmt.Errorf("provider_scoring.window_seconds must be greater than 0")
+	}
+	if config.MinSamples != nil && *config.MinSamples <= 0 {
+		return fmt.Errorf("provider_scoring.min_samples must be greater than 0")
+	}
+	if config.ErrorRateThreshold != nil && (*config.ErrorRateThreshold < 0 || *config.ErrorRateThreshold > 1) {
+		return fmt.Errorf("provider_scoring.error_rate_threshold must be between 0 and 1")
+	}
+	if config.ConsecutiveFailuresThreshold != nil && *config.ConsecutiveFailuresThreshold <= 0 {
+		return fmt.Errorf("provider_scoring.consecutive_failures_threshold must be greater than 0")
+	}
+	if config.CooldownSeconds != nil && *config.CooldownSeconds <= 0 {
+		return fmt.Errorf("provider_scoring.cooldown_seconds must be greater than 0")
+	}
+	if config.TTFBThresholdMs != nil && *config.TTFBThresholdMs <= 0 {
+		return fmt.Errorf("provider_scoring.ttfb_threshold_ms must be greater than 0")
+	}
+	if config.Weights != nil {
+		sum := config.Weights.Availability + config.Weights.TTFB + config.Weights.Cost
+		if config.Weights.Availability <= 0 || config.Weights.TTFB < 0 || config.Weights.Cost < 0 || sum <= 0 {
+			return fmt.Errorf("provider_scoring.weights must be positive and sum to a value greater than 0")
+		}
 	}
 	return nil
 }

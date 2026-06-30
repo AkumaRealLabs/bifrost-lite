@@ -44,6 +44,7 @@ type LogStore interface {
 	GetProviderLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error)
 	GetProviderTTFBHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error)
 	GetTTFBStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*TTFBStatsResult, error)
+	GetProviderReliabilityStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*ProviderReliabilityStatsResult, error)
 	GetModelRankings(ctx context.Context, filters SearchFilters) (*ModelRankingResult, error)
 	GetUserRankings(ctx context.Context, filters SearchFilters) (*UserRankingResult, error)
 	GetDimensionRankings(ctx context.Context, filters SearchFilters, dimension RankingDimension) (*DimensionRankingResult, error)

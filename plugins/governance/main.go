@@ -38,7 +38,8 @@ type Config struct {
 	IsEnterprise          bool               `json:"is_enterprise"`
 	DisableAutoToolInject *bool              `json:"disable_auto_tool_inject"`
 	RoutingChainMaxDepth  *int               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
-	TTFBRouting           *TTFBRoutingConfig `json:"ttfb_routing"`
+	TTFBRouting           *TTFBRoutingConfig           `json:"ttfb_routing"`
+	ProviderScoring       *configstore.ProviderScoringConfig `json:"provider_scoring"`
 }
 
 type TTFBRoutingConfig = configstore.TTFBRoutingConfig
@@ -118,8 +119,12 @@ type GovernancePlugin struct {
 	logger       schemas.Logger
 
 	// Transport dependencies
-	inMemoryStore InMemoryStore
-	ttfbStats     TTFBStatsProvider
+	inMemoryStore    InMemoryStore
+	ttfbStats        TTFBStatsProvider
+	reliabilityStats ProviderReliabilityStatsProvider
+	providerPriceOverride func(providerName string) (float64, bool) // tests only
+	testCooldownGet       func(context.Context, time.Time) ([]configstore.ProviderCooldownState, error)
+	testCooldownUpsert    func(context.Context, configstore.ProviderCooldownState) error
 
 	cfgMutex sync.RWMutex
 
@@ -128,6 +133,7 @@ type GovernancePlugin struct {
 	isEnterprise          bool
 	disableAutoToolInject *bool
 	ttfbRouting           TTFBRoutingConfig
+	providerScoring       providerScoringConfig
 
 	complexityAnalyzer atomic.Pointer[complexity.ComplexityAnalyzer]
 }
@@ -188,8 +194,12 @@ func Init(
 		logger.Warn("governance plugin requires model catalog to calculate cost, all LLM cost calculations will be skipped.")
 	}
 	var ttfbStats TTFBStatsProvider
+	var reliabilityStats ProviderReliabilityStatsProvider
 	if len(ttfbStatsProviders) > 0 {
 		ttfbStats = ttfbStatsProviders[0]
+		if rs, ok := ttfbStats.(ProviderReliabilityStatsProvider); ok {
+			reliabilityStats = rs
+		}
 	}
 
 	// Handle nil config - use safe defaults
@@ -204,8 +214,10 @@ func Init(
 		routingChainMaxDepth = config.RoutingChainMaxDepth
 	}
 	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	providerScoring := normalizeProviderScoringConfig(nil)
 	if config != nil {
 		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
+		providerScoring = normalizeProviderScoringConfig(config.ProviderScoring)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -282,7 +294,9 @@ func Init(
 		disableAutoToolInject: disableAutoToolInject,
 		inMemoryStore:         inMemoryStore,
 		ttfbStats:             ttfbStats,
+		reliabilityStats:      reliabilityStats,
 		ttfbRouting:           ttfbRouting,
+		providerScoring:       providerScoring,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, governanceConfig))
 	return plugin, nil
@@ -320,8 +334,12 @@ func InitFromStore(
 		return nil, fmt.Errorf("governance store is nil")
 	}
 	var ttfbStats TTFBStatsProvider
+	var reliabilityStats ProviderReliabilityStatsProvider
 	if len(ttfbStatsProviders) > 0 {
 		ttfbStats = ttfbStatsProviders[0]
+		if rs, ok := ttfbStats.(ProviderReliabilityStatsProvider); ok {
+			reliabilityStats = rs
+		}
 	}
 	// Handle nil config - use safe defaults
 	var isVkMandatory *bool
@@ -335,8 +353,10 @@ func InitFromStore(
 		routingChainMaxDepth = config.RoutingChainMaxDepth
 	}
 	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	providerScoring := normalizeProviderScoringConfig(nil)
 	if config != nil {
 		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
+		providerScoring = normalizeProviderScoringConfig(config.ProviderScoring)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -383,7 +403,9 @@ func InitFromStore(
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
 		ttfbStats:             ttfbStats,
+		reliabilityStats:      reliabilityStats,
 		ttfbRouting:           ttfbRouting,
+		providerScoring:       providerScoring,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, nil))
 	return plugin, nil
@@ -701,7 +723,13 @@ func (p *GovernancePlugin) buildEffectiveProviderWeights(ctx *schemas.BifrostCon
 		})
 	}
 
-	if len(weighted) == 0 || !p.ttfbRouting.Enabled {
+	if len(weighted) == 0 {
+		return weighted
+	}
+	if p.providerScoring.Enabled {
+		return p.applyProviderScoring(ctx, configs, virtualKey, model, weighted)
+	}
+	if !p.ttfbRouting.Enabled {
 		return weighted
 	}
 	if p.ttfbStats == nil {

@@ -477,6 +477,23 @@ export interface TTFBRoutingConfig {
 	min_penalty_factor?: number;
 }
 
+export interface ProviderScoringWeights {
+	availability: number;
+	ttfb: number;
+	cost: number;
+}
+
+export interface ProviderScoringConfig {
+	enabled: boolean;
+	window_seconds?: number;
+	min_samples?: number;
+	error_rate_threshold?: number;
+	consecutive_failures_threshold?: number;
+	cooldown_seconds?: number;
+	ttfb_threshold_ms?: number;
+	weights?: ProviderScoringWeights;
+}
+
 // Core Bifrost configuration types
 export interface CoreConfig {
 	drop_excess_requests: boolean;
@@ -501,6 +518,7 @@ export interface CoreConfig {
 	hide_deleted_virtual_keys_in_filters: boolean;
 	routing_chain_max_depth: number;
 	ttfb_routing?: TTFBRoutingConfig;
+	provider_scoring?: ProviderScoringConfig;
 	header_filter_config?: GlobalHeaderFilterConfig;
 }
 
@@ -532,6 +550,16 @@ export const DefaultCoreConfig: CoreConfig = {
 		min_samples: 20,
 		threshold_ms: 2500,
 		min_penalty_factor: 0.2,
+	},
+	provider_scoring: {
+		enabled: false,
+		window_seconds: 120,
+		min_samples: 5,
+		error_rate_threshold: 0.3,
+		consecutive_failures_threshold: 3,
+		cooldown_seconds: 300,
+		ttfb_threshold_ms: 2500,
+		weights: { availability: 0.7, ttfb: 0.2, cost: 0.1 },
 	},
 };
 

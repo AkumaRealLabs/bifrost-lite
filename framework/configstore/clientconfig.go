@@ -51,6 +51,77 @@ type TTFBRoutingConfig struct {
 	MinPenaltyFactor *float64 `json:"min_penalty_factor,omitempty"`
 }
 
+// ProviderScoringWeights configures the composite routing score blend.
+type ProviderScoringWeights struct {
+	Availability float64 `json:"availability"`
+	TTFB         float64 `json:"ttfb"`
+	Cost         float64 `json:"cost"`
+}
+
+// ProviderScoringConfig enables availability-first VK auto routing with cooldown and composite scoring.
+type ProviderScoringConfig struct {
+	Enabled                       bool                    `json:"enabled"`
+	WindowSeconds                 *int                    `json:"window_seconds,omitempty"`
+	MinSamples                    *int                    `json:"min_samples,omitempty"`
+	ErrorRateThreshold            *float64                `json:"error_rate_threshold,omitempty"`
+	ConsecutiveFailuresThreshold  *int                    `json:"consecutive_failures_threshold,omitempty"`
+	CooldownSeconds               *int                    `json:"cooldown_seconds,omitempty"`
+	TTFBThresholdMs               *float64                `json:"ttfb_threshold_ms,omitempty"`
+	Weights                       *ProviderScoringWeights `json:"weights,omitempty"`
+}
+
+// NormalizeProviderScoringConfig fills defaults for provider scoring.
+func NormalizeProviderScoringConfig(config *ProviderScoringConfig) ProviderScoringConfig {
+	resolved := ProviderScoringConfig{Enabled: false}
+	windowSeconds := 120
+	minSamples := 5
+	errorRateThreshold := 0.30
+	consecutiveFailuresThreshold := 3
+	cooldownSeconds := 300
+	ttfbThresholdMs := 2500.0
+	weights := ProviderScoringWeights{Availability: 0.70, TTFB: 0.20, Cost: 0.10}
+	if config != nil {
+		resolved.Enabled = config.Enabled
+		if config.WindowSeconds != nil && *config.WindowSeconds > 0 {
+			windowSeconds = *config.WindowSeconds
+		}
+		if config.MinSamples != nil && *config.MinSamples > 0 {
+			minSamples = *config.MinSamples
+		}
+		if config.ErrorRateThreshold != nil && *config.ErrorRateThreshold >= 0 {
+			errorRateThreshold = *config.ErrorRateThreshold
+		}
+		if config.ConsecutiveFailuresThreshold != nil && *config.ConsecutiveFailuresThreshold > 0 {
+			consecutiveFailuresThreshold = *config.ConsecutiveFailuresThreshold
+		}
+		if config.CooldownSeconds != nil && *config.CooldownSeconds > 0 {
+			cooldownSeconds = *config.CooldownSeconds
+		}
+		if config.TTFBThresholdMs != nil && *config.TTFBThresholdMs > 0 {
+			ttfbThresholdMs = *config.TTFBThresholdMs
+		}
+		if config.Weights != nil {
+			if config.Weights.Availability > 0 {
+				weights.Availability = config.Weights.Availability
+			}
+			if config.Weights.TTFB > 0 {
+				weights.TTFB = config.Weights.TTFB
+			}
+			if config.Weights.Cost > 0 {
+				weights.Cost = config.Weights.Cost
+			}
+		}
+	}
+	resolved.WindowSeconds = &windowSeconds
+	resolved.MinSamples = &minSamples
+	resolved.ErrorRateThreshold = &errorRateThreshold
+	resolved.ConsecutiveFailuresThreshold = &consecutiveFailuresThreshold
+	resolved.CooldownSeconds = &cooldownSeconds
+	resolved.TTFBThresholdMs = &ttfbThresholdMs
+	resolved.Weights = &weights
+	return resolved
+}
+
 // UnmarshalJSON defaults all bool fields to true when absent from JSON.
 func (c *CompatConfig) UnmarshalJSON(data []byte) error {
 	type compatConfig struct {
@@ -97,6 +168,7 @@ type ClientConfig struct {
 	HideDeletedVirtualKeysInFilters       bool                             `json:"hide_deleted_virtual_keys_in_filters"` // Hide deleted virtual keys from logs filter data
 	RoutingChainMaxDepth                  int                              `json:"routing_chain_max_depth"`              // Maximum depth for routing rule chain evaluation (default: 10)
 	TTFBRouting                           *TTFBRoutingConfig               `json:"ttfb_routing,omitempty"`               // Optional TTFB-aware VK provider weighting
+	ProviderScoring                       *ProviderScoringConfig           `json:"provider_scoring,omitempty"`           // Optional availability-first composite VK routing
 	ConfigHash                            string                           `json:"-"`                                    // Config hash for reconciliation (not serialized)
 	DumpErrorsInConsoleLogs               bool                             `json:"dump_errors_in_console_logs"`          // Dump error details in console logs
 }
@@ -187,6 +259,14 @@ func (c *ClientConfig) GenerateClientConfigHash() (string, error) {
 			return "", err
 		}
 		hash.Write([]byte("ttfbRouting:"))
+		hash.Write(data)
+	}
+	if c.ProviderScoring != nil {
+		data, err := sonic.Marshal(c.ProviderScoring)
+		if err != nil {
+			return "", err
+		}
+		hash.Write([]byte("providerScoring:"))
 		hash.Write(data)
 	}
 

@@ -113,6 +113,9 @@ type ConfigStore interface {
 	GetProvider(ctx context.Context, provider schemas.ModelProvider) (*tables.TableProvider, error)
 	UpdateStatus(ctx context.Context, provider schemas.ModelProvider, keyID string, status, errorMsg string) error
 
+	GetActiveProviderCooldowns(ctx context.Context, now time.Time) ([]ProviderCooldownState, error)
+	UpsertProviderCooldown(ctx context.Context, state ProviderCooldownState) error
+
 	// Vector store config CRUD
 	UpdateVectorStoreConfig(ctx context.Context, config *vectorstore.Config) error
 	GetVectorStoreConfig(ctx context.Context) (*vectorstore.Config, error)
