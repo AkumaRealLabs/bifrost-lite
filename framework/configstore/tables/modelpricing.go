@@ -115,8 +115,7 @@ func (TableModelPricing) TableName() string { return "governance_model_pricing" 
 
 // BeforeSave marshals AdditionalAttributes → AdditionalAttributesJSON. A nil
 // or empty map serializes to "{}" so the column always holds a valid JSON
-// object; reads round-trip back to a nil map via AfterFind. Mirrors the
-// convention used by TableMCPClient.HeadersJSON.
+// object; reads round-trip back to a nil map via AfterFind.
 func (p *TableModelPricing) BeforeSave(tx *gorm.DB) error {
 	if len(p.AdditionalAttributes) == 0 {
 		p.AdditionalAttributesJSON = "{}"

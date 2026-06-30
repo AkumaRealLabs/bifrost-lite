@@ -1,8 +1,7 @@
 // Package modelcatalogresolver provides a built-in PreRequestHook plugin that resolves
 // the default provider for an unprefixed model via the model catalog. It is the single
-// owner of "if no provider specified, look up which providers serve this model" — the
-// transport handlers, integrations router, and realtime handlers no longer do this
-// inline. Governance/LB plugins run before this resolver; it only fires as a final
+// owner of "if no provider specified, look up which providers serve this model".
+// Governance/LB plugins run before this resolver; it only fires as a final
 // fallback when no earlier routing plugin picked a provider.
 package modelcatalogresolver
 
@@ -119,7 +118,7 @@ func (p *Plugin) PreRequestHook(ctx *schemas.BifrostContext, req *schemas.Bifros
 
 // ResolveProviderFromCatalog performs the deterministic, integration-aware provider pick
 // that PreRequestHook does, exposed for transport paths that can't run through
-// PreRequestHook (realtime client_secrets, WebRTC). Returns the selected provider plus the
+// PreRequestHook. Returns the selected provider plus the
 // candidate list (post-allowlist when an allowlist is in effect). Returns ("", nil) when
 // the catalog has no match for the model, or when an allowlist excludes every candidate.
 //

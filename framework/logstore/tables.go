@@ -177,7 +177,6 @@ type Log struct {
 	OCRInput                string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.OCRDocument
 	ImageGenerationInput    string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.ImageGenerationInput
 	ImageEditInput          string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.ImageEditInput
-	ImageVariationInput     string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.ImageVariationInput
 	VideoGenerationInput    string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.VideoGenerationInput
 	SpeechOutput            string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.BifrostSpeech
 	TranscriptionOutput     string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.BifrostTranscribe
@@ -196,14 +195,14 @@ type Log struct {
 	StopReason              *string   `gorm:"type:varchar(50);index:idx_logs_stop_reason" json:"stop_reason,omitempty"`                   // Why the model stopped: "stop", "length", "content_filter", "tool_calls", etc.
 	ErrorDetails            string    `gorm:"type:text" json:"-"`                                                                         // JSON serialized *schemas.BifrostError
 	Stream                  bool      `gorm:"default:false" json:"stream"`                                                                // true if this was a streaming response
-	ContentSummary          string    `gorm:"type:text" json:"content_summary,omitempty"` // Last user message preview; UI log-list display fallback when payload fields are offloaded to object storage
-	RawRequest              string    `gorm:"type:text" json:"raw_request"`                         // Populated when `send-back-raw-request` is on
-	RawResponse             string    `gorm:"type:text" json:"raw_response"`                        // Populated when `send-back-raw-response` is on
-	PassthroughRequestBody  string    `gorm:"type:text" json:"passthrough_request_body,omitempty"`  // Raw body for passthrough requests (UTF-8)
-	PassthroughResponseBody string    `gorm:"type:text" json:"passthrough_response_body,omitempty"` // Raw body for passthrough responses (UTF-8)
-	RoutingEngineLogs       string    `gorm:"type:text" json:"routing_engine_logs,omitempty"`       // Formatted routing engine decision logs
-	PluginLogs              string    `gorm:"type:text" json:"plugin_logs,omitempty"`               // JSON serialized plugin log entries grouped by plugin name
-	Metadata                *string   `gorm:"type:text" json:"-"`                                   // JSON serialized map[string]interface{}
+	ContentSummary          string    `gorm:"type:text" json:"content_summary,omitempty"`                                                 // Last user message preview; UI log-list display fallback when payload fields are offloaded to object storage
+	RawRequest              string    `gorm:"type:text" json:"raw_request"`                                                               // Populated when `send-back-raw-request` is on
+	RawResponse             string    `gorm:"type:text" json:"raw_response"`                                                              // Populated when `send-back-raw-response` is on
+	PassthroughRequestBody  string    `gorm:"type:text" json:"passthrough_request_body,omitempty"`                                        // Raw body for passthrough requests (UTF-8)
+	PassthroughResponseBody string    `gorm:"type:text" json:"passthrough_response_body,omitempty"`                                       // Raw body for passthrough responses (UTF-8)
+	RoutingEngineLogs       string    `gorm:"type:text" json:"routing_engine_logs,omitempty"`                                             // Formatted routing engine decision logs
+	PluginLogs              string    `gorm:"type:text" json:"plugin_logs,omitempty"`                                                     // JSON serialized plugin log entries grouped by plugin name
+	Metadata                *string   `gorm:"type:text" json:"-"`                                                                         // JSON serialized map[string]interface{}
 	IsLargePayloadRequest   bool      `gorm:"default:false" json:"is_large_payload_request"`
 	IsLargePayloadResponse  bool      `gorm:"default:false" json:"is_large_payload_response"`
 	HasObject               bool      `gorm:"default:false" json:"-"` // True when payload is stored in object storage
@@ -241,7 +240,6 @@ type Log struct {
 	OCRInputParsed              *schemas.OCRDocument                    `gorm:"-" json:"ocr_input,omitempty"`
 	ImageGenerationInputParsed  *schemas.ImageGenerationInput           `gorm:"-" json:"image_generation_input,omitempty"`
 	ImageEditInputParsed        *schemas.ImageEditInput                 `gorm:"-" json:"image_edit_input,omitempty"`
-	ImageVariationInputParsed   *schemas.ImageVariationInput            `gorm:"-" json:"image_variation_input,omitempty"`
 	SpeechOutputParsed          *schemas.BifrostSpeechResponse          `gorm:"-" json:"speech_output,omitempty"`
 	TranscriptionOutputParsed   *schemas.BifrostTranscriptionResponse   `gorm:"-" json:"transcription_output,omitempty"`
 	ImageGenerationOutputParsed *schemas.BifrostImageGenerationResponse `gorm:"-" json:"image_generation_output,omitempty"`
@@ -405,14 +403,6 @@ func (l *Log) SerializeFields() error {
 			return err
 		} else {
 			l.ImageEditInput = string(data)
-		}
-	}
-
-	if l.ImageVariationInputParsed != nil {
-		if data, err := sonic.Marshal(l.ImageVariationInputParsed); err != nil {
-			return err
-		} else {
-			l.ImageVariationInput = string(data)
 		}
 	}
 
@@ -818,12 +808,6 @@ func (l *Log) DeserializeFields() error {
 		}
 	}
 
-	if l.ImageVariationInput != "" {
-		if err := sonic.Unmarshal([]byte(l.ImageVariationInput), &l.ImageVariationInputParsed); err != nil {
-			l.ImageVariationInputParsed = nil
-		}
-	}
-
 	if l.SpeechOutput != "" {
 		if err := sonic.Unmarshal([]byte(l.SpeechOutput), &l.SpeechOutputParsed); err != nil {
 			// Log error but don't fail the operation - initialize as nil
@@ -915,268 +899,6 @@ func (l *Log) DeserializeFields() error {
 	}
 
 	return nil
-}
-
-// MCPToolLog represents a log entry for MCP tool executions
-// This is separate from the main Log table since MCP tool calls have different fields
-type MCPToolLog struct {
-	ID             string    `gorm:"primaryKey;type:varchar(255)" json:"id"`
-	RequestID      string    `gorm:"type:varchar(255);column:request_id;index:idx_mcp_logs_request_id" json:"request_id,omitempty"`             // The original request ID from context
-	LLMRequestID   *string   `gorm:"type:varchar(255);column:llm_request_id;index:idx_mcp_logs_llm_request_id" json:"llm_request_id,omitempty"` // Links to the LLM request that triggered this tool call
-	Timestamp      time.Time `gorm:"index;not null" json:"timestamp"`
-	ToolName       string    `gorm:"type:varchar(255);index:idx_mcp_logs_tool_name;not null" json:"tool_name"`
-	ServerLabel    string    `gorm:"type:varchar(255);index:idx_mcp_logs_server_label" json:"server_label,omitempty"` // MCP server that provided the tool
-	VirtualKeyID   *string   `gorm:"type:varchar(255);index:idx_mcp_logs_virtual_key_id" json:"virtual_key_id"`
-	VirtualKeyName *string   `gorm:"type:varchar(255)" json:"virtual_key_name"`
-	UserID         *string   `gorm:"type:varchar(255);index:idx_mcp_logs_user_id" json:"user_id"`
-	TeamID         *string   `gorm:"type:varchar(255);index:idx_mcp_logs_team_id" json:"team_id"`
-	CustomerID     *string   `gorm:"type:varchar(255);index:idx_mcp_logs_customer_id" json:"customer_id"`
-	BusinessUnitID *string   `gorm:"type:varchar(255);index:idx_mcp_logs_business_unit_id" json:"business_unit_id"`
-	Arguments      string    `gorm:"type:text" json:"-"`                                                // JSON serialized tool arguments
-	Result         string    `gorm:"type:text" json:"-"`                                                // JSON serialized tool result
-	ErrorDetails   string    `gorm:"type:text" json:"-"`                                                // JSON serialized *schemas.BifrostError
-	Latency        *float64  `gorm:"index:idx_mcp_logs_latency" json:"latency,omitempty"`               // Execution time in milliseconds
-	Cost           *float64  `gorm:"index:idx_mcp_logs_cost" json:"cost,omitempty"`                     // Cost in dollars (per execution cost)
-	Status         string    `gorm:"type:varchar(50);index:idx_mcp_logs_status;not null" json:"status"` // "processing", "success", or "error"
-	Metadata       string    `gorm:"type:text" json:"-"`                                                // JSON serialized map[string]interface{}
-	HasObject      bool      `gorm:"default:false" json:"-"`                                            // True when payload is stored in object storage
-	CreatedAt      time.Time `gorm:"index;not null" json:"created_at"`
-
-	// Virtual fields for JSON output - populated when needed
-	ArgumentsParsed    interface{}             `gorm:"-" json:"arguments,omitempty"`
-	ResultParsed       interface{}             `gorm:"-" json:"result,omitempty"`
-	ErrorDetailsParsed *schemas.BifrostError   `gorm:"-" json:"error_details,omitempty"`
-	MetadataParsed     map[string]interface{}  `gorm:"-" json:"metadata,omitempty"`
-	VirtualKey         *tables.TableVirtualKey `gorm:"-" json:"virtual_key,omitempty"`
-}
-
-// TableName sets the table name for GORM
-func (MCPToolLog) TableName() string {
-	return "mcp_tool_logs"
-}
-
-// BeforeCreate GORM hook to set created_at and serialize JSON fields
-func (l *MCPToolLog) BeforeCreate(tx *gorm.DB) error {
-	if l.CreatedAt.IsZero() {
-		l.CreatedAt = time.Now().UTC()
-	}
-	if l.Timestamp.IsZero() {
-		l.Timestamp = time.Now().UTC()
-	}
-	return l.SerializeFields()
-}
-
-// AfterFind GORM hook to deserialize JSON fields
-func (l *MCPToolLog) AfterFind(tx *gorm.DB) error {
-	return l.DeserializeFields()
-}
-
-// SerializeFields converts Go structs to JSON strings for storage
-func (l *MCPToolLog) SerializeFields() error {
-	if l.ArgumentsParsed != nil {
-		if data, err := sonic.Marshal(l.ArgumentsParsed); err != nil {
-			return err
-		} else {
-			l.Arguments = string(data)
-		}
-	}
-
-	if l.ResultParsed != nil {
-		if data, err := sonic.Marshal(l.ResultParsed); err != nil {
-			return err
-		} else {
-			l.Result = string(data)
-		}
-	}
-
-	if l.ErrorDetailsParsed != nil {
-		if data, err := sonic.Marshal(l.ErrorDetailsParsed); err != nil {
-			return err
-		} else {
-			l.ErrorDetails = string(data)
-		}
-	}
-
-	if l.MetadataParsed != nil {
-		data, err := sonic.Marshal(l.MetadataParsed)
-		if err != nil {
-			// Metadata is supplementary — null it out rather than aborting the log write.
-			l.Metadata = ""
-			l.MetadataParsed = nil
-		} else {
-			l.Metadata = string(data)
-		}
-	}
-
-	return nil
-}
-
-// DeserializeFields converts JSON strings back to Go structs
-func (l *MCPToolLog) DeserializeFields() error {
-	if l.Arguments != "" {
-		if err := sonic.Unmarshal([]byte(l.Arguments), &l.ArgumentsParsed); err != nil {
-			l.ArgumentsParsed = nil
-		}
-	}
-
-	if l.Result != "" {
-		if err := sonic.Unmarshal([]byte(l.Result), &l.ResultParsed); err != nil {
-			l.ResultParsed = nil
-		}
-	}
-
-	if l.ErrorDetails != "" {
-		if err := sonic.Unmarshal([]byte(l.ErrorDetails), &l.ErrorDetailsParsed); err != nil {
-			l.ErrorDetailsParsed = nil
-		}
-	}
-
-	if l.Metadata != "" {
-		if err := sonic.Unmarshal([]byte(l.Metadata), &l.MetadataParsed); err != nil {
-			l.MetadataParsed = nil
-		}
-	}
-
-	return nil
-}
-
-// AsyncJob represents an asynchronous job record in the database.
-// Jobs are created when requests are submitted to async endpoints and
-// updated when the background operation completes or fails.
-type AsyncJob struct {
-	ID           string                 `gorm:"primaryKey;type:varchar(255)" json:"id"`
-	Status       schemas.AsyncJobStatus `gorm:"type:varchar(50);index:idx_async_jobs_status;not null" json:"status"`
-	RequestType  schemas.RequestType    `gorm:"type:varchar(50);index:idx_async_jobs_request_type;not null" json:"request_type"`
-	Response     string                 `gorm:"type:text" json:"response"`
-	StatusCode   int                    `gorm:"default:0" json:"status_code,omitempty"`
-	Error        string                 `gorm:"type:text" json:"error,omitempty"`
-	VirtualKeyID *string                `gorm:"type:varchar(255);index:idx_async_jobs_vk_id" json:"virtual_key_id,omitempty"`
-	ResultTTL    int                    `gorm:"default:3600" json:"-"` // TTL in seconds, used to calculate ExpiresAt on completion
-	ExpiresAt    *time.Time             `gorm:"index:idx_async_jobs_expires_at" json:"expires_at,omitempty"`
-	CreatedAt    time.Time              `gorm:"index;not null" json:"created_at"`
-	CompletedAt  *time.Time             `json:"completed_at,omitempty"`
-}
-
-// TableName sets the table name for GORM
-func (AsyncJob) TableName() string {
-	return "async_jobs"
-}
-
-// ToResponse converts an AsyncJob database record to an AsyncJobResponse for JSON output.
-func (j *AsyncJob) ToResponse() *schemas.AsyncJobResponse {
-	resp := &schemas.AsyncJobResponse{
-		ID:          j.ID,
-		Status:      j.Status,
-		ExpiresAt:   j.ExpiresAt,
-		CreatedAt:   j.CreatedAt,
-		CompletedAt: j.CompletedAt,
-		StatusCode:  j.StatusCode,
-	}
-
-	if j.Response != "" {
-		switch j.RequestType {
-		case schemas.ResponsesRequest, schemas.ResponsesStreamRequest:
-			var result schemas.BifrostResponsesResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.ChatCompletionRequest, schemas.ChatCompletionStreamRequest:
-			var result schemas.BifrostChatResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.TextCompletionRequest, schemas.TextCompletionStreamRequest:
-			var result schemas.BifrostTextCompletionResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.EmbeddingRequest:
-			var result schemas.BifrostEmbeddingResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.SpeechRequest, schemas.SpeechStreamRequest:
-			var result schemas.BifrostSpeechResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.TranscriptionRequest, schemas.TranscriptionStreamRequest:
-			var result schemas.BifrostTranscriptionResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.ImageGenerationRequest, schemas.ImageGenerationStreamRequest:
-			var result schemas.BifrostImageGenerationResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.ImageEditRequest, schemas.ImageEditStreamRequest:
-			var result schemas.BifrostImageGenerationResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.ImageVariationRequest:
-			var result schemas.BifrostImageGenerationResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		case schemas.CountTokensRequest:
-			var result schemas.BifrostCountTokensResponse
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = &result
-			}
-		default:
-			var result interface{}
-			if err := sonic.Unmarshal([]byte(j.Response), &result); err == nil {
-				resp.Result = result
-			}
-		}
-		// Should never happen, but just in case
-		if resp.Result == nil {
-			var raw interface{}
-			if err := sonic.Unmarshal([]byte(j.Response), &raw); err == nil {
-				resp.Result = raw
-			}
-		}
-	}
-
-	if j.Error != "" {
-		var bifrostErr schemas.BifrostError
-		if err := sonic.Unmarshal([]byte(j.Error), &bifrostErr); err == nil {
-			resp.Error = &bifrostErr
-		}
-	}
-
-	return resp
-}
-
-// MCPToolLogSearchFilters represents the available filters for MCP tool log searches
-type MCPToolLogSearchFilters struct {
-	ToolNames     []string   `json:"tool_names,omitempty"`
-	ServerLabels  []string   `json:"server_labels,omitempty"`
-	Status        []string   `json:"status,omitempty"`
-	VirtualKeyIDs []string   `json:"virtual_key_ids,omitempty"`
-	LLMRequestIDs []string   `json:"llm_request_ids,omitempty"`
-	StartTime     *time.Time `json:"start_time,omitempty"`
-	EndTime       *time.Time `json:"end_time,omitempty"`
-	MinLatency    *float64   `json:"min_latency,omitempty"`
-	MaxLatency    *float64   `json:"max_latency,omitempty"`
-	ContentSearch string     `json:"content_search,omitempty"`
-}
-
-// MCPToolLogSearchResult represents the result of an MCP tool log search
-type MCPToolLogSearchResult struct {
-	Logs       []MCPToolLog      `json:"logs"`
-	Pagination PaginationOptions `json:"pagination"`
-	HasLogs    bool              `json:"has_logs"`
-}
-
-// MCPToolLogStats represents statistics for MCP tool log searches
-type MCPToolLogStats struct {
-	TotalExecutions int64   `json:"total_executions"`
-	SuccessRate     float64 `json:"success_rate"`
-	AverageLatency  float64 `json:"average_latency"`
-	TotalCost       float64 `json:"total_cost"` // Total cost in dollars
 }
 
 // BuildContentSummary creates a searchable text summary
@@ -1541,44 +1263,6 @@ type DimensionLatencyHistogramResult struct {
 	DimensionValues   []string                          `json:"dimension_values"`
 }
 
-// MCPHistogramBucket represents a single time bucket for MCP tool call volume
-type MCPHistogramBucket struct {
-	Timestamp time.Time `json:"timestamp"`
-	Count     int64     `json:"count"`
-	Success   int64     `json:"success"`
-	Error     int64     `json:"error"`
-}
-
-// MCPHistogramResult represents the MCP tool call volume histogram query result
-type MCPHistogramResult struct {
-	Buckets           []MCPHistogramBucket `json:"buckets"`
-	BucketSizeSeconds int64                `json:"bucket_size_seconds"`
-}
-
-// MCPCostHistogramBucket represents a single time bucket for MCP cost data
-type MCPCostHistogramBucket struct {
-	Timestamp time.Time `json:"timestamp"`
-	TotalCost float64   `json:"total_cost"`
-}
-
-// MCPCostHistogramResult represents the MCP cost histogram query result
-type MCPCostHistogramResult struct {
-	Buckets           []MCPCostHistogramBucket `json:"buckets"`
-	BucketSizeSeconds int64                    `json:"bucket_size_seconds"`
-}
-
-// MCPTopToolResult represents a single tool's aggregated stats
-type MCPTopToolResult struct {
-	ToolName string  `json:"tool_name"`
-	Count    int64   `json:"count"`
-	Cost     float64 `json:"cost"`
-}
-
-// MCPTopToolsResult represents the top N MCP tools by call count
-type MCPTopToolsResult struct {
-	Tools []MCPTopToolResult `json:"tools"`
-}
-
 // ModelRankingEntry represents aggregated stats for a single model over a time period.
 type ModelRankingEntry struct {
 	Model         string  `json:"model"`
@@ -1747,13 +1431,6 @@ type DashboardModelRankings struct {
 	Histogram *ModelHistogramResult `json:"histogram"` // Backs the "Top Models" stacked bar chart
 }
 
-// DashboardMCP holds the MCP usage tab metrics.
-type DashboardMCP struct {
-	Volume   *MCPHistogramResult     `json:"volume"`    // Tool call volume over time
-	Cost     *MCPCostHistogramResult `json:"cost"`      // MCP cost over time
-	TopTools *MCPTopToolsResult      `json:"top_tools"` // Top tools by call count
-}
-
 // DashboardResult is the full consolidated payload for GET /api/logs/dashboard.
 // DimensionRankings is keyed by RankingDimension ("team", "user", "virtual_key",
 // "customer", "business_unit"); each value is that dimension's ranking table.
@@ -1763,7 +1440,6 @@ type DashboardResult struct {
 	ProviderUsage     DashboardProviderUsage             `json:"provider_usage"`
 	ModelRankings     DashboardModelRankings             `json:"model_rankings"`
 	DimensionRankings map[string]*DimensionRankingResult `json:"dimension_rankings"`
-	MCP               DashboardMCP                       `json:"mcp"`
 }
 
 // NodeUsageCursor identifies the last log row included in a node usage scan.

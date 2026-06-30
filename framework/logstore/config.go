@@ -4,21 +4,15 @@ package logstore
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/maximhq/bifrost/framework/objectstore"
 )
 
 // Config represents the configuration for the logs store.
 type Config struct {
-	Enabled       bool                `json:"enabled"`
-	Type          LogStoreType        `json:"type"`
-	RetentionDays int                 `json:"retention_days"`
-	Config        any                 `json:"config"`
-	Writer        *WriterConfig       `json:"writer,omitempty"`
-	ObjectStorage *objectstore.Config `json:"object_storage,omitempty"`
-	// ObjectStorageExcludeFields lists payload field names (DB column names) that
-	// should NOT be offloaded to object storage and instead remain in the database.
-	ObjectStorageExcludeFields []string `json:"object_storage_exclude_fields,omitempty"`
+	Enabled       bool          `json:"enabled"`
+	Type          LogStoreType  `json:"type"`
+	RetentionDays int           `json:"retention_days"`
+	Config        any           `json:"config"`
+	Writer        *WriterConfig `json:"writer,omitempty"`
 }
 
 const (
@@ -66,13 +60,11 @@ func (c *WriterConfig) WithDefaults() WriterConfig {
 func (c *Config) UnmarshalJSON(data []byte) error {
 	// First, unmarshal into a temporary struct to get the basic fields
 	type TempConfig struct {
-		Enabled                    bool                `json:"enabled"`
-		Type                       LogStoreType        `json:"type"`
-		Config                     json.RawMessage     `json:"config"` // Keep as raw JSON
-		RetentionDays              int                 `json:"retention_days"`
-		Writer                     *WriterConfig       `json:"writer,omitempty"`
-		ObjectStorage              *objectstore.Config `json:"object_storage,omitempty"`
-		ObjectStorageExcludeFields []string            `json:"object_storage_exclude_fields,omitempty"`
+		Enabled       bool            `json:"enabled"`
+		Type          LogStoreType    `json:"type"`
+		Config        json.RawMessage `json:"config"` // Keep as raw JSON
+		RetentionDays int             `json:"retention_days"`
+		Writer        *WriterConfig   `json:"writer,omitempty"`
 	}
 
 	var temp TempConfig
@@ -85,8 +77,6 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	c.Type = temp.Type
 	c.RetentionDays = temp.RetentionDays
 	c.Writer = temp.Writer
-	c.ObjectStorage = temp.ObjectStorage
-	c.ObjectStorageExcludeFields = temp.ObjectStorageExcludeFields
 	if !temp.Enabled {
 		c.Config = nil
 		return nil

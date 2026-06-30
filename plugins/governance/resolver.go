@@ -23,7 +23,6 @@ const (
 	DecisionRequestLimited     Decision = "request_limited"
 	DecisionModelBlocked       Decision = "model_blocked"
 	DecisionProviderBlocked    Decision = "provider_blocked"
-	DecisionMCPToolBlocked     Decision = "mcp_tool_blocked"
 )
 
 // EvaluationRequest contains the context for evaluating a request
@@ -216,8 +215,7 @@ func (r *BudgetResolver) EvaluateUserRequest(ctx *schemas.BifrostContext, userID
 	}
 
 	// Check per-user-scoped model config rate limits and budgets. Mirrors the
-	// VK-scoped block in EvaluateVirtualKeyRequest. Gated on model being present —
-	// MCP tool execution (no model) is excluded naturally by this guard.
+	// VK-scoped block in EvaluateVirtualKeyRequest. Gated on model being present.
 	if request.Model != "" {
 		if decision, err := r.store.CheckScopedModelRateLimit(ctx, configstoreTables.ModelConfigScopeUser, userID, request, nil, nil); err != nil || isRateLimitViolation(decision) {
 			return &EvaluationResult{
@@ -272,7 +270,7 @@ func (r *BudgetResolver) EvaluateVirtualKeyRequest(ctx *schemas.BifrostContext, 
 		}
 	}
 	// 2. Check provider filtering
-	if requestType != schemas.MCPToolExecutionRequest && requestType != schemas.ListModelsRequest && !r.isProviderAllowed(vk, provider) {
+	if requestType != schemas.ListModelsRequest && !r.isProviderAllowed(vk, provider) {
 		return &EvaluationResult{
 			Decision:   DecisionProviderBlocked,
 			Reason:     fmt.Sprintf("Provider '%s' is not allowed for this virtual key", provider),

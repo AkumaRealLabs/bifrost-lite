@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/streaming"
@@ -123,37 +122,6 @@ type LogManager interface {
 
 	// RecalculateCosts recomputes missing costs for logs matching the filters
 	RecalculateCosts(ctx context.Context, filters *logstore.SearchFilters, limit int) (*RecalculateCostResult, error)
-
-	// MCP Tool Log methods
-	// GetMCPToolLog retrieves a single MCP tool log entry by ID.
-	GetMCPToolLog(ctx context.Context, id string) (*logstore.MCPToolLog, error)
-
-	// SearchMCPToolLogs searches for MCP tool log entries based on filters and pagination
-	SearchMCPToolLogs(ctx context.Context, filters *logstore.MCPToolLogSearchFilters, pagination *logstore.PaginationOptions) (*logstore.MCPToolLogSearchResult, error)
-
-	// GetMCPToolLogStats calculates statistics for MCP tool logs matching the given filters
-	GetMCPToolLogStats(ctx context.Context, filters *logstore.MCPToolLogSearchFilters) (*logstore.MCPToolLogStats, error)
-
-	// GetAvailableToolNames returns all unique tool names from MCP tool logs
-	GetAvailableToolNames(ctx context.Context, limit int, query string) ([]string, error)
-
-	// GetAvailableServerLabels returns all unique server labels from MCP tool logs
-	GetAvailableServerLabels(ctx context.Context, limit int, query string) ([]string, error)
-
-	// GetAvailableMCPVirtualKeys returns all unique virtual key ID-Name pairs from MCP tool logs
-	GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]KeyPair, error)
-
-	// GetMCPHistogram returns time-bucketed MCP tool call volume
-	GetMCPHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPHistogramResult, error)
-
-	// GetMCPCostHistogram returns time-bucketed MCP cost data
-	GetMCPCostHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPCostHistogramResult, error)
-
-	// GetMCPTopTools returns the top N MCP tools by call count
-	GetMCPTopTools(ctx context.Context, filters logstore.MCPToolLogSearchFilters, limit int) (*logstore.MCPTopToolsResult, error)
-
-	// DeleteMCPToolLogs deletes multiple MCP tool log entries by their IDs
-	DeleteMCPToolLogs(ctx context.Context, ids []string) error
 }
 
 // PluginLogManager implements LogManager interface wrapping the plugin
@@ -369,87 +337,6 @@ func (p *PluginLogManager) RecalculateCosts(ctx context.Context, filters *logsto
 	return p.plugin.RecalculateCosts(ctx, *filters, limit)
 }
 
-// GetMCPToolLog retrieves a single MCP tool log entry by ID.
-func (p *PluginLogManager) GetMCPToolLog(ctx context.Context, id string) (*logstore.MCPToolLog, error) {
-	if p.plugin == nil || p.plugin.store == nil {
-		return nil, fmt.Errorf("log store not initialized")
-	}
-	if strings.TrimSpace(id) == "" {
-		return nil, fmt.Errorf("id cannot be empty")
-	}
-	return p.plugin.GetMCPToolLog(ctx, id)
-}
-
-// SearchMCPToolLogs searches for MCP tool log entries based on filters and pagination
-func (p *PluginLogManager) SearchMCPToolLogs(ctx context.Context, filters *logstore.MCPToolLogSearchFilters, pagination *logstore.PaginationOptions) (*logstore.MCPToolLogSearchResult, error) {
-	if filters == nil || pagination == nil {
-		return nil, fmt.Errorf("filters and pagination cannot be nil")
-	}
-	return p.plugin.store.SearchMCPToolLogs(ctx, *filters, *pagination)
-}
-
-// GetMCPToolLogStats calculates statistics for MCP tool logs matching the given filters
-func (p *PluginLogManager) GetMCPToolLogStats(ctx context.Context, filters *logstore.MCPToolLogSearchFilters) (*logstore.MCPToolLogStats, error) {
-	if filters == nil {
-		return nil, fmt.Errorf("filters cannot be nil")
-	}
-	return p.plugin.store.GetMCPToolLogStats(ctx, *filters)
-}
-
-// GetAvailableToolNames returns all unique tool names from MCP tool logs
-func (p *PluginLogManager) GetAvailableToolNames(ctx context.Context, limit int, query string) ([]string, error) {
-	if p == nil || p.plugin == nil || p.plugin.store == nil {
-		return []string{}, nil
-	}
-	return p.plugin.store.GetAvailableToolNames(ctx, limit, query)
-}
-
-func (p *PluginLogManager) GetAvailableServerLabels(ctx context.Context, limit int, query string) ([]string, error) {
-	if p == nil || p.plugin == nil || p.plugin.store == nil {
-		return []string{}, nil
-	}
-	return p.plugin.store.GetAvailableServerLabels(ctx, limit, query)
-}
-
-func (p *PluginLogManager) GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]KeyPair, error) {
-	if p == nil || p.plugin == nil {
-		return []KeyPair{}, nil
-	}
-	return p.plugin.GetAvailableMCPVirtualKeys(ctx, limit, query)
-}
-
-// GetMCPHistogram returns time-bucketed MCP tool call volume
-func (p *PluginLogManager) GetMCPHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPHistogramResult, error) {
-	if p.plugin == nil || p.plugin.store == nil {
-		return &logstore.MCPHistogramResult{}, nil
-	}
-	return p.plugin.store.GetMCPHistogram(ctx, filters, bucketSizeSeconds)
-}
-
-// GetMCPCostHistogram returns time-bucketed MCP cost data
-func (p *PluginLogManager) GetMCPCostHistogram(ctx context.Context, filters logstore.MCPToolLogSearchFilters, bucketSizeSeconds int64) (*logstore.MCPCostHistogramResult, error) {
-	if p.plugin == nil || p.plugin.store == nil {
-		return &logstore.MCPCostHistogramResult{}, nil
-	}
-	return p.plugin.store.GetMCPCostHistogram(ctx, filters, bucketSizeSeconds)
-}
-
-// GetMCPTopTools returns the top N MCP tools by call count
-func (p *PluginLogManager) GetMCPTopTools(ctx context.Context, filters logstore.MCPToolLogSearchFilters, limit int) (*logstore.MCPTopToolsResult, error) {
-	if p.plugin == nil || p.plugin.store == nil {
-		return &logstore.MCPTopToolsResult{}, nil
-	}
-	return p.plugin.store.GetMCPTopTools(ctx, filters, limit)
-}
-
-// DeleteMCPToolLogs deletes multiple MCP tool log entries by their IDs
-func (p *PluginLogManager) DeleteMCPToolLogs(ctx context.Context, ids []string) error {
-	if p.plugin == nil || p.plugin.store == nil {
-		return fmt.Errorf("log store not initialized")
-	}
-	return p.plugin.store.DeleteMCPToolLogs(ctx, ids)
-}
-
 // GetPluginLogManager returns a LogManager interface for this plugin
 func (p *LoggerPlugin) GetPluginLogManager() *PluginLogManager {
 	return &PluginLogManager{
@@ -494,9 +381,6 @@ func retryOnNotFound(ctx context.Context, operation func() error) error {
 func (p *LoggerPlugin) extractInputHistory(request *schemas.BifrostRequest) ([]schemas.ChatMessage, []schemas.ResponsesMessage) {
 	if request.ChatRequest != nil {
 		return request.ChatRequest.Input, []schemas.ResponsesMessage{}
-	}
-	if request.RequestType == schemas.RealtimeRequest && request.ResponsesRequest != nil {
-		return extractRealtimeInputHistory(request.ResponsesRequest.Input), []schemas.ResponsesMessage{}
 	}
 	if request.ResponsesRequest != nil && len(request.ResponsesRequest.Input) > 0 {
 		return []schemas.ChatMessage{}, request.ResponsesRequest.Input
@@ -574,96 +458,6 @@ func (p *LoggerPlugin) extractInputHistory(request *schemas.BifrostRequest) ([]s
 	return []schemas.ChatMessage{}, []schemas.ResponsesMessage{}
 }
 
-func extractRealtimeInputHistory(input []schemas.ResponsesMessage) []schemas.ChatMessage {
-	messages := make([]schemas.ChatMessage, 0, len(input))
-	for _, item := range input {
-		if item.Type == nil {
-			continue
-		}
-		switch *item.Type {
-		case schemas.ResponsesMessageTypeMessage:
-			if item.Role == nil || item.Content == nil {
-				continue
-			}
-			content := extractRealtimeResponsesContent(item.Content)
-			if content == "" {
-				continue
-			}
-			messages = append(messages, schemas.ChatMessage{
-				Role: mapRealtimeResponsesRole(*item.Role),
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr(content),
-				},
-			})
-		case schemas.ResponsesMessageTypeFunctionCallOutput,
-			schemas.ResponsesMessageTypeCustomToolCallOutput,
-			schemas.ResponsesMessageTypeLocalShellCallOutput,
-			schemas.ResponsesMessageTypeComputerCallOutput:
-			content := extractRealtimeToolOutputContent(item.ResponsesToolMessage)
-			if content == "" {
-				continue
-			}
-			messages = append(messages, schemas.ChatMessage{
-				Role: schemas.ChatMessageRoleTool,
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr(content),
-				},
-				ChatToolMessage: &schemas.ChatToolMessage{
-					ToolCallID: item.ResponsesToolMessage.CallID,
-				},
-			})
-		}
-	}
-	return messages
-}
-
-func mapRealtimeResponsesRole(role schemas.ResponsesMessageRoleType) schemas.ChatMessageRole {
-	switch role {
-	case schemas.ResponsesInputMessageRoleAssistant:
-		return schemas.ChatMessageRoleAssistant
-	case schemas.ResponsesInputMessageRoleSystem:
-		return schemas.ChatMessageRoleSystem
-	case schemas.ResponsesInputMessageRoleDeveloper:
-		return schemas.ChatMessageRoleDeveloper
-	default:
-		return schemas.ChatMessageRoleUser
-	}
-}
-
-func extractRealtimeResponsesContent(content *schemas.ResponsesMessageContent) string {
-	if content == nil {
-		return ""
-	}
-	if content.ContentStr != nil {
-		return strings.TrimSpace(*content.ContentStr)
-	}
-	parts := make([]string, 0, len(content.ContentBlocks))
-	for _, block := range content.ContentBlocks {
-		switch {
-		case block.Text != nil && strings.TrimSpace(*block.Text) != "":
-			parts = append(parts, strings.TrimSpace(*block.Text))
-		case block.ResponsesOutputMessageContentRefusal != nil && strings.TrimSpace(block.Refusal) != "":
-			parts = append(parts, strings.TrimSpace(block.Refusal))
-		}
-	}
-	return strings.TrimSpace(strings.Join(parts, "\n"))
-}
-
-func extractRealtimeToolOutputContent(toolMessage *schemas.ResponsesToolMessage) string {
-	if toolMessage == nil || toolMessage.Output == nil {
-		return ""
-	}
-	switch {
-	case toolMessage.Output.ResponsesToolCallOutputStr != nil:
-		return strings.TrimSpace(*toolMessage.Output.ResponsesToolCallOutputStr)
-	case len(toolMessage.Output.ResponsesFunctionToolCallOutputBlocks) > 0:
-		content := &schemas.ResponsesMessageContent{ContentBlocks: toolMessage.Output.ResponsesFunctionToolCallOutputBlocks}
-		return extractRealtimeResponsesContent(content)
-	default:
-		return ""
-	}
-}
-
 // convertToProcessedStreamResponse converts a StreamAccumulatorResult to ProcessedStreamResponse
 // for use with the logging plugin's streaming log update functionality.
 func convertToProcessedStreamResponse(result *schemas.StreamAccumulatorResult, requestType schemas.RequestType) *streaming.ProcessedStreamResponse {
@@ -678,7 +472,7 @@ func convertToProcessedStreamResponse(result *schemas.StreamAccumulatorResult, r
 		streamType = streaming.StreamTypeText
 	case schemas.ChatCompletionStreamRequest:
 		streamType = streaming.StreamTypeChat
-	case schemas.ResponsesStreamRequest, schemas.WebSocketResponsesRequest:
+	case schemas.ResponsesStreamRequest:
 		streamType = streaming.StreamTypeResponses
 	case schemas.SpeechStreamRequest:
 		streamType = streaming.StreamTypeAudio
@@ -734,34 +528,6 @@ func convertToProcessedStreamResponse(result *schemas.StreamAccumulatorResult, r
 	}
 
 	return resp
-}
-
-func mergeRealtimeMetadata(metadata map[string]interface{}, ctx *schemas.BifrostContext) map[string]interface{} {
-	if ctx == nil {
-		return metadata
-	}
-	set := func(key string, ctxKey schemas.BifrostContextKey) {
-		if value := bifrost.GetStringFromContext(ctx, ctxKey); value != "" {
-			if metadata == nil {
-				metadata = make(map[string]interface{})
-			}
-			metadata[key] = value
-		}
-	}
-
-	set("realtime_session_id", schemas.BifrostContextKeyRealtimeSessionID)
-	set("provider_session_id", schemas.BifrostContextKeyRealtimeProviderSessionID)
-	set("realtime_source", schemas.BifrostContextKeyRealtimeSource)
-	set("realtime_event_type", schemas.BifrostContextKeyRealtimeEventType)
-	set("realtime_transport", schemas.BifrostContextKeyRealtimeTransport)
-	set("realtime_voice", schemas.BifrostContextKeyRealtimeVoice)
-	if bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyRealtimeSessionID) != "" {
-		if metadata == nil {
-			metadata = make(map[string]interface{})
-		}
-		metadata["realtime"] = true
-	}
-	return metadata
 }
 
 // formatRoutingEngineLogs formats routing engine logs into a human-readable string.

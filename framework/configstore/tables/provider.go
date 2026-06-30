@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/maximhq/bifrost/core/schemas"
-	"github.com/maximhq/bifrost/framework/encrypt"
 	"gorm.io/gorm"
 )
 
@@ -19,7 +18,6 @@ type TableProvider struct {
 	Name                     string    `gorm:"type:varchar(50);uniqueIndex;not null" json:"name"` // ModelProvider as string
 	NetworkConfigJSON        string    `gorm:"type:text" json:"-"`                                // JSON serialized schemas.NetworkConfig
 	ConcurrencyBufferJSON    string    `gorm:"type:text" json:"-"`                                // JSON serialized schemas.ConcurrencyAndBufferSize
-	ProxyConfigJSON          string    `gorm:"type:text" json:"-"`                                // JSON serialized schemas.ProxyConfig
 	CustomProviderConfigJSON string    `gorm:"type:text" json:"-"`                                // JSON serialized schemas.CustomProviderConfig
 	OpenAIConfigJSON         string    `gorm:"type:text" json:"-"`                                // JSON serialized schemas.OpenAIConfig
 	SendBackRawRequest       bool      `json:"send_back_raw_request"`
@@ -34,7 +32,6 @@ type TableProvider struct {
 	// Virtual fields for runtime use (not stored in DB)
 	NetworkConfig            *schemas.NetworkConfig            `gorm:"-" json:"network_config,omitempty"`
 	ConcurrencyAndBufferSize *schemas.ConcurrencyAndBufferSize `gorm:"-" json:"concurrency_and_buffer_size,omitempty"`
-	ProxyConfig              *schemas.ProxyConfig              `gorm:"-" json:"proxy_config,omitempty"`
 
 	// Custom provider fields
 	CustomProviderConfig *schemas.CustomProviderConfig `gorm:"-" json:"custom_provider_config,omitempty"`
@@ -66,8 +63,7 @@ type TableProvider struct {
 func (TableProvider) TableName() string { return "config_providers" }
 
 // BeforeSave is a GORM hook that serializes runtime config structs into JSON columns,
-// validates governance fields, and encrypts the proxy configuration before writing
-// to the database.
+// validates governance fields before writing to the database.
 func (p *TableProvider) BeforeSave(tx *gorm.DB) error {
 	if p.NetworkConfig != nil {
 		data, err := json.Marshal(p.NetworkConfig)
@@ -82,13 +78,6 @@ func (p *TableProvider) BeforeSave(tx *gorm.DB) error {
 			return err
 		}
 		p.ConcurrencyBufferJSON = string(data)
-	}
-	if p.ProxyConfig != nil {
-		data, err := p.ProxyConfig.MarshalForStorage()
-		if err != nil {
-			return err
-		}
-		p.ProxyConfigJSON = string(data)
 	}
 	if p.CustomProviderConfig != nil && p.CustomProviderConfig.BaseProviderType == "" {
 		return fmt.Errorf("base_provider_type is required when custom_provider_config is set")
@@ -117,21 +106,10 @@ func (p *TableProvider) BeforeSave(tx *gorm.DB) error {
 		return fmt.Errorf("rate_limit_id cannot be an empty string")
 	}
 
-	// Encrypt proxy config after serialization (only if there's data to encrypt)
-	if encrypt.IsEnabled() && p.ProxyConfigJSON != "" {
-		encrypted, err := encrypt.Encrypt(p.ProxyConfigJSON)
-		if err != nil {
-			return fmt.Errorf("failed to encrypt proxy config: %w", err)
-		}
-		p.ProxyConfigJSON = encrypted
-		p.EncryptionStatus = EncryptionStatusEncrypted
-	}
-
 	return nil
 }
 
-// AfterFind is a GORM hook that decrypts the proxy configuration (if encrypted) and
-// deserializes JSON columns back into runtime config structs after reading from the database.
+// AfterFind deserializes JSON columns back into runtime config structs after reading from the database.
 func (p *TableProvider) AfterFind(tx *gorm.DB) error {
 	if p.NetworkConfigJSON != "" {
 		var config schemas.NetworkConfig
@@ -147,21 +125,6 @@ func (p *TableProvider) AfterFind(tx *gorm.DB) error {
 			return err
 		}
 		p.ConcurrencyAndBufferSize = &config
-	}
-
-	if p.EncryptionStatus == "encrypted" && p.ProxyConfigJSON != "" {
-		decrypted, err := encrypt.Decrypt(p.ProxyConfigJSON)
-		if err != nil {
-			return fmt.Errorf("failed to decrypt proxy config: %w", err)
-		}
-		p.ProxyConfigJSON = decrypted
-	}
-	if p.ProxyConfigJSON != "" {
-		var proxyConfig schemas.ProxyConfig
-		if err := json.Unmarshal([]byte(p.ProxyConfigJSON), &proxyConfig); err != nil {
-			return err
-		}
-		p.ProxyConfig = &proxyConfig
 	}
 
 	if p.CustomProviderConfigJSON != "" {
@@ -182,4 +145,3 @@ func (p *TableProvider) AfterFind(tx *gorm.DB) error {
 
 	return nil
 }
-

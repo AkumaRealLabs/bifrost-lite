@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"hash"
 	"maps"
-	"math"
 	"sort"
 	"strconv"
 
@@ -25,14 +24,13 @@ const (
 	EnvKeyTypeVertexConfig  EnvKeyType = "vertex_config"
 	EnvKeyTypeBedrockConfig EnvKeyType = "bedrock_config"
 	EnvKeyTypeConnection    EnvKeyType = "connection_string"
-	EnvKeyTypeMCPHeader     EnvKeyType = "mcp_header"
 )
 
 // EnvKeyInfo stores information about a key sourced from environment
 type EnvKeyInfo struct {
 	SecretVar  string                // The environment variable name (without env. prefix)
-	Provider   schemas.ModelProvider // The provider this key belongs to (empty for core/mcp configs)
-	KeyType    EnvKeyType            // Type of key (e.g., "api_key", "azure_config", "vertex_config", "bedrock_config", "connection_string", "mcp_header")
+	Provider   schemas.ModelProvider // The provider this key belongs to
+	KeyType    EnvKeyType            // Type of key (e.g., "api_key", "azure_config", "vertex_config", "bedrock_config", "connection_string")
 	ConfigPath string                // Path in config where this env var is used
 	KeyID      string                // The key ID this env var belongs to (empty for non-key configs like bedrock_config, connection_string)
 }
@@ -80,24 +78,16 @@ type ClientConfig struct {
 	EnforceAuthOnInference                bool                             `json:"enforce_auth_on_inference"`            // Require auth (VK, API key, or user token) on inference endpoints
 	EnforceGovernanceHeader               bool                             `json:"enforce_governance_header,omitempty"`  // Deprecated: use EnforceAuthOnInference
 	EnforceSCIMAuth                       bool                             `json:"enforce_scim_auth,omitempty"`          // Deprecated: use EnforceAuthOnInference
-	AllowedOrigins                        []string                         `json:"allowed_origins,omitempty"`            // Additional allowed origins for CORS and WebSocket (localhost is always allowed)
-	AllowedHeaders                        []string                         `json:"allowed_headers,omitempty"`            // Additional allowed headers for CORS and WebSocket
+	AllowedOrigins                        []string                         `json:"allowed_origins,omitempty"`            // Additional allowed origins for CORS (localhost is always allowed)
+	AllowedHeaders                        []string                         `json:"allowed_headers,omitempty"`            // Additional allowed headers for CORS
 	MaxRequestBodySizeMB                  int                              `json:"max_request_body_size_mb"`             // The maximum request body size in MB
 	Compat                                CompatConfig                     `json:"compat"`                               // Compat plugin configuration
-	MCPAgentDepth                         int                              `json:"mcp_agent_depth"`                      // The maximum depth for MCP agent mode tool execution
-	MCPToolExecutionTimeout               int                              `json:"mcp_tool_execution_timeout"`           // The timeout for individual tool execution in seconds
-	MCPCodeModeBindingLevel               string                           `json:"mcp_code_mode_binding_level"`          // Code mode binding level: "server" or "tool"
-	MCPToolSyncInterval                   int                              `json:"mcp_tool_sync_interval"`               // Global tool sync interval in minutes (default: 10, 0 = disabled)
-	MCPDisableAutoToolInject              bool                             `json:"mcp_disable_auto_tool_inject"`         // When true, MCP tools are not injected into requests by default
-	MCPEnableTempTokenAuth                bool                             `json:"mcp_enable_temp_token_auth"`           // When true, scoped temp tokens can authorize MCP per-user OAuth and per-user-headers auth pages. User-mode flows never mint regardless.
 	HeaderFilterConfig                    *tables.GlobalHeaderFilterConfig `json:"header_filter_config,omitempty"`       // Global header filtering configuration for x-bf-eh-* headers
-	AsyncJobResultTTL                     int                              `json:"async_job_result_ttl"`                 // Default TTL for async job results in seconds (default: 3600 = 1 hour)
 	RequiredHeaders                       []string                         `json:"required_headers,omitempty"`           // Headers that must be present on every request (case-insensitive)
 	LoggingHeaders                        []string                         `json:"logging_headers,omitempty"`            // Headers to capture in log metadata
 	WhitelistedRoutes                     []string                         `json:"whitelisted_routes,omitempty"`         // Routes that bypass auth middleware
-	HideDeletedVirtualKeysInFilters       bool                             `json:"hide_deleted_virtual_keys_in_filters"` // Hide deleted virtual keys from logs/MCP filter data
+	HideDeletedVirtualKeysInFilters       bool                             `json:"hide_deleted_virtual_keys_in_filters"` // Hide deleted virtual keys from logs filter data
 	RoutingChainMaxDepth                  int                              `json:"routing_chain_max_depth"`              // Maximum depth for routing rule chain evaluation (default: 10)
-	MCPExternalClientURL                  *schemas.SecretVar               `json:"mcp_external_client_url,omitempty"`    // Public base URL used as redirect_uri when Bifrost acts as an OAuth client to upstream MCP servers. Supports env var syntax ("env.MY_VAR")
 	ConfigHash                            string                           `json:"-"`                                    // Config hash for reconciliation (not serialized)
 	DumpErrorsInConsoleLogs               bool                             `json:"dump_errors_in_console_logs"`          // Dump error details in console logs
 }
@@ -182,41 +172,6 @@ func (c *ClientConfig) GenerateClientConfigHash() (string, error) {
 	if c.RoutingChainMaxDepth > 0 {
 		hash.Write([]byte("routingChainMaxDepth:" + strconv.Itoa(c.RoutingChainMaxDepth)))
 	}
-
-	if c.MCPAgentDepth > 0 {
-		hash.Write([]byte("mcpAgentDepth:" + strconv.Itoa(c.MCPAgentDepth)))
-	} else {
-		hash.Write([]byte("mcpAgentDepth:0"))
-	}
-
-	if c.MCPToolExecutionTimeout > 0 {
-		hash.Write([]byte("mcpToolExecutionTimeout:" + strconv.Itoa(c.MCPToolExecutionTimeout)))
-	} else {
-		hash.Write([]byte("mcpToolExecutionTimeout:0"))
-	}
-
-	if c.MCPCodeModeBindingLevel != "" {
-		hash.Write([]byte("mcpCodeModeBindingLevel:" + c.MCPCodeModeBindingLevel))
-	} else {
-		hash.Write([]byte("mcpCodeModeBindingLevel:server"))
-	}
-
-	if c.MCPToolSyncInterval > 0 {
-		hash.Write([]byte("mcpToolSyncInterval:" + strconv.Itoa(c.MCPToolSyncInterval)))
-	} else {
-		hash.Write([]byte("mcpToolSyncInterval:0"))
-	}
-
-	// Only hash non-default value to avoid legacy config hash churn on upgrade.
-	if c.MCPDisableAutoToolInject {
-		hash.Write([]byte("mcpDisableAutoToolInject:true"))
-	}
-
-	// Only hash non-default value to avoid legacy config hash churn on upgrade.
-	if c.MCPEnableTempTokenAuth {
-		hash.Write([]byte("mcpEnableTempTokenAuth:true"))
-	}
-
 	// Only hash non-default value to avoid legacy config hash churn on upgrade.
 	if c.AllowPerRequestContentStorageOverride {
 		hash.Write([]byte("allowPerRequestContentStorageOverride:true"))
@@ -229,12 +184,6 @@ func (c *ClientConfig) GenerateClientConfigHash() (string, error) {
 	// Only hash non-default value to avoid legacy config hash churn on upgrade.
 	if c.AllowDirectKeys {
 		hash.Write([]byte("allowDirectKeys:true"))
-	}
-
-	if c.AsyncJobResultTTL > 0 {
-		hash.Write([]byte("asyncJobResultTTL:" + strconv.Itoa(c.AsyncJobResultTTL)))
-	} else {
-		hash.Write([]byte("asyncJobResultTTL:0"))
 	}
 
 	// Only hash non-default value to avoid legacy config hash churn on upgrade.
@@ -364,45 +313,12 @@ func (c *ClientConfig) GenerateClientConfigHash() (string, error) {
 		}
 	}
 
-	if c.MCPExternalClientURL.IsSet() {
-		if c.MCPExternalClientURL.IsFromSecret() {
-			hash.Write([]byte("externalClientURL:ref:" + c.MCPExternalClientURL.GetRawRef()))
-		} else {
-			hash.Write([]byte("externalClientURL:val:" + c.MCPExternalClientURL.GetValue()))
-		}
-	}
-
 	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// GenerateClientConfigHashWithToolManager extends GenerateClientConfigHash to also cover
-// the mcp.tool_manager_config file section. When tm is nil it returns the same value as
-// GenerateClientConfigHash, so it is safe to call unconditionally.
-func (c *ClientConfig) GenerateClientConfigHashWithToolManager(tm *schemas.MCPToolManagerConfig) (string, error) {
-	base, err := c.GenerateClientConfigHash()
-	if err != nil || tm == nil {
-		return base, err
-	}
-	h := sha256.New()
-	h.Write([]byte(base))
-	h.Write([]byte("toolMgrAgentDepth:" + strconv.Itoa(tm.MaxAgentDepth)))
-	h.Write([]byte("toolMgrTimeout:" + strconv.FormatInt(int64(math.Ceil(tm.ToolExecutionTimeout.D().Seconds())), 10)))
-	h.Write([]byte("toolMgrCodeMode:" + string(tm.CodeModeBindingLevel)))
-	if tm.DisableAutoToolInject {
-		h.Write([]byte("toolMgrDisableAutoInject:true"))
-	} else {
-		h.Write([]byte("toolMgrDisableAutoInject:false"))
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // Redacted returns a copy of ClientConfig with any env-backed SecretVar fields masked.
 func (c *ClientConfig) Redacted() ClientConfig {
-	out := *c
-	if c.MCPExternalClientURL != nil && c.MCPExternalClientURL.IsFromSecret() {
-		out.MCPExternalClientURL = c.MCPExternalClientURL.Redacted()
-	}
-	return out
+	return *c
 }
 
 // ProviderConfig represents the configuration for a specific AI model provider.
@@ -411,7 +327,6 @@ type ProviderConfig struct {
 	Keys                     []schemas.Key                     `json:"keys"`                                  // API keys for the provider with UUIDs
 	NetworkConfig            *schemas.NetworkConfig            `json:"network_config,omitempty"`              // Network-related settings
 	ConcurrencyAndBufferSize *schemas.ConcurrencyAndBufferSize `json:"concurrency_and_buffer_size,omitempty"` // Concurrency settings
-	ProxyConfig              *schemas.ProxyConfig              `json:"proxy_config,omitempty"`                // Proxy configuration
 	SendBackRawRequest       bool                              `json:"send_back_raw_request"`                 // Include raw request in BifrostResponse
 	SendBackRawResponse      bool                              `json:"send_back_raw_response"`                // Include raw response in BifrostResponse
 	StoreRawRequestResponse  bool                              `json:"store_raw_request_response"`            // Capture raw request/response for internal logging only; strip from API responses returned to clients
@@ -440,10 +355,6 @@ func (p *ProviderConfig) Redacted() *ProviderConfig {
 		ConfigHash:               p.ConfigHash,
 		Status:                   p.Status,
 		Description:              p.Description,
-	}
-
-	if p.ProxyConfig != nil {
-		redactedConfig.ProxyConfig = p.ProxyConfig.Redacted()
 	}
 
 	// Create redacted keys
@@ -598,15 +509,6 @@ func (p *ProviderConfig) GenerateConfigHash(providerName string) (string, error)
 	// Hash ConcurrencyAndBufferSize
 	if p.ConcurrencyAndBufferSize != nil {
 		data, err := sonic.Marshal(p.ConcurrencyAndBufferSize)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-
-	// Hash ProxyConfig
-	if p.ProxyConfig != nil {
-		data, err := sonic.Marshal(p.ProxyConfig)
 		if err != nil {
 			return "", err
 		}
@@ -780,9 +682,8 @@ type VirtualKeyHashInput struct {
 	TeamID      *string
 	CustomerID  *string
 	RateLimitID *string
-	// ProviderConfigs and MCPConfigs are hashed separately as they contain nested data
+	// ProviderConfigs are hashed separately as they contain nested data.
 	ProviderConfigs []VirtualKeyProviderConfigHashInput
-	MCPConfigs      []VirtualKeyMCPConfigHashInput
 }
 
 // VirtualKeyProviderConfigHashInput represents provider config fields for hashing
@@ -794,12 +695,6 @@ type VirtualKeyProviderConfigHashInput struct {
 	AllowAllKeys      bool
 	RateLimitID       *string
 	KeyIDs            []string // Only key IDs, not full key objects
-}
-
-// VirtualKeyMCPConfigHashInput represents MCP config fields for hashing
-type VirtualKeyMCPConfigHashInput struct {
-	MCPClientID    uint
-	ToolsToExecute []string
 }
 
 // GenerateVirtualKeyHash generates a SHA256 hash for a virtual key.
@@ -889,33 +784,6 @@ func GenerateVirtualKeyHash(vk tables.TableVirtualKey) (string, error) {
 			}
 		}
 		data, err := sonic.Marshal(providerConfigsForHash)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-	// Hash MCPConfigs
-	if len(vk.MCPConfigs) > 0 {
-		// Copy and sort MCP configs for deterministic hashing
-		sortedMCPConfigs := make([]tables.TableVirtualKeyMCPConfig, len(vk.MCPConfigs))
-		copy(sortedMCPConfigs, vk.MCPConfigs)
-		sort.Slice(sortedMCPConfigs, func(i, j int) bool {
-			return sortedMCPConfigs[i].MCPClientID < sortedMCPConfigs[j].MCPClientID
-		})
-
-		mcpConfigsForHash := make([]VirtualKeyMCPConfigHashInput, len(sortedMCPConfigs))
-		for i, mc := range sortedMCPConfigs {
-			// Sort tools for deterministic hashing
-			sortedTools := make([]string, len(mc.ToolsToExecute))
-			copy(sortedTools, mc.ToolsToExecute)
-			sort.Strings(sortedTools)
-
-			mcpConfigsForHash[i] = VirtualKeyMCPConfigHashInput{
-				MCPClientID:    mc.MCPClientID,
-				ToolsToExecute: sortedTools,
-			}
-		}
-		data, err := sonic.Marshal(mcpConfigsForHash)
 		if err != nil {
 			return "", err
 		}
@@ -1326,79 +1194,6 @@ func GeneratePricingOverrideHash(p tables.TablePricingOverride) (string, error) 
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
-// GenerateMCPClientHash generates a SHA256 hash for an MCP client.
-// This is used to detect changes to MCP clients between config.json and database.
-// Skips: ID (autoIncrement), ClientID (system-assigned), CreatedAt, UpdatedAt (dynamic fields)
-func GenerateMCPClientHash(m tables.TableMCPClient) (string, error) {
-	hash := sha256.New()
-
-	// Hash Name
-	hash.Write([]byte(m.Name))
-
-	// Hash ConnectionType
-	hash.Write([]byte(m.ConnectionType))
-
-	// Hash ConnectionString
-	if m.ConnectionString != nil {
-		if m.ConnectionString.IsFromSecret() {
-			hash.Write([]byte(m.ConnectionString.GetRawRef()))
-		} else {
-			hash.Write([]byte(m.ConnectionString.Val))
-		}
-	}
-
-	// Hash StdioConfig
-	if m.StdioConfig != nil {
-		data, err := sonic.Marshal(m.StdioConfig)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-
-	// Hash TLSConfig
-	if m.TLSConfig != nil {
-		data, err := sonic.Marshal(m.TLSConfig)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-
-	// Hash ToolsToExecute (sorted for deterministic hashing)
-	if len(m.ToolsToExecute) > 0 {
-		sortedTools := make([]string, len(m.ToolsToExecute))
-		copy(sortedTools, m.ToolsToExecute)
-		sort.Strings(sortedTools)
-		data, err := sonic.Marshal(sortedTools)
-		if err != nil {
-			return "", err
-		}
-		hash.Write(data)
-	}
-
-	// Hash Headers (sorted for deterministic hashing)
-	if len(m.Headers) > 0 {
-		keys := make([]string, 0, len(m.Headers))
-		for k := range m.Headers {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		for _, k := range keys {
-			val := m.Headers[k]
-			if val.IsFromSecret() {
-				hash.Write([]byte(k + ":ref:" + val.GetRawRef()))
-			} else {
-				hash.Write([]byte(k + ":val:" + val.Val))
-			}
-		}
-	}
-
-	// will enable it in the future with a migration
-	// hash.Write([]byte("disabled:" + strconv.FormatBool(m.Disabled)))
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
 // GeneratePluginHash generates a SHA256 hash for a plugin.
 // This is used to detect changes to plugins between config.json and database.
 // Skips: ID (autoIncrement), CreatedAt, UpdatedAt, IsCustom (dynamic fields)
@@ -1454,42 +1249,14 @@ type frameworkConfigHashPayload struct {
 	PricingSyncInterval *int64  `json:"pricing_sync_interval"`
 }
 
-type frameworkConfigHashPayloadWithMCP struct {
-	PricingURL             *string `json:"pricing_url"`
-	ModelParametersURL     *string `json:"model_parameters_url"`
-	PricingSyncInterval    *int64  `json:"pricing_sync_interval"`
-	MCPLibraryURL          *string `json:"mcp_library_url"`
-	MCPLibrarySyncInterval *int64  `json:"mcp_library_sync_interval"`
-}
-
-// FrameworkConfigHashOptions adds optional framework config fields to the
-// config.json change-detection hash while preserving the legacy pricing-only
-// hash when omitted.
-type FrameworkConfigHashOptions struct {
-	MCPLibraryURL          *string
-	MCPLibrarySyncInterval *int64
-}
-
 // GenerateFrameworkConfigHash generates a SHA256 hash for a framework config.
 // This is used to detect changes to framework config between config.json and database.
-func GenerateFrameworkConfigHash(pricingURL *string, modelParametersURL *string, pricingSyncInterval *int64, opts ...FrameworkConfigHashOptions) (string, error) {
-	var data []byte
-	var err error
-	if len(opts) > 0 {
-		data, err = sonic.Marshal(frameworkConfigHashPayloadWithMCP{
-			PricingURL:             pricingURL,
-			ModelParametersURL:     modelParametersURL,
-			PricingSyncInterval:    pricingSyncInterval,
-			MCPLibraryURL:          opts[0].MCPLibraryURL,
-			MCPLibrarySyncInterval: opts[0].MCPLibrarySyncInterval,
-		})
-	} else {
-		data, err = sonic.Marshal(frameworkConfigHashPayload{
-			PricingURL:          pricingURL,
-			ModelParametersURL:  modelParametersURL,
-			PricingSyncInterval: pricingSyncInterval,
-		})
-	}
+func GenerateFrameworkConfigHash(pricingURL *string, modelParametersURL *string, pricingSyncInterval *int64) (string, error) {
+	data, err := sonic.Marshal(frameworkConfigHashPayload{
+		PricingURL:          pricingURL,
+		ModelParametersURL:  modelParametersURL,
+		PricingSyncInterval: pricingSyncInterval,
+	})
 	if err != nil {
 		return "", err
 	}

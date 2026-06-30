@@ -39,25 +39,6 @@ func AsLLMPlugin(plugin schemas.BasePlugin) schemas.LLMPlugin {
 	return nil
 }
 
-// AsMCPPlugin checks if a base plugin implements MCPPlugin and actually has MCP hooks.
-// For DynamicPlugin, it checks if the hook function pointers are not nil.
-// Returns nil if the plugin does not implement the interface or has no MCP hooks.
-func AsMCPPlugin(plugin schemas.BasePlugin) schemas.MCPPlugin {
-	// Check if it's a DynamicPlugin first
-	if dp, ok := plugin.(*DynamicPlugin); ok {
-		// Only return as MCPPlugin if it actually has MCP hooks
-		if dp.preMCPHook != nil || dp.postMCPHook != nil {
-			return dp
-		}
-		return nil
-	}
-	// For non-DynamicPlugin types, use normal type assertion
-	if mcpPlugin, ok := plugin.(schemas.MCPPlugin); ok {
-		return mcpPlugin
-	}
-	return nil
-}
-
 // AsHTTPTransportPlugin checks if a base plugin implements HTTPTransportPlugin and actually has HTTP transport hooks.
 // For DynamicPlugin, it checks if the hook function pointers are not nil.
 // Returns nil if the plugin does not implement the interface or has no HTTP transport hooks.
@@ -123,17 +104,6 @@ func FilterLLMPlugins(plugins []schemas.BasePlugin) []schemas.LLMPlugin {
 	for _, p := range plugins {
 		if llmPlugin := AsLLMPlugin(p); llmPlugin != nil {
 			result = append(result, llmPlugin)
-		}
-	}
-	return result
-}
-
-// FilterMCPPlugins filters a list of BasePlugins to only include those implementing MCPPlugin
-func FilterMCPPlugins(plugins []schemas.BasePlugin) []schemas.MCPPlugin {
-	result := []schemas.MCPPlugin{}
-	for _, p := range plugins {
-		if mcpPlugin := AsMCPPlugin(p); mcpPlugin != nil {
-			result = append(result, mcpPlugin)
 		}
 	}
 	return result

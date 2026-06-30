@@ -39,7 +39,6 @@ func TestPreRequestHook_ComplexityAnalyzerFeedsCELVariable(t *testing.T) {
 		},
 		nil,
 		nil,
-		nil,
 	)
 	require.NoError(t, err)
 	defer func() {
@@ -97,7 +96,6 @@ func TestPreRequestHook_ComplexitySkippedWhenNoRulesReferenceIt(t *testing.T) {
 				},
 			},
 		},
-		nil,
 		nil,
 		nil,
 	)

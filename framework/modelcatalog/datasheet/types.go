@@ -347,7 +347,7 @@ func normalizeRequestType(reqType schemas.RequestType) string {
 		return "completion"
 	case schemas.ChatCompletionRequest, schemas.ChatCompletionStreamRequest:
 		return "chat"
-	case schemas.ResponsesRequest, schemas.ResponsesStreamRequest, schemas.WebSocketResponsesRequest, schemas.RealtimeRequest, schemas.CompactionRequest:
+	case schemas.ResponsesRequest, schemas.ResponsesStreamRequest, schemas.CompactionRequest:
 		return "responses"
 	case schemas.EmbeddingRequest:
 		return "embedding"
@@ -357,7 +357,7 @@ func normalizeRequestType(reqType schemas.RequestType) string {
 		return "audio_speech"
 	case schemas.TranscriptionRequest, schemas.TranscriptionStreamRequest:
 		return "audio_transcription"
-	case schemas.ImageGenerationRequest, schemas.ImageGenerationStreamRequest, schemas.ImageVariationRequest:
+	case schemas.ImageGenerationRequest, schemas.ImageGenerationStreamRequest:
 		return "image_generation"
 	case schemas.ImageEditRequest, schemas.ImageEditStreamRequest:
 		return "image_edit"
@@ -379,10 +379,8 @@ func normalizeStreamRequestType(rt schemas.RequestType) schemas.RequestType {
 		return schemas.TextCompletionRequest
 	case schemas.ChatCompletionStreamRequest:
 		return schemas.ChatCompletionRequest
-	case schemas.ResponsesStreamRequest, schemas.WebSocketResponsesRequest:
+	case schemas.ResponsesStreamRequest:
 		return schemas.ResponsesRequest
-	case schemas.RealtimeRequest:
-		return schemas.RealtimeRequest
 	case schemas.SpeechStreamRequest:
 		return schemas.SpeechRequest
 	case schemas.TranscriptionStreamRequest:
