@@ -474,6 +474,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 			RequiredHeaders:      &h.store.ClientConfig.RequiredHeaders,
 			RoutingChainMaxDepth: &h.store.ClientConfig.RoutingChainMaxDepth,
 			TTFBRouting:          h.store.ClientConfig.TTFBRouting,
+			ProviderScoring:      h.store.ClientConfig.ProviderScoring,
 		}
 		if err := h.configManager.ReloadPlugin(ctx, governance.PluginName, nil, governanceCfg, &builtinPlacement, &builtinOrder); err != nil {
 			logger.Warn("failed to reload governance plugin: %v", err)
