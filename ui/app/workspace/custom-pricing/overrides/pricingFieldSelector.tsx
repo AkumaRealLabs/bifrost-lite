@@ -6,32 +6,18 @@ import { useEffect, useMemo, useState } from "react";
 import type { FieldErrors, PricingFieldKey } from "./pricingOverrideSheet";
 import { PRICING_FIELDS } from "./pricingOverrideSheet";
 
-type GroupKey = "chat" | "embedding" | "rerank" | "audio" | "image" | "video" | "ocr";
+type GroupKey = "chat" | "image";
 
 const PRICING_GROUPS: { key: GroupKey; label: string }[] = [
-	{ key: "chat", label: "Chat / Text / Responses" },
-	{ key: "embedding", label: "Embedding" },
-	{ key: "rerank", label: "Rerank" },
-	{ key: "audio", label: "Audio" },
-	{ key: "image", label: "Image" },
-	{ key: "video", label: "Video" },
-	{ key: "ocr", label: "OCR" },
+	{ key: "chat", label: "Chat / Responses" },
+	{ key: "image", label: "图片" },
 ];
 
 const REQUEST_TYPE_TO_CATEGORY: Record<string, GroupKey> = {
 	chat_completion: "chat",
-	text_completion: "chat",
 	responses: "chat",
-	embedding: "embedding",
-	rerank: "rerank",
-	speech: "audio",
-	transcription: "audio",
 	image_generation: "image",
-	image_variation: "image",
 	image_edit: "image",
-	video_generation: "video",
-	video_remix: "video",
-	ocr: "ocr",
 };
 
 interface PricingFieldSelectorProps {
@@ -146,7 +132,7 @@ export function PricingFieldSelector({ values, errors, selectedRequestTypes, onC
 						className="text-muted-foreground hover:text-foreground rounded-sm p-0.5 transition-colors"
 						onClick={() => deactivateField(field.key)}
 						data-testid={`pricing-field-deactivate-${field.key}`}
-						title="Remove field"
+						title="移除字段"
 					>
 						<X className="h-3.5 w-3.5" />
 					</button>
@@ -168,7 +154,7 @@ export function PricingFieldSelector({ values, errors, selectedRequestTypes, onC
 	return (
 		<div className="space-y-2">
 			<Input
-				placeholder="Search all pricing fields..."
+				placeholder="搜索价格字段..."
 				value={search}
 				onChange={(e) => setSearch(e.target.value)}
 				className="h-9"
@@ -179,7 +165,7 @@ export function PricingFieldSelector({ values, errors, selectedRequestTypes, onC
 				{isSearching ? (
 					<div className="space-y-0.5 p-2">
 						{filteredFields!.length === 0 ? (
-							<div className="text-muted-foreground py-4 text-center text-sm">No fields match &ldquo;{search}&rdquo;</div>
+							<div className="text-muted-foreground py-4 text-center text-sm">没有字段匹配 &ldquo;{search}&rdquo;</div>
 						) : (
 							filteredFields!.map((field) => renderFieldRow(field))
 						)}
@@ -187,7 +173,7 @@ export function PricingFieldSelector({ values, errors, selectedRequestTypes, onC
 				) : (
 					<div className="divide-y">
 						{visibleGroupedFields.length === 0 ? (
-							<div className="text-muted-foreground py-4 text-center text-sm">No pricing fields for the selected request types</div>
+							<div className="text-muted-foreground py-4 text-center text-sm">所选请求类型没有可用价格字段</div>
 						) : (
 							visibleGroupedFields.map((group) => {
 								const isOpen = openGroups.has(group.key);

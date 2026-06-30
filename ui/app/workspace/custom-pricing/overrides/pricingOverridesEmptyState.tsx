@@ -17,23 +17,23 @@ export function PricingOverridesEmptyState({ onCreateClick }: PricingOverridesEm
 				<SlidersHorizontal className="h-[5.5rem] w-[5.5rem]" strokeWidth={1} />
 			</div>
 			<div className="flex flex-col gap-1">
-				<h1 className="text-muted-foreground text-xl font-medium">Pricing overrides customize cost tracking per scope</h1>
+				<h1 className="text-muted-foreground text-xl font-medium">模型价格/成本覆盖</h1>
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
-					Define custom per-token prices for specific providers, keys, or virtual keys to accurately reflect your negotiated rates.
+					适用于 Provider / Provider Key / Virtual Key 的模型单价覆盖。
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
 					<Button
 						variant="outline"
-						aria-label="Read more about pricing overrides (opens in new tab)"
+						aria-label="查看模型价格/成本覆盖文档（新标签打开）"
 						data-testid="pricing-overrides-button-read-more"
 						onClick={() => {
 							window.open(`${PRICING_OVERRIDES_DOCS_URL}?utm_source=bfd`, "_blank", "noopener,noreferrer");
 						}}
 					>
-						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />
+						查看文档 <ArrowUpRight className="text-muted-foreground h-3 w-3" />
 					</Button>
-					<Button aria-label="Create your first pricing override" data-testid="pricing-override-create-btn" onClick={onCreateClick}>
-						Create Override
+					<Button aria-label="新增价格覆盖" data-testid="pricing-override-create-btn" onClick={onCreateClick}>
+						新增价格覆盖
 					</Button>
 				</div>
 			</div>

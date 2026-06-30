@@ -767,6 +767,7 @@ export const performanceFormSchema = z.object({
 			message: "Concurrency must be less than or equal to buffer size",
 			path: ["concurrency"],
 		}),
+	price_rmb_per_dao: z.number().min(0, "渠道成本必须大于等于 0").optional(),
 });
 
 // Debugging tab (raw request/response toggles)

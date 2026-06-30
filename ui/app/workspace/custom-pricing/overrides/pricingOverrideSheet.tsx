@@ -35,32 +35,12 @@ import { PricingFieldSelector } from "./pricingFieldSelector";
 
 export const REQUEST_TYPE_GROUPS = [
 	{
-		label: "Chat / Text / Responses",
-		types: ["chat_completion", "text_completion", "responses"],
+		label: "Chat / Responses",
+		types: ["chat_completion", "responses"],
 	},
 	{
-		label: "Embedding",
-		types: ["embedding"],
-	},
-	{
-		label: "Rerank",
-		types: ["rerank"],
-	},
-	{
-		label: "Audio",
-		types: ["speech", "transcription"],
-	},
-	{
-		label: "Image",
-		types: ["image_generation", "image_variation", "image_edit"],
-	},
-	{
-		label: "Video",
-		types: ["video_generation", "video_remix"],
-	},
-	{
-		label: "OCR",
-		types: ["ocr"],
+		label: "图片",
+		types: ["image_generation", "image_edit"],
 	},
 ] as const;
 
@@ -74,176 +54,150 @@ export const PRICING_FIELDS = [
 	// Chat / Text / Responses fields
 	{
 		key: "input_cost_per_token",
-		label: "Input / token",
+		label: "输入 Token 单价",
 		group: "chat",
-		requestTypeGroups: ["chat", "embedding", "rerank", "audio", "image", "video"],
+		requestTypeGroups: ["chat", "image"],
 	},
 	{
 		key: "output_cost_per_token",
-		label: "Output / token",
+		label: "输出 Token 单价",
 		group: "chat",
-		requestTypeGroups: ["chat", "rerank", "audio", "image", "video"],
+		requestTypeGroups: ["chat", "image"],
 	},
-	{ key: "input_cost_per_token_batches", label: "Input / token (batch)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "output_cost_per_token_batches", label: "Output / token (batch)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "input_cost_per_token_priority", label: "Input / token (priority)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "output_cost_per_token_priority", label: "Output / token (priority)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "input_cost_per_token_flex", label: "Input / token (flex)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "output_cost_per_token_flex", label: "Output / token (flex)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "input_cost_per_token_fast", label: "Input / token (fast)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "output_cost_per_token_fast", label: "Output / token (fast)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "input_cost_per_token_batches", label: "输入 Token 单价 (batch)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "output_cost_per_token_batches", label: "输出 Token 单价 (batch)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "input_cost_per_token_priority", label: "输入 Token 单价 (priority)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "output_cost_per_token_priority", label: "输出 Token 单价 (priority)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "input_cost_per_token_flex", label: "输入 Token 单价 (flex)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "output_cost_per_token_flex", label: "输出 Token 单价 (flex)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "input_cost_per_token_fast", label: "输入 Token 单价 (fast)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "output_cost_per_token_fast", label: "输出 Token 单价 (fast)", group: "chat", requestTypeGroups: ["chat"] },
 	{
 		key: "input_cost_per_token_above_128k_tokens",
-		label: "Input / token (>128k)",
+		label: "输入 Token 单价 (>128k)",
 		group: "chat",
-		requestTypeGroups: ["chat", "embedding", "rerank"],
+		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "output_cost_per_token_above_128k_tokens",
-		label: "Output / token (>128k)",
+		label: "输出 Token 单价 (>128k)",
 		group: "chat",
-		requestTypeGroups: ["chat", "rerank", "audio"],
+		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "input_cost_per_token_above_200k_tokens",
-		label: "Input / token (>200k)",
+		label: "输入 Token 单价 (>200k)",
 		group: "chat",
-		requestTypeGroups: ["chat", "embedding", "rerank"],
+		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "input_cost_per_token_above_200k_tokens_priority",
-		label: "Input / token (>200k, priority)",
+		label: "输入 Token 单价 (>200k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "output_cost_per_token_above_200k_tokens",
-		label: "Output / token (>200k)",
+		label: "输出 Token 单价 (>200k)",
 		group: "chat",
-		requestTypeGroups: ["chat", "rerank", "audio"],
+		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "output_cost_per_token_above_200k_tokens_priority",
-		label: "Output / token (>200k, priority)",
+		label: "输出 Token 单价 (>200k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "input_cost_per_token_above_272k_tokens",
-		label: "Input / token (>272k)",
+		label: "输入 Token 单价 (>272k)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "input_cost_per_token_above_272k_tokens_priority",
-		label: "Input / token (>272k, priority)",
+		label: "输入 Token 单价 (>272k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "output_cost_per_token_above_272k_tokens",
-		label: "Output / token (>272k)",
+		label: "输出 Token 单价 (>272k)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
 	{
 		key: "output_cost_per_token_above_272k_tokens_priority",
-		label: "Output / token (>272k, priority)",
+		label: "输出 Token 单价 (>272k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
-	{ key: "cache_creation_input_token_cost", label: "Cache creation / token", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "cache_read_input_token_cost", label: "Cache read / token", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_creation_input_token_cost", label: "缓存创建 Token 单价", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_read_input_token_cost", label: "缓存读取 Token 单价", group: "chat", requestTypeGroups: ["chat"] },
 	{
 		key: "cache_creation_input_token_cost_above_200k_tokens",
-		label: "Cache creation / token (>200k)",
+		label: "缓存创建 Token 单价 (>200k)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
-	{ key: "cache_read_input_token_cost_above_200k_tokens", label: "Cache read / token (>200k)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "cache_creation_input_token_cost_above_1hr", label: "Cache creation / token (>1hr)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_read_input_token_cost_above_200k_tokens", label: "缓存读取 Token 单价 (>200k)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_creation_input_token_cost_above_1hr", label: "缓存创建 Token 单价 (>1hr)", group: "chat", requestTypeGroups: ["chat"] },
 	{
 		key: "cache_creation_input_token_cost_above_1hr_above_200k_tokens",
-		label: "Cache creation / token (>1hr, >200k)",
+		label: "缓存创建 Token 单价 (>1hr, >200k)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
-	{ key: "cache_read_input_token_cost_priority", label: "Cache read / token (priority)", group: "chat", requestTypeGroups: ["chat"] },
-	{ key: "cache_read_input_token_cost_flex", label: "Cache read / token (flex)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_read_input_token_cost_priority", label: "缓存读取 Token 单价 (priority)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_read_input_token_cost_flex", label: "缓存读取 Token 单价 (flex)", group: "chat", requestTypeGroups: ["chat"] },
 	{
 		key: "cache_read_input_token_cost_above_200k_tokens_priority",
-		label: "Cache read / token (>200k, priority)",
+		label: "缓存读取 Token 单价 (>200k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
-	{ key: "cache_read_input_token_cost_above_272k_tokens", label: "Cache read / token (>272k)", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "cache_read_input_token_cost_above_272k_tokens", label: "缓存读取 Token 单价 (>272k)", group: "chat", requestTypeGroups: ["chat"] },
 	{
 		key: "cache_read_input_token_cost_above_272k_tokens_priority",
-		label: "Cache read / token (>272k, priority)",
+		label: "缓存读取 Token 单价 (>272k, priority)",
 		group: "chat",
 		requestTypeGroups: ["chat"],
 	},
-	{ key: "search_context_cost_per_query", label: "Search context / query", group: "chat", requestTypeGroups: ["chat", "rerank"] },
-	{ key: "code_interpreter_cost_per_session", label: "Code interpreter / session", group: "chat", requestTypeGroups: ["chat"] },
-	// Audio fields
-	{ key: "input_cost_per_character", label: "Input / character", group: "audio", requestTypeGroups: ["audio"] },
-	{ key: "input_cost_per_audio_token", label: "Input / audio token", group: "audio", requestTypeGroups: ["audio"] },
-	{ key: "input_cost_per_audio_per_second", label: "Input / audio second", group: "audio", requestTypeGroups: ["audio"] },
-	{
-		key: "input_cost_per_audio_per_second_above_128k_tokens",
-		label: "Input / audio second (>128k)",
-		group: "audio",
-		requestTypeGroups: ["audio"],
-	},
-	{ key: "input_cost_per_second", label: "Input / second", group: "audio", requestTypeGroups: ["audio", "video"] },
-	{ key: "output_cost_per_audio_token", label: "Output / audio token", group: "audio", requestTypeGroups: ["audio"] },
-	{ key: "output_cost_per_second", label: "Output / second", group: "audio", requestTypeGroups: ["audio", "video"] },
-	{ key: "cache_creation_input_audio_token_cost", label: "Cache creation / audio token", group: "audio", requestTypeGroups: ["audio"] },
+	{ key: "search_context_cost_per_query", label: "Search Context 单次成本", group: "chat", requestTypeGroups: ["chat"] },
+	{ key: "code_interpreter_cost_per_session", label: "Code Interpreter 单会话成本", group: "chat", requestTypeGroups: ["chat"] },
 	// Image fields
-	{ key: "input_cost_per_image_token", label: "Input / image token", group: "image", requestTypeGroups: ["image"] },
-	{ key: "input_cost_per_image", label: "Input / image", group: "image", requestTypeGroups: ["image"] },
-	{ key: "input_cost_per_image_above_128k_tokens", label: "Input / image (>128k)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "input_cost_per_pixel", label: "Input / pixel", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_token", label: "Output / image token", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image", label: "Output / image", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_pixel", label: "Output / pixel", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_premium_image", label: "Output / image (premium)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_above_512_and_512_pixels", label: "Output / image (>512px)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "input_cost_per_image_token", label: "输入图片 Token 单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "input_cost_per_image", label: "输入图片单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "input_cost_per_image_above_128k_tokens", label: "输入图片单价 (>128k)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "input_cost_per_pixel", label: "输入像素单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_token", label: "输出图片 Token 单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image", label: "输出图片单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_pixel", label: "输出像素单价", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_premium_image", label: "输出图片单价 (premium)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_above_512_and_512_pixels", label: "输出图片单价 (>512px)", group: "image", requestTypeGroups: ["image"] },
 	{
 		key: "output_cost_per_image_above_512_and_512_pixels_and_premium_image",
-		label: "Output / image (>512px, premium)",
+		label: "输出图片单价 (>512px, premium)",
 		group: "image",
 		requestTypeGroups: ["image"],
 	},
 	{
 		key: "output_cost_per_image_above_1024_and_1024_pixels",
-		label: "Output / image (>1024px)",
+		label: "输出图片单价 (>1024px)",
 		group: "image",
 		requestTypeGroups: ["image"],
 	},
 	{
 		key: "output_cost_per_image_above_1024_and_1024_pixels_and_premium_image",
-		label: "Output / image (>1024px, premium)",
+		label: "输出图片单价 (>1024px, premium)",
 		group: "image",
 		requestTypeGroups: ["image"],
 	},
-	{ key: "output_cost_per_image_low_quality", label: "Output / image (low quality)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_medium_quality", label: "Output / image (medium quality)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_high_quality", label: "Output / image (high quality)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "output_cost_per_image_auto_quality", label: "Output / image (auto quality)", group: "image", requestTypeGroups: ["image"] },
-	{ key: "cache_read_input_image_token_cost", label: "Cache read / image token", group: "image", requestTypeGroups: ["image"] },
-	// Video fields
-	{ key: "input_cost_per_video_per_second", label: "Input / video second", group: "video", requestTypeGroups: ["video"] },
-	{
-		key: "input_cost_per_video_per_second_above_128k_tokens",
-		label: "Input / video second (>128k)",
-		group: "video",
-		requestTypeGroups: ["video"],
-	},
-	{ key: "output_cost_per_video_per_second", label: "Output / video second", group: "video", requestTypeGroups: ["video"] },
-	// OCR fields
-	{ key: "ocr_cost_per_page", label: "OCR / page", group: "ocr", requestTypeGroups: ["ocr"] },
-	{ key: "annotation_cost_per_page", label: "Annotation / page", group: "ocr", requestTypeGroups: ["ocr"] },
+	{ key: "output_cost_per_image_low_quality", label: "输出图片单价 (low quality)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_medium_quality", label: "输出图片单价 (medium quality)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_high_quality", label: "输出图片单价 (high quality)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "output_cost_per_image_auto_quality", label: "输出图片单价 (auto quality)", group: "image", requestTypeGroups: ["image"] },
+	{ key: "cache_read_input_image_token_cost", label: "缓存读取图片 Token 单价", group: "image", requestTypeGroups: ["image"] },
 ] as const;
 
 export type PricingFieldKey = (typeof PRICING_FIELDS)[number]["key"];
@@ -283,14 +237,14 @@ export const patchKeys = PRICING_FIELDS.map((field) => field.key) as PricingFiel
 
 export function patternError(matchType: PricingOverrideMatchType, pattern: string): string | undefined {
 	const trimmed = pattern.trim();
-	if (!trimmed) return "Pattern is required";
+	if (!trimmed) return "模型匹配不能为空";
 	if (matchType === "exact") {
-		if (trimmed.includes("*")) return "Exact pattern cannot contain *";
+		if (trimmed.includes("*")) return "精确匹配不能包含 *";
 	} else if (matchType === "wildcard") {
 		const starCount = (trimmed.match(/\*/g) || []).length;
-		if (starCount === 0) return "Wildcard pattern must end with * (example: gpt-5*)";
-		if (starCount > 1) return "Wildcard pattern can include only one *";
-		if (!trimmed.endsWith("*")) return "Wildcard supports prefix-only trailing *";
+		if (starCount === 0) return "通配匹配必须以 * 结尾（例如 gpt-5*）";
+		if (starCount > 1) return "通配匹配只能包含一个 *";
+		if (!trimmed.endsWith("*")) return "通配匹配只支持尾部 * 前缀匹配";
 	}
 	return undefined;
 }
@@ -304,11 +258,11 @@ export function buildPatchFromForm(form: FormState): { patch: PricingOverridePat
 		if (raw == null || raw.trim() === "") continue;
 		const parsed = Number(raw);
 		if (!Number.isFinite(parsed)) {
-			errors[key] = "Must be a number";
+			errors[key] = "必须是数字";
 			continue;
 		}
 		if (parsed < 0) {
-			errors[key] = "Must be >= 0";
+			errors[key] = "必须大于等于 0";
 			continue;
 		}
 		(patch as Record<string, number>)[key] = parsed;
@@ -389,10 +343,10 @@ export function patchSummary(override: PricingOverride): string {
 		// ignore
 	}
 	const keys = Object.keys(parsed) as PricingFieldKey[];
-	if (keys.length === 0) return "None";
+	if (keys.length === 0) return "无";
 	const labels = keys.map((key) => fieldLabelByKey[key] || key);
 	if (labels.length <= 2) return labels.join(", ");
-	return `${labels.slice(0, 2).join(", ")} +${labels.length - 2} more`;
+	return `${labels.slice(0, 2).join(", ")} +${labels.length - 2} 项`;
 }
 
 export function renderFields(
@@ -583,8 +537,8 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 			const raw = pricingValues[key];
 			if (!raw || raw.trim() === "") continue;
 			const parsed = Number(raw);
-			if (!Number.isFinite(parsed)) errs[key] = "Must be a number";
-			else if (parsed < 0) errs[key] = "Must be >= 0";
+			if (!Number.isFinite(parsed)) errs[key] = "必须是数字";
+			else if (parsed < 0) errs[key] = "必须大于等于 0";
 		}
 		return errs;
 	}, [pricingValues]);
@@ -611,17 +565,17 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 			try {
 				const parsed = JSON.parse(trimmed);
 				if (parsed == null || typeof parsed !== "object" || Array.isArray(parsed)) {
-					setJSONError("Patch must be a JSON object");
+					setJSONError("Patch 必须是 JSON 对象");
 					return;
 				}
 				const newPricingValues: Partial<Record<PricingFieldKey, string>> = {};
 				for (const [key, val] of Object.entries(parsed)) {
 					if (!patchKeys.includes(key as PricingFieldKey)) {
-						setJSONError(`Unknown field: ${key}`);
+						setJSONError(`未知字段：${key}`);
 						return;
 					}
 					if (typeof val !== "number" || Number.isNaN(val) || val < 0) {
-						setJSONError(`${key} must be a non-negative number`);
+						setJSONError(`${key} 必须是非负数`);
 						return;
 					}
 					newPricingValues[key as PricingFieldKey] = String(val);
@@ -629,7 +583,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 				setJSONError(undefined);
 				setValue("pricingValues", newPricingValues);
 			} catch {
-				setJSONError("Invalid JSON");
+				setJSONError("JSON 格式无效");
 			}
 		},
 		[setValue],
@@ -654,7 +608,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 				resolvedScopeKind === "virtual_key_provider_key") &&
 			!resolvedVirtualKeyID
 		) {
-			setError("virtualKeyID", { message: "Virtual key is required" });
+			setError("virtualKeyID", { message: "必须选择 Virtual Key" });
 			hasErrors = true;
 		}
 
@@ -665,17 +619,17 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 		}
 
 		if (data.requestTypes.length === 0) {
-			setError("requestTypes", { message: "At least one request type must be selected" });
+			setError("requestTypes", { message: "至少选择一个请求类型" });
 			hasErrors = true;
 		}
 
 		if (Object.keys(pricingFieldErrors).length > 0) {
-			setError("pricingValues", { message: "Fix the pricing field errors above" });
+			setError("pricingValues", { message: "请先修正上方价格字段错误" });
 			hasErrors = true;
 		} else {
 			const { patch } = buildPatchFromForm(data);
 			if (Object.keys(patch).length === 0) {
-				setError("pricingValues", { message: "At least one pricing field must be overridden" });
+				setError("pricingValues", { message: "至少覆盖一个价格字段" });
 				hasErrors = true;
 			}
 		}
@@ -725,15 +679,15 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 		try {
 			if (editingOverride) {
 				await updateOverride({ id: editingOverride.id, data: requestPayload }).unwrap();
-				toast.success("Pricing override updated");
+				toast.success("价格覆盖已更新");
 			} else {
 				await createOverride(requestPayload).unwrap();
-				toast.success("Pricing override created");
+				toast.success("价格覆盖已创建");
 			}
 			handleCloseDrawer();
 			onSaved?.();
 		} catch (error) {
-			toast.error("Failed to save pricing override", { description: getErrorMessage(error) });
+			toast.error("保存价格覆盖失败", { description: getErrorMessage(error) });
 		}
 	};
 
@@ -741,7 +695,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 		<Sheet open={open} onOpenChange={(o) => (o ? onOpenChange(true) : handleCloseDrawer())}>
 			<SheetContent side="right" className="dark:bg-card flex w-full flex-col overflow-x-hidden bg-white p-0 pt-4 sm:max-w-2xl">
 				<SheetHeader className="flex flex-col items-start px-8 py-4" headerClassName="mb-0 sticky -top-4 bg-card z-10">
-					<SheetTitle className="">{editingOverride ? "Edit Pricing Override" : "Create Pricing Override"}</SheetTitle>
+					<SheetTitle className="">{editingOverride ? "编辑价格覆盖" : "新增价格覆盖"}</SheetTitle>
 				</SheetHeader>
 
 				<Form {...methods}>
@@ -751,14 +705,14 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 								<FormField
 									control={control}
 									name="name"
-									rules={{ required: "Name is required" }}
+									rules={{ required: "名称不能为空" }}
 									render={({ field }) => (
 										<FormItem>
 											<FormLabel>
-												Name <span className="text-red-500">*</span>
+												名称 <span className="text-red-500">*</span>
 											</FormLabel>
 											<FormControl>
-												<Input data-testid="pricing-override-name-input" placeholder="e.g., GPT-4 Negotiated Rate" {...field} />
+												<Input data-testid="pricing-override-name-input" placeholder="例如：GPT-4 协议价" {...field} />
 											</FormControl>
 											<FormMessage />
 										</FormItem>
@@ -767,7 +721,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 
 								{shouldLockScope && scopeLock ? (
 									<div className="space-y-2">
-										<Label htmlFor="pricing-override-scope-lock-input">Scope</Label>
+										<Label htmlFor="pricing-override-scope-lock-input">范围</Label>
 										<Input
 											id="pricing-override-scope-lock-input"
 											data-testid="pricing-override-scope-lock-input"
@@ -782,7 +736,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 											name="scopeRoot"
 											render={({ field }) => (
 												<FormItem>
-													<FormLabel>Scope root</FormLabel>
+													<FormLabel>范围根</FormLabel>
 													<Select
 														value={field.value}
 														onValueChange={(value: ScopeRoot) => {
@@ -797,8 +751,8 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 															</SelectTrigger>
 														</FormControl>
 														<SelectContent>
-															<SelectItem value="global">Global</SelectItem>
-															<SelectItem value="virtual_key">Virtual key</SelectItem>
+															<SelectItem value="global">全局</SelectItem>
+															<SelectItem value="virtual_key">Virtual Key</SelectItem>
 														</SelectContent>
 													</Select>
 												</FormItem>
@@ -812,7 +766,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 												render={({ field }) => (
 													<FormItem>
 														<FormLabel>
-															Virtual key <span className="text-red-500">*</span>
+															Virtual Key <span className="text-red-500">*</span>
 														</FormLabel>
 														<FormControl>
 															<ComboboxSelect
@@ -825,7 +779,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 																	setValue("providerKeyID", "");
 																	clearErrors("virtualKeyID");
 																}}
-																placeholder={isVirtualKeysLoading ? "Loading..." : "Select virtual key"}
+																placeholder={isVirtualKeysLoading ? "正在加载..." : "选择 Virtual Key"}
 																disabled={isVirtualKeysLoading || !!virtualKeysError}
 																noPortal
 																className="h-9"
@@ -833,7 +787,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 														</FormControl>
 														{virtualKeysError ? (
 															<p className="text-destructive mt-1 text-xs">
-																Failed to load virtual keys: {getErrorMessage(virtualKeysError)}
+																加载 Virtual Key 失败：{getErrorMessage(virtualKeysError)}
 															</p>
 														) : (
 															<FormMessage />
@@ -864,7 +818,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 																	disabled={isProvidersLoading || !!providersError}
 																>
 																	{isProvidersLoading ? (
-																		<span className="text-muted-foreground">Loading...</span>
+																		<span className="text-muted-foreground">正在加载...</span>
 																	) : field.value ? (
 																		<div className="flex items-center gap-1.5">
 																			<RenderProviderIcon
@@ -875,12 +829,12 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 																			<span>{getProviderLabel(field.value)}</span>
 																		</div>
 																	) : (
-																		<span className="text-muted-foreground">All providers</span>
+																		<span className="text-muted-foreground">全部 Provider</span>
 																	)}
 																</SelectTrigger>
 															</FormControl>
 															<SelectContent>
-																<SelectItem value="__none__">All providers</SelectItem>
+																<SelectItem value="__none__">全部 Provider</SelectItem>
 																{providers.map((provider) => (
 																	<SelectItem key={provider.name} value={provider.name}>
 																		<div className="flex items-center gap-1.5">
@@ -896,7 +850,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 															</SelectContent>
 														</Select>
 														{providersError ? (
-															<p className="text-destructive mt-1 text-xs">Failed to load providers: {getErrorMessage(providersError)}</p>
+															<p className="text-destructive mt-1 text-xs">加载 Provider 失败：{getErrorMessage(providersError)}</p>
 														) : null}
 													</FormItem>
 												)}
@@ -908,14 +862,14 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 													name="providerKeyID"
 													render={({ field }) => (
 														<FormItem>
-															<FormLabel>Provider key</FormLabel>
+															<FormLabel>Provider Key</FormLabel>
 															<FormControl>
 																<ComboboxSelect
 																	data-testid="pricing-override-provider-key-select"
 																	options={providerScopedKeyOptions.map((option) => ({ label: option.label, value: option.id }))}
 																	value={field.value || null}
 																	onValueChange={(value) => field.onChange(value ?? "")}
-																	placeholder="All provider keys"
+																	placeholder="全部 Provider Key"
 																	noPortal
 																	className="h-9"
 																/>
@@ -938,7 +892,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 										name="matchType"
 										render={({ field }) => (
 											<FormItem>
-												<FormLabel>Match type</FormLabel>
+												<FormLabel>匹配方式</FormLabel>
 												<Select
 													value={field.value}
 													onValueChange={(value: PricingOverrideMatchType) => {
@@ -948,12 +902,12 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 												>
 													<FormControl>
 														<SelectTrigger data-testid="pricing-override-match-type-select" className="w-full">
-															<SelectValue placeholder="Select match type" />
+															<SelectValue placeholder="选择匹配方式" />
 														</SelectTrigger>
 													</FormControl>
 													<SelectContent>
-														<SelectItem value="exact">Exact</SelectItem>
-														<SelectItem value="wildcard">Wildcard</SelectItem>
+														<SelectItem value="exact">精确匹配</SelectItem>
+														<SelectItem value="wildcard">通配匹配</SelectItem>
 													</SelectContent>
 												</Select>
 											</FormItem>
@@ -965,12 +919,12 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 										render={({ field }) => (
 											<FormItem>
 												<FormLabel>
-													Pattern <span className="text-red-500">*</span>
+													模型匹配 <span className="text-red-500">*</span>
 												</FormLabel>
 												<FormControl>
 													<Input
 														data-testid="pricing-override-pattern-input"
-														placeholder={matchType === "exact" ? "e.g., gpt-4o" : "e.g., gpt-4*"}
+														placeholder={matchType === "exact" ? "例如：gpt-4o" : "例如：gpt-4*"}
 														{...field}
 														onChange={(e) => {
 															field.onChange(e);
@@ -991,7 +945,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 								render={({ field }) => (
 									<FormItem>
 										<FormLabel>
-											Request types <span className="text-red-500">*</span>
+											请求类型 <span className="text-red-500">*</span>
 										</FormLabel>
 										<Popover open={requestTypePopoverOpen} onOpenChange={setRequestTypePopoverOpen} modal={false}>
 											<PopoverTrigger asChild>
@@ -1006,7 +960,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 															{field.value.length > 0 ? (
 																field.value.map((rt) => RequestTypeLabels[rt as keyof typeof RequestTypeLabels] ?? rt).join(", ")
 															) : (
-																<span className="text-muted-foreground">Select request types...</span>
+																<span className="text-muted-foreground">选择请求类型...</span>
 															)}
 														</span>
 														<ChevronDown className="h-4 w-4 shrink-0" />
@@ -1052,7 +1006,7 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 														variant="ghost"
 														onClick={() => field.onChange([])}
 													>
-														Clear
+														清空
 													</Button>
 												</div>
 											</PopoverContent>
@@ -1068,8 +1022,8 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 								render={({ field }) => (
 									<FormItem>
 										<FormLabel>
-											Pricing fields <span className="text-red-500">*</span>{" "}
-											<span className="text-muted-foreground text-xs font-normal">(USD per unit)</span>
+											价格字段 <span className="text-red-500">*</span>{" "}
+											<span className="text-muted-foreground text-xs font-normal">（美元 / 单位）</span>
 										</FormLabel>
 										<PricingFieldSelector
 											key={open ? (editingOverride?.id ?? "new") : "closed"}
@@ -1115,11 +1069,11 @@ export default function PricingOverrideSheet({ open, onOpenChange, editingOverri
 								disabled={isSaving}
 							>
 								<X className="h-4 w-4" />
-								Cancel
+								取消
 							</Button>
 							<Button data-testid="pricing-override-save-btn" type="submit" disabled={isSaving}>
 								<Save className="h-4 w-4" />
-								{editingOverride ? "Update Override" : "Save Override"}
+								{editingOverride ? "更新价格覆盖" : "保存价格覆盖"}
 							</Button>
 						</div>
 					</form>
