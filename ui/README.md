@@ -1,20 +1,18 @@
-# Bifrost UI
+# Bifrost Lite UI
 
-A modern, production-ready web interface for the [Bifrost AI Gateway](https://github.com/maximhq/bifrost) - providing real-time monitoring, configuration management, and comprehensive observability for your AI infrastructure.
+A focused web interface for Bifrost Lite: provider/key management, virtual keys, request logs, and cost/performance dashboards for the OpenAI-compatible gateway.
 
 ## Overview
 
-Bifrost UI is a React + Vite + TanStack Router web dashboard that serves as the control center for your Bifrost AI Gateway. It provides an intuitive interface to monitor AI requests, configure providers, manage MCP clients, and analyze performance metrics.
+Bifrost Lite UI is a React + Vite + TanStack Router dashboard for the retained Lite gateway surface. It monitors AI requests, configures providers and virtual keys, and analyzes performance metrics.
 
 ### Key Features
 
-- **Real-time Log Monitoring** - Live streaming dashboard with WebSocket integration
+- **Request Log Monitoring** - Request dashboard with filtering and detailed request/response inspection
 - **Provider Management** - Configure [15+ AI providers](https://docs.getbifrost.ai/quickstart/gateway/provider-configuration)
-- **MCP Integration** - Manage [Model Context Protocol](https://docs.getbifrost.ai/features/mcp) clients for advanced AI capabilities
-- **Plugin System** - Extend functionality with [custom plugins](https://docs.getbifrost.ai/plugins/getting-started)
+- **Virtual Keys** - Manage Lite gateway access keys
 - **Analytics Dashboard** - Request metrics, success rates, latency tracking, and token usage
 - **Modern UI** - Dark/light mode, responsive design, and accessible components
-- **Documentation Hub** - Built-in documentation browser and quick-start guides
 
 ## Quick Start
 
@@ -51,14 +49,13 @@ BIFROST_PORT=8080
 - **Language**: TypeScript
 - **Styling**: Tailwind CSS + Radix UI components
 - **State Management**: Redux Toolkit with RTK Query
-- **Real-time**: WebSocket integration
 - **HTTP Client**: Axios with typed service layer
 - **Theme**: Dark/light mode support
 
 ### Integration Model
 
 ```
-┌─────────────────┐    HTTP/WebSocket    ┌──────────────────┐
+┌─────────────────┐       HTTP API       ┌──────────────────┐
 │   Bifrost UI    │ ◄─────────────────► │ Bifrost HTTP     │
 │   (React+Vite)  │                     │ Transport (Go)   │
 └─────────────────┘                     └──────────────────┘
@@ -69,13 +66,13 @@ BIFROST_PORT=8080
 
 - **Development**: UI runs on port 3000, connects to Go backend on port 8080
 - **Production**: UI built as static assets served directly by Go HTTP transport
-- **Communication**: REST API + WebSocket for real-time features
+- **Communication**: REST API
 
 ## Features
 
-### Real-time Log Monitoring
+### Request Log Monitoring
 
-The main dashboard provides comprehensive request monitoring with live updates via WebSocket, advanced filtering, and detailed request/response inspection.
+The main dashboard provides request monitoring with advanced filtering and detailed request/response inspection.
 
 **[Learn More →](https://docs.getbifrost.ai/features/observability)**
 
@@ -85,25 +82,6 @@ Manage all your AI providers from a unified interface with support for multiple 
 
 **[View All Providers →](https://docs.getbifrost.ai/quickstart/gateway/provider-configuration)**
 
-### MCP Client Management
-
-Model Context Protocol integration for advanced AI capabilities including tool integration and connection monitoring.
-
-**[MCP Documentation →](https://docs.getbifrost.ai/features/mcp)**
-
-### Plugin Ecosystem
-
-Extend Bifrost with powerful plugins for observability, testing, caching, and custom functionality.
-
-**Available Plugins:**
-
-- [Maxim Logger](https://docs.getbifrost.ai/features/observability/maxim) - Advanced LLM observability
-- [Response Mocker](https://docs.getbifrost.ai/features/plugins/mocker) - Mock responses for testing
-- [Semantic Cache](https://docs.getbifrost.ai/features/semantic-caching) - Intelligent response caching
-- [OpenTelemetry](https://docs.getbifrost.ai/features/observability/otel) - Distributed tracing
-
-**[Plugin Development Guide →](https://docs.getbifrost.ai/plugins/getting-started)**
-
 ## Development
 
 ### Project Structure
@@ -112,9 +90,7 @@ Extend Bifrost with powerful plugins for observability, testing, caching, and cu
 ui/
 ├── app/                    # TanStack Router pages
 │   ├── page.tsx           # Main logs dashboard
-│   ├── config/            # Provider & MCP configuration
-│   ├── docs/              # Documentation browser
-│   └── plugins/           # Plugin management
+│   └── config/            # Lite gateway configuration
 ├── components/            # Reusable UI components
 │   ├── logs/             # Log monitoring components
 │   ├── config/           # Configuration forms
@@ -135,7 +111,7 @@ The UI uses Redux Toolkit + RTK Query for state management and API communication
 // Example API usage with RTK Query
 import { useGetLogsQuery, useCreateProviderMutation, getErrorMessage } from "@/lib/store";
 
-// Get real-time logs with automatic caching
+// Get logs with automatic caching
 const { data: logs, error, isLoading } = useGetLogsQuery({ filters, pagination });
 
 // Configure provider with optimistic updates
@@ -168,7 +144,7 @@ const handleCreate = async () => {
 2. **Type Definitions**: Update types in `lib/types/`
 3. **UI Components**: Build with Radix UI and Tailwind
 4. **State Management**: Use RTK Query for API state, React hooks for local state
-5. **Real-time Updates**: Integrate WebSocket events when applicable
+5. **Validation**: Run typecheck and production build
 
 ## Configuration
 
@@ -178,17 +154,9 @@ The UI supports comprehensive provider configuration including API keys with mod
 
 **[Complete Provider Configuration Guide →](https://docs.getbifrost.ai/quickstart/gateway/provider-configuration)**
 
-### Governance & Access Control
+### Access Control
 
-Configure virtual keys, budget limits, rate limiting, and team-based access control through the UI.
-
-**[Governance Documentation →](https://docs.getbifrost.ai/features/governance)**
-
-### Real-time Features
-
-WebSocket connection provides live log streaming, connection status monitoring, automatic reconnection, and filtered real-time updates.
-
-**[Observability Features →](https://docs.getbifrost.ai/features/observability)**
+Configure virtual keys and provider access through the UI.
 
 ## Monitoring & Analytics
 
@@ -213,8 +181,6 @@ We welcome contributions! See our [Contributing Guide](https://docs.getbifrost.a
 
 - [Gateway Setup](https://docs.getbifrost.ai/quickstart/gateway/setting-up) - Get started in 30 seconds
 - [Provider Configuration](https://docs.getbifrost.ai/quickstart/gateway/provider-configuration) - Multi-provider setup
-- [MCP Integration](https://docs.getbifrost.ai/features/mcp) - External tool calling
-- [Plugin Development](https://docs.getbifrost.ai/plugins/getting-started) - Build custom plugins
 - [Architecture](https://docs.getbifrost.ai/architecture) - System design and internals
 
 ## Need Help?
