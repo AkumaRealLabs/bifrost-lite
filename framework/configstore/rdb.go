@@ -636,6 +636,7 @@ func (s *RDBConfigStore) UpdateProvidersConfig(ctx context.Context, providers ma
 			ConfigHash:               providerConfig.ConfigHash,
 			Status:                   providerConfig.Status,
 			Description:              providerConfig.Description,
+			StatusDescription:        providerConfig.StatusDescription,
 		}
 
 		// Carry over governance FKs from the existing row so UpdateAll never
@@ -1186,6 +1187,7 @@ func (s *RDBConfigStore) GetProvidersConfig(ctx context.Context) (map[schemas.Mo
 			ConfigHash:               dbProvider.ConfigHash,
 			Status:                   dbProvider.Status,
 			Description:              dbProvider.Description,
+			StatusDescription:        dbProvider.StatusDescription,
 		}
 		processedProviders[provider] = providerConfig
 	}
@@ -1218,6 +1220,7 @@ func (s *RDBConfigStore) GetProviderConfig(ctx context.Context, provider schemas
 		ConfigHash:               dbProvider.ConfigHash,
 		Status:                   dbProvider.Status,
 		Description:              dbProvider.Description,
+		StatusDescription:        dbProvider.StatusDescription,
 	}, nil
 }
 
@@ -1453,8 +1456,8 @@ func (s *RDBConfigStore) UpdateStatus(ctx context.Context, provider schemas.Mode
 			Model(&tables.TableProvider{}).
 			Where("name = ?", string(provider)).
 			Updates(map[string]interface{}{
-				"status":      status,
-				"description": description,
+				"status":             status,
+				"status_description": description,
 			})
 		if result.Error != nil {
 			return s.parseGormError(result.Error)

@@ -338,6 +338,7 @@ export interface ModelProviderConfig {
 	openai_config?: OpenAIConfig;
 	status?: "unknown" | "success" | "list_models_failed";
 	description?: string;
+	status_description?: string;
 }
 
 // ProviderResponse matching Go's ProviderResponse

@@ -218,10 +218,7 @@ export default function Providers() {
 							)}
 							{hasProviderCreateAccess ? (
 								<div className="pb-4">
-									<AddProviderDropdown
-										disabled={!hasProviderCreateAccess}
-										onAddCustomProvider={() => setShowCustomProviderSheet(true)}
-									/>
+									<AddProviderDropdown disabled={!hasProviderCreateAccess} onAddCustomProvider={() => setShowCustomProviderSheet(true)} />
 								</div>
 							) : null}
 						</div>
@@ -295,6 +292,7 @@ function KeyDiscoveryFailedBadge({
 	provider: {
 		status?: string;
 		description?: string;
+		status_description?: string;
 	};
 }) {
 	const providerFailed = provider.status === "list_models_failed";
@@ -306,7 +304,7 @@ function KeyDiscoveryFailedBadge({
 			<TooltipTrigger>
 				<AlertCircle className="h-3 w-3" />
 			</TooltipTrigger>
-			<TooltipContent>{provider.description || "Provider 模型发现失败。"}</TooltipContent>
+			<TooltipContent>{provider.status_description || "Provider 模型发现失败。"}</TooltipContent>
 		</Tooltip>
 	);
 }

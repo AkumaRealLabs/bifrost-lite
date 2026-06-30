@@ -59,9 +59,14 @@ func consecutiveFailurePenalty(count int) float64 {
 	return math.Min(0.5, float64(count)*0.1)
 }
 
-func (p *GovernancePlugin) providerPriceRMB(providerName string) (float64, bool) {
+func (p *GovernancePlugin) providerPriceRMB(providerName string, providers map[schemas.ModelProvider]configstore.ProviderConfig) (float64, bool) {
 	if p.providerPriceOverride != nil {
 		return p.providerPriceOverride(providerName)
+	}
+	if cfg, ok := providers[schemas.ModelProvider(providerName)]; ok {
+		if price, ok := parseProviderPriceRMBPerDao(cfg.Description); ok {
+			return price, true
+		}
 	}
 	if p.configStore == nil {
 		return 0, false
@@ -122,14 +127,9 @@ func (p *GovernancePlugin) applyProviderScoring(
 		}
 	}
 
-	filters := logstore.SearchFilters{Models: []string{model}}
-	if virtualKey != nil && virtualKey.ID != "" {
-		filters.VirtualKeyIDs = []string{virtualKey.ID}
-	}
-
 	reliabilityByProvider := map[string]logstore.ProviderReliabilityStatsEntry{}
 	if p.reliabilityStats != nil {
-		stats, err := p.reliabilityStats.GetProviderReliabilityStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+		stats, err := p.reliabilityStats.GetProviderReliabilityStats(ctx, logstore.SearchFilters{}, time.Duration(windowSeconds)*time.Second, minSamples)
 		if err != nil {
 			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("Provider scoring: reliability stats unavailable: %v", err))
 		} else {
@@ -169,6 +169,10 @@ func (p *GovernancePlugin) applyProviderScoring(
 
 	ttfbByProvider := map[string]logstore.TTFBStatsEntry{}
 	if p.ttfbStats != nil {
+		filters := logstore.SearchFilters{Models: []string{model}}
+		if virtualKey != nil && virtualKey.ID != "" {
+			filters.VirtualKeyIDs = []string{virtualKey.ID}
+		}
 		stats, err := p.ttfbStats.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
 		if err == nil {
 			for _, entry := range stats.Stats {
@@ -186,8 +190,12 @@ func (p *GovernancePlugin) applyProviderScoring(
 	priceByProvider := map[string]float64{}
 	var cheapest float64
 	hasCheapest := false
+	providers := map[schemas.ModelProvider]configstore.ProviderConfig{}
+	if p.inMemoryStore != nil {
+		providers = p.inMemoryStore.GetConfiguredProviders()
+	}
 	for _, w := range weighted {
-		price, ok := p.providerPriceRMB(w.config.Provider)
+		price, ok := p.providerPriceRMB(w.config.Provider, providers)
 		if ok {
 			priceByProvider[w.config.Provider] = price
 			if !hasCheapest || price < cheapest {

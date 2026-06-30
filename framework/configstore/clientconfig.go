@@ -432,7 +432,8 @@ type ProviderConfig struct {
 	OpenAIConfig             *schemas.OpenAIConfig             `json:"openai_config,omitempty"`               // OpenAI-specific configuration
 	ConfigHash               string                            `json:"config_hash,omitempty"`                 // Hash of config.json version, used for change detection
 	Status                   string                            `json:"status,omitempty"`                      // Model discovery status for keyless providers
-	Description              string                            `json:"description,omitempty"`                 // Model discovery error message for keyless providers
+	Description              string                            `json:"description,omitempty"`                 // Provider metadata
+	StatusDescription        string                            `json:"status_description,omitempty"`          // Model discovery error message for keyless providers
 }
 
 // Redacted returns a redacted copy of the provider configuration.
@@ -453,6 +454,7 @@ func (p *ProviderConfig) Redacted() *ProviderConfig {
 		ConfigHash:               p.ConfigHash,
 		Status:                   p.Status,
 		Description:              p.Description,
+		StatusDescription:        p.StatusDescription,
 	}
 
 	// Create redacted keys

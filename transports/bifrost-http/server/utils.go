@@ -169,7 +169,7 @@ func (s *BifrostHTTPServer) updateKeyStatus(
 				continue
 			}
 			providerConfig.Status = string(ks.Status)
-			providerConfig.Description = errorMsg
+			providerConfig.StatusDescription = errorMsg
 			s.Config.Providers[ks.Provider] = providerConfig
 			logger.Debug("updated in-memory status for keyless provider %s", ks.Provider)
 			s.Config.Mu.Unlock()

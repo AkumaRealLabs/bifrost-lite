@@ -82,7 +82,8 @@ type ProviderResponse struct {
 	OpenAIConfig             *schemas.OpenAIConfig            `json:"openai_config,omitempty"`          // OpenAI-specific configuration
 	ProviderStatus           ProviderStatus                   `json:"provider_status"`                  // Health/initialization status of the provider
 	Status                   string                           `json:"status,omitempty"`                 // Operational status (e.g., list_models_failed)
-	Description              string                           `json:"description,omitempty"`            // Error/status description
+	Description              string                           `json:"description,omitempty"`            // Provider metadata
+	StatusDescription        string                           `json:"status_description,omitempty"`     // Error/status description
 	ConfigHash               string                           `json:"config_hash,omitempty"`            // Hash of config.json version, used for change detection
 }
 
@@ -354,6 +355,7 @@ func (h *ProviderHandler) addProvider(ctx *fasthttp.RequestCtx) {
 			CustomProviderConfig:     config.CustomProviderConfig,
 			Status:                   config.Status,
 			Description:              config.Description,
+			StatusDescription:        config.StatusDescription,
 		}, ProviderStatusActive)
 		SendJSON(ctx, response)
 		return
@@ -1184,6 +1186,7 @@ func (h *ProviderHandler) getProviderResponseFromConfig(provider schemas.ModelPr
 		ProviderStatus:           status,
 		Status:                   config.Status,
 		Description:              config.Description,
+		StatusDescription:        config.StatusDescription,
 		ConfigHash:               config.ConfigHash,
 	}
 }

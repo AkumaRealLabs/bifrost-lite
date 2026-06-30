@@ -1094,6 +1094,7 @@ func processAuthoritativeProvider(
 		providerCfgInFile.Keys = mergeProviderKeys(provider, providerCfgInFile.Keys, existingCfg.Keys)
 		providerCfgInFile.Status = existingCfg.Status
 		providerCfgInFile.Description = existingCfg.Description
+		providerCfgInFile.StatusDescription = existingCfg.StatusDescription
 	}
 	providers[provider] = providerCfgInFile
 	return nil

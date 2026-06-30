@@ -26,6 +26,14 @@ type fakeCooldownConfigStore struct {
 	upserts   []configstore.ProviderCooldownState
 }
 
+type fakeProviderConfigStore struct {
+	providers map[schemas.ModelProvider]configstore.ProviderConfig
+}
+
+func (f fakeProviderConfigStore) GetConfiguredProviders() map[schemas.ModelProvider]configstore.ProviderConfig {
+	return f.providers
+}
+
 func (f *fakeCooldownConfigStore) GetActiveProviderCooldowns(_ context.Context, now time.Time) ([]configstore.ProviderCooldownState, error) {
 	out := make([]configstore.ProviderCooldownState, 0)
 	for _, c := range f.cooldowns {
@@ -166,4 +174,15 @@ func TestParseProviderPriceRMBPerDao(t *testing.T) {
 	assert.InDelta(t, 0.045, v, 0.0001)
 	_, ok = parseProviderPriceRMBPerDao("")
 	assert.False(t, ok)
+}
+
+func TestProviderPriceRMBUsesInMemoryProviderConfig(t *testing.T) {
+	p := &GovernancePlugin{
+		inMemoryStore: fakeProviderConfigStore{providers: map[schemas.ModelProvider]configstore.ProviderConfig{
+			"fast": {Description: `{"price_rmb_per_dao":0.045}`},
+		}},
+	}
+	price, ok := p.providerPriceRMB("fast", p.inMemoryStore.GetConfiguredProviders())
+	require.True(t, ok)
+	assert.InDelta(t, 0.045, price, 0.0001)
 }
