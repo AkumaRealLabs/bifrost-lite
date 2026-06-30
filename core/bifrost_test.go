@@ -834,50 +834,6 @@ func TestFilterProvidersByContext(t *testing.T) {
 	})
 }
 
-func TestRunStreamPreHooks_FinalChunkFlushesTrace(t *testing.T) {
-	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	account := NewMockAccount()
-	tracer := &countingTracer{}
-
-	client, err := Init(ctx, schemas.BifrostConfig{
-		Account: account,
-		Tracer:  tracer,
-		Logger:  NewDefaultLogger(schemas.LogLevelError),
-	})
-	if err != nil {
-		t.Fatalf("Error initializing Bifrost: %v", err)
-	}
-	defer client.Shutdown()
-
-	hooks, bifrostErr := client.RunStreamPreHooks(ctx, &schemas.BifrostRequest{
-		RequestType: schemas.WebSocketResponsesRequest,
-		ResponsesRequest: &schemas.BifrostResponsesRequest{
-			Provider: schemas.OpenAI,
-			Model:    "gpt-4o-mini",
-		},
-	})
-	if bifrostErr != nil {
-		t.Fatalf("RunStreamPreHooks returned error: %v", bifrostErr)
-	}
-	defer hooks.Cleanup()
-
-	ctx.SetValue(schemas.BifrostContextKeyStreamEndIndicator, true)
-	_, bifrostErr = hooks.PostHookRunner(ctx, &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Object:    "response",
-			CreatedAt: int(time.Now().Unix()),
-			Model:     "gpt-4o-mini",
-		},
-	}, nil)
-	if bifrostErr != nil {
-		t.Fatalf("PostHookRunner returned error: %v", bifrostErr)
-	}
-
-	if tracer.flushed.Load() != 1 {
-		t.Fatalf("expected trace flush count 1, got %d", tracer.flushed.Load())
-	}
-}
-
 // mockKVStore implements schemas.KVStore for session stickiness tests.
 type mockKVStore struct {
 	mu   sync.RWMutex
@@ -1757,7 +1713,7 @@ func TestProviderQueue_SendOnClosedChannel_Race(t *testing.T) {
 
 				// Wait for the queue to be closed. This represents the real work
 				// tryRequest does between the isClosing() check and the select
-				// (MCP setup, tracer lookup, plugin pipeline acquisition).
+				// (tracer lookup, plugin pipeline acquisition).
 				<-queueClosed
 
 				// Step 2: enter the exact select guard used in production.

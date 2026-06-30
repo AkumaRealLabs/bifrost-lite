@@ -32,7 +32,6 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"github.com/valyala/fasthttp"
-	"github.com/valyala/fasthttp/fasthttpproxy"
 )
 
 // sortedAPI is a sonic encoder/decoder that sorts map keys during marshaling.
@@ -231,8 +230,8 @@ func ConfigureRetry(client *fasthttp.Client) *fasthttp.Client {
 //  2. Wraps the Dial function to enable TCP keepalive on all connections,
 //     proactively detecting dead connections before fasthttp tries to reuse them.
 //
-// Must be called AFTER ConfigureProxy (which may set client.Dial to a proxy
-// dialer), so the keepalive wrapper composes on top of the proxy connection.
+// Must be called after any custom Dial assignment, so the keepalive wrapper
+// composes on top of the existing connection path.
 //
 // Keepalive parameters:
 //   - Idle 10s: first probe after 10s of inactivity (well under the 30s MaxIdleConnDuration)
@@ -329,104 +328,6 @@ func ConfigureDialer(client *fasthttp.Client, allowPrivateNetwork bool) *fasthtt
 	return client
 }
 
-// ConfigureProxy sets up a proxy for the fasthttp client based on the provided configuration.
-// It supports HTTP, SOCKS5, and environment-based proxy configurations.
-// Returns the configured client or the original client if proxy configuration is invalid.
-func ConfigureProxy(client *fasthttp.Client, proxyConfig *schemas.ProxyConfig, logger schemas.Logger) *fasthttp.Client {
-	if proxyConfig == nil {
-		return client
-	}
-
-	var dialFunc fasthttp.DialFunc
-	// Create the appropriate proxy based on type
-	switch proxyConfig.Type {
-	case schemas.NoProxy:
-		return client
-	case schemas.HTTPProxy:
-		if proxyConfig.URL != nil && proxyConfig.URL.IsFromSecret() && proxyConfig.URL.GetValue() == "" {
-			errMsg := fmt.Sprintf("invalid proxy configuration: %s references %q but it resolved to an empty value", "proxy.url", proxyConfig.URL.GetRawRef())
-			getLogger().Error(errMsg)
-			client.Dial = dialErrorFunc(errMsg)
-			return client
-		}
-		proxyURLValue := proxyConfig.URL.GetValue()
-		if proxyURLValue == "" {
-			getLogger().Warn("Warning: HTTP proxy URL is required for setting up proxy")
-			return client
-		}
-		proxyURL := proxyURLValue
-		proxyUsername := proxyConfig.Username.GetValue()
-		proxyPassword := proxyConfig.Password.GetValue()
-		if proxyUsername != "" && proxyPassword != "" {
-			parsedURL, err := url.Parse(proxyURLValue)
-			if err != nil {
-				getLogger().Warn("Invalid proxy configuration: invalid HTTP proxy URL")
-				return client
-			}
-			// Set user and password in the parsed URL
-			parsedURL.User = url.UserPassword(proxyUsername, proxyPassword)
-			proxyURL = parsedURL.String()
-		}
-		dialFunc = fasthttpproxy.FasthttpHTTPDialer(proxyURL)
-	case schemas.Socks5Proxy:
-		if proxyConfig.URL != nil && proxyConfig.URL.IsFromSecret() && proxyConfig.URL.GetValue() == "" {
-			errMsg := fmt.Sprintf("invalid proxy configuration: %s references %q but it resolved to an empty value", "proxy.url", proxyConfig.URL.GetRawRef())
-			getLogger().Error(errMsg)
-			client.Dial = dialErrorFunc(errMsg)
-			return client
-		}
-		proxyURLValue := proxyConfig.URL.GetValue()
-		if proxyURLValue == "" {
-			getLogger().Warn("Warning: SOCKS5 proxy URL is required for setting up proxy")
-			return client
-		}
-		proxyURL := proxyURLValue
-		// Add authentication if provided
-		proxyUsername := proxyConfig.Username.GetValue()
-		proxyPassword := proxyConfig.Password.GetValue()
-		if proxyUsername != "" && proxyPassword != "" {
-			parsedURL, err := url.Parse(proxyURLValue)
-			if err != nil {
-				getLogger().Warn("Invalid proxy configuration: invalid SOCKS5 proxy URL")
-				return client
-			}
-			// Set user and password in the parsed URL
-			parsedURL.User = url.UserPassword(proxyUsername, proxyPassword)
-			proxyURL = parsedURL.String()
-		}
-		dialFunc = fasthttpproxy.FasthttpSocksDialer(proxyURL)
-	case schemas.EnvProxy:
-		// Use environment variables for proxy configuration
-		dialFunc = fasthttpproxy.FasthttpProxyHTTPDialer()
-	default:
-		getLogger().Warn("Invalid proxy configuration: unsupported proxy type: %s", proxyConfig.Type)
-		return client
-	}
-
-	if dialFunc != nil {
-		client.Dial = dialFunc
-	}
-
-	// Configure custom CA certificate if provided
-	if proxyConfig.CACertPEM != nil && proxyConfig.CACertPEM.IsFromSecret() && proxyConfig.CACertPEM.GetValue() == "" {
-		errMsg := fmt.Sprintf("invalid proxy configuration: %s references %q but it resolved to an empty value", "proxy.ca_cert_pem", proxyConfig.CACertPEM.GetRawRef())
-		getLogger().Error(errMsg)
-		client.Dial = dialErrorFunc(errMsg)
-		return client
-	}
-	proxyCACertPEM := proxyConfig.CACertPEM.GetValue()
-	if proxyCACertPEM != "" {
-		tlsConfig, err := createTLSConfigWithCA(proxyCACertPEM)
-		if err != nil {
-			getLogger().Warn("Failed to configure custom CA certificate: %v", err)
-		} else {
-			client.TLSConfig = tlsConfig
-		}
-	}
-
-	return client
-}
-
 // createTLSConfigWithCA creates a TLS configuration with a custom CA certificate
 // appended to the system root CA pool.
 func createTLSConfigWithCA(caCertPEM string) (*tls.Config, error) {
@@ -449,7 +350,6 @@ func createTLSConfigWithCA(caCertPEM string) (*tls.Config, error) {
 }
 
 // ConfigureTLS applies TLS settings from NetworkConfig to the fasthttp client.
-// It merges with any existing TLSConfig (e.g., from ConfigureProxy).
 func ConfigureTLS(client *fasthttp.Client, networkConfig schemas.NetworkConfig, logger schemas.Logger) *fasthttp.Client {
 	if networkConfig.CACertPEM != nil && networkConfig.CACertPEM.IsFromSecret() && networkConfig.CACertPEM.GetValue() == "" {
 		errMsg := fmt.Sprintf("invalid provider configuration: %s references %q but it resolved to an empty value", "network_config.ca_cert_pem", networkConfig.CACertPEM.GetRawRef())

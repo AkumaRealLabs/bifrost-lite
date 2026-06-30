@@ -35,7 +35,6 @@ func TestPluginNameFromSpan(t *testing.T) {
 	}{
 		{"prehook", pluginSpan("1", "", "plugin.logging.prehook"), "logging"},
 		{"posthook", pluginSpan("1", "", "plugin.compat.posthook"), "compat"},
-		{"mcp hook stage still resolves", pluginSpan("1", "", "plugin.governance.mcp_connect_prehook"), "governance"},
 		{"non-plugin kind", &Span{Name: "plugin.logging.prehook", Kind: SpanKindLLMCall}, ""},
 		{"malformed name", pluginSpan("1", "", "plugin"), ""},
 		{"missing stage", pluginSpan("1", "", "plugin.logging"), ""},
@@ -76,7 +75,7 @@ func TestSanitizePluginSpanName(t *testing.T) {
 // and span filtering silently no-ops — the bug this contract exists to prevent.
 func TestSanitizedNameMatchesSpanExtraction(t *testing.T) {
 	pluginNames := []string{"logging", "enterprise-prompts", "adaptive-loadbalancer", "Has Spaces", "MixedCase"}
-	stages := []string{"prehook", "posthook", "prerequesthook", "mcp_prehook", "mcp_connect_posthook"}
+	stages := []string{"prehook", "posthook", "prerequesthook", "httprequesthook", "streamhook"}
 	for _, raw := range pluginNames {
 		sanitized := SanitizePluginSpanName(raw)
 		for _, stage := range stages {

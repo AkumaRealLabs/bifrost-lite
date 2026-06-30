@@ -695,11 +695,11 @@ func TestToOpenAIChatRequest_CerebrasStripsAssistantReasoningContent(t *testing.
 		Model:    "gpt-oss-120b",
 		Input: []schemas.ChatMessage{
 			{
-				Role: schemas.ChatMessageRoleUser,
+				Role:    schemas.ChatMessageRoleUser,
 				Content: &schemas.ChatMessageContent{ContentStr: &userContent},
 			},
 			{
-				Role: schemas.ChatMessageRoleAssistant,
+				Role:    schemas.ChatMessageRoleAssistant,
 				Content: &schemas.ChatMessageContent{ContentStr: &assistantContent},
 				ChatAssistantMessage: &schemas.ChatAssistantMessage{
 					Reasoning: &reasoning,

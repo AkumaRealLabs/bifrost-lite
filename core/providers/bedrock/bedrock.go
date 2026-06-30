@@ -135,7 +135,6 @@ func NewBedrockProvider(config *schemas.ProviderConfig, logger schemas.Logger) (
 		MaxConnDuration:     time.Second * time.Duration(schemas.DefaultMaxConnDurationInSeconds),
 		ConnPoolStrategy:    fasthttp.FIFO,
 	}
-	mantleFasthttpClient = providerUtils.ConfigureProxy(mantleFasthttpClient, config.ProxyConfig, logger)
 	mantleFasthttpClient = providerUtils.ConfigureDialer(mantleFasthttpClient, config.NetworkConfig.AllowPrivateNetwork)
 	mantleFasthttpClient = providerUtils.ConfigureTLS(mantleFasthttpClient, config.NetworkConfig, logger)
 	mantleStreamingFasthttpClient := providerUtils.BuildStreamingClient(mantleFasthttpClient)
@@ -2279,68 +2278,6 @@ func (provider *BedrockProvider) ImageEdit(ctx *schemas.BifrostContext, key sche
 // ImageEditStream is not supported by the Bedrock provider.
 func (provider *BedrockProvider) ImageEditStream(ctx *schemas.BifrostContext, postHookRunner schemas.PostHookRunner, postHookSpanFinalizer func(context.Context), key schemas.Key, request *schemas.BifrostImageEditRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
 	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageEditStreamRequest, provider.GetProviderKey())
-}
-
-// ImageVariation generates image variations using Amazon Bedrock.
-// Supports Titan Image Generator v1, Nova Canvas v1, and Titan Image Generator v2.
-// Returns a BifrostImageGenerationResponse containing the generated image variations and any error that occurred.
-func (provider *BedrockProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	if err := providerUtils.CheckOperationAllowed(schemas.Bedrock, provider.customProviderConfig, schemas.ImageVariationRequest); err != nil {
-		return nil, err
-	}
-
-	var jsonData []byte
-	var bifrostError *schemas.BifrostError
-
-	jsonData, bifrostError = providerUtils.CheckContextAndGetRequestBody(
-		ctx,
-		request,
-		func() (providerUtils.RequestBodyWithExtraParams, error) {
-			return ToBedrockImageVariationRequest(request)
-		})
-	if bifrostError != nil {
-		return nil, bifrostError
-	}
-
-	// Make API request (same URL as image generation)
-	path, _ := provider.getModelPathAndRegion(ctx, "invoke", request.Model, key)
-	rawResponse, latency, providerResponseHeaders, bifrostError := provider.completeRequest(ctx, jsonData, path, key, request.Model)
-	if providerResponseHeaders != nil {
-		ctx.SetValue(schemas.BifrostContextKeyProviderResponseHeaders, providerResponseHeaders)
-	}
-	if bifrostError != nil {
-		return nil, providerUtils.EnrichError(ctx, bifrostError, jsonData, nil, provider.sendBackRawRequest, provider.sendBackRawResponse)
-	}
-
-	// Parse response (reuse BedrockImageGenerationResponse and ToBifrostImageGenerationResponse)
-	var imageResp BedrockImageGenerationResponse
-	if err := sonic.Unmarshal(rawResponse, &imageResp); err != nil {
-		return nil, providerUtils.EnrichError(ctx, providerUtils.NewBifrostOperationError("error parsing image variation response", err), jsonData, rawResponse, provider.sendBackRawRequest, provider.sendBackRawResponse)
-	}
-
-	if imageResp.Error != "" {
-		return nil, providerUtils.EnrichError(ctx, providerUtils.NewBifrostOperationError(imageResp.Error, nil), jsonData, rawResponse, provider.sendBackRawRequest, provider.sendBackRawResponse)
-	}
-
-	// Convert response and set metadata
-	bifrostResponse := ToBifrostImageGenerationResponse(&imageResp)
-	bifrostResponse.Model = request.Model
-	bifrostResponse.ExtraFields.Latency = latency.Milliseconds()
-	bifrostResponse.ExtraFields.ProviderResponseHeaders = providerResponseHeaders
-
-	// Set raw request/response if enabled
-	if providerUtils.ShouldSendBackRawRequest(ctx, provider.sendBackRawRequest) {
-		providerUtils.ParseAndSetRawRequest(&bifrostResponse.ExtraFields, jsonData)
-	}
-
-	if providerUtils.ShouldSendBackRawResponse(ctx, provider.sendBackRawResponse) {
-		var rawResponseData interface{}
-		if err := sonic.Unmarshal(rawResponse, &rawResponseData); err == nil {
-			bifrostResponse.ExtraFields.RawResponse = rawResponseData
-		}
-	}
-
-	return bifrostResponse, nil
 }
 
 // VideoGeneration is not supported by the Bedrock provider.

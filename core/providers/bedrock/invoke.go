@@ -46,7 +46,7 @@ var bedrockInvokeRequestKnownFields = map[string]bool{
 	"message": true, "chat_history": true,
 	// AI21
 	"n": true, "frequency_penalty": true, "presence_penalty": true,
-	// Bedrock image gen / edit / variation (Titan/Nova Canvas)
+	// Bedrock image gen / edit (Titan/Nova Canvas)
 	"taskType": true, "textToImageParams": true, "imageVariationParams": true,
 	"inPaintingParams": true, "outPaintingParams": true, "backgroundRemovalParams": true,
 	"imageGenerationConfig": true,
@@ -175,8 +175,6 @@ func DetectInvokeRequestType(body []byte, modelID string) schemas.RequestType {
 		switch taskType {
 		case TaskTypeTextImage:
 			return schemas.ImageGenerationRequest
-		case TaskTypeImageVariation:
-			return schemas.ImageVariationRequest
 		case TaskTypeInpainting, TaskTypeOutpainting, TaskTypeBackgroundRemoval:
 			return schemas.ImageEditRequest
 		}
@@ -670,88 +668,6 @@ func (r *BedrockInvokeRequest) ToBifrostImageEditRequest(ctx *schemas.BifrostCon
 			params.ExtraParams[k] = v
 		}
 	}
-	req.Params = params
-	return req, nil
-}
-
-// ToBifrostImageVariationRequest converts the invoke request to a BifrostImageVariationRequest.
-// Reads from imageVariationParams (Titan/Nova Canvas format).
-func (r *BedrockInvokeRequest) ToBifrostImageVariationRequest(ctx *schemas.BifrostContext) (*schemas.BifrostImageVariationRequest, error) {
-	if r.ImageVariationParams == nil || len(r.ImageVariationParams.Images) == 0 {
-		return nil, fmt.Errorf("imageVariationParams.images is required for IMAGE_VARIATION")
-	}
-
-	primaryBytes, err := base64.StdEncoding.DecodeString(r.ImageVariationParams.Images[0])
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode primary variation image: %w", err)
-	}
-
-	modelID := r.ModelID
-	if unescaped, err := url.PathUnescape(r.ModelID); err == nil {
-		modelID = unescaped
-	}
-	provider, model := schemas.ParseModelString(modelID, "")
-	req := &schemas.BifrostImageVariationRequest{
-		Provider: provider,
-		Model:    model,
-		Input: &schemas.ImageVariationInput{
-			Image: schemas.ImageInput{Image: primaryBytes},
-		},
-	}
-
-	params := &schemas.ImageVariationParameters{}
-	extraParams := make(map[string]interface{})
-
-	// Additional images (index 1+) stored under "images" key for the provider
-	if len(r.ImageVariationParams.Images) > 1 {
-		additionalImages := make([][]byte, 0, len(r.ImageVariationParams.Images)-1)
-		for _, imgB64 := range r.ImageVariationParams.Images[1:] {
-			imgBytes, err := base64.StdEncoding.DecodeString(imgB64)
-			if err != nil {
-				return nil, fmt.Errorf("failed to decode additional variation image: %w", err)
-			}
-			additionalImages = append(additionalImages, imgBytes)
-		}
-		extraParams["images"] = additionalImages
-	}
-
-	// Text / negative text / similarity strength go to ExtraParams (provider reads them from there)
-	if r.ImageVariationParams.Text != nil {
-		extraParams["prompt"] = *r.ImageVariationParams.Text
-	}
-	if r.ImageVariationParams.NegativeText != nil {
-		extraParams["negativeText"] = *r.ImageVariationParams.NegativeText
-	}
-	if r.ImageVariationParams.SimilarityStrength != nil {
-		extraParams["similarityStrength"] = *r.ImageVariationParams.SimilarityStrength
-	}
-
-	// ImageGenerationConfig → N, Size, Seed, Quality, CfgScale
-	if cfg := r.ImageGenerationConfig; cfg != nil {
-		params.N = cfg.NumberOfImages
-		if cfg.Width != nil && cfg.Height != nil {
-			size := fmt.Sprintf("%dx%d", *cfg.Width, *cfg.Height)
-			params.Size = &size
-		}
-		if cfg.Seed != nil {
-			extraParams["seed"] = *cfg.Seed
-		}
-		if cfg.Quality != nil {
-			extraParams["quality"] = *cfg.Quality
-		}
-		if cfg.CfgScale != nil {
-			extraParams["cfgScale"] = *cfg.CfgScale
-		}
-	}
-
-	// Forward any remaining ExtraParams from the request body
-	for k, v := range r.ExtraParams {
-		extraParams[k] = v
-	}
-	if len(extraParams) > 0 {
-		params.ExtraParams = extraParams
-	}
-
 	req.Params = params
 	return req, nil
 }

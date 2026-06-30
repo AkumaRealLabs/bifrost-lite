@@ -985,26 +985,6 @@ func (r *OpenAIImageEditRequest) SetExtraParams(params map[string]interface{}) {
 	r.ImageEditParameters.ExtraParams = params
 }
 
-// OpenAIImageVariationRequest is the struct for Image Variation requests in OpenAI format.
-type OpenAIImageVariationRequest struct {
-	Model string                       `json:"model"`
-	Input *schemas.ImageVariationInput `json:"input"`
-
-	schemas.ImageVariationParameters
-
-	Fallbacks   []string               `json:"fallbacks,omitempty"`
-	ExtraParams map[string]interface{} `json:"-"` // Optional: Extra parameters
-}
-
-func (r *OpenAIImageVariationRequest) GetExtraParams() map[string]interface{} {
-	return r.ExtraParams
-}
-
-func (r *OpenAIImageVariationRequest) SetExtraParams(params map[string]interface{}) {
-	r.ExtraParams = params
-	r.ImageVariationParameters.ExtraParams = params
-}
-
 // IsStreamingRequested implements the StreamingRequest interface
 func (r *OpenAIImageEditRequest) IsStreamingRequested() bool {
 	return r.Stream != nil && *r.Stream

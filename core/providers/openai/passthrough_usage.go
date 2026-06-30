@@ -39,8 +39,7 @@ func ExtractOpenAIPassthroughUsage(method, path string, reqBody, body []byte) *s
 		return extractOAITranscriptionUsage(body)
 
 	case strings.HasSuffix(path, "/images/generations"),
-		strings.HasSuffix(path, "/images/edits"),
-		strings.HasSuffix(path, "/images/variations"):
+		strings.HasSuffix(path, "/images/edits"):
 		return extractOAIImageUsage(reqBody, body)
 
 	case strings.Contains(path, "/video"):
@@ -88,7 +87,7 @@ func extractOAIVideoUsage(reqBody []byte) *schemas.BifrostPassthroughUsage {
 
 // parseMultipartFormValues sniffs the multipart boundary from the first line of body and returns
 // the parsed form values, or nil when body is not multipart/form-data (e.g. JSON). OpenAI sends
-// /v1/images/{edits,variations} and binary-asset video requests as multipart; their scalar
+// /v1/images/edits and binary-asset video requests as multipart; their scalar
 // params (seconds, size, quality, n) ride along as form fields.
 func parseMultipartFormValues(body []byte) map[string][]string {
 	if len(body) == 0 {
@@ -272,13 +271,13 @@ func extractOAITranscriptionUsage(body []byte) *schemas.BifrostPassthroughUsage 
 	return u
 }
 
-// ---- image generation / edit / variation ----
+// ---- image generation / edit ----
 // Size, Quality, N come from the request body; usage/data count from the response.
 
 func extractOAIImageUsage(reqBody, body []byte) *schemas.BifrostPassthroughUsage {
 	u := &schemas.BifrostPassthroughUsage{}
 
-	// Request body: size, quality, n. /v1/images/{edits,variations} are sent as
+	// Request body: size, quality, n. /v1/images/edits are sent as
 	// multipart/form-data (binary image upload) with these as form fields; /v1/images/generations
 	// (and JSON-mode edits) carry them as a JSON OpenAIImageGenerationRequest.
 	if len(reqBody) > 0 {

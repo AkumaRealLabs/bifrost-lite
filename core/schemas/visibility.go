@@ -25,7 +25,6 @@ const (
 	EntityAuditLog         Entity = "audit_log"
 	EntityAccessProfile    Entity = "access_profile"
 	EntityAPIKey           Entity = "api_key"
-	EntityMCPToolGroup     Entity = "mcp_tool_group"
 	EntityPromptDeployment Entity = "prompt_deployment"
 	EntityProvider         Entity = "provider"
 )
