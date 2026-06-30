@@ -131,7 +131,7 @@ func createBedrockInvokeWithResponseStreamRouteConfig(pathPrefix string, handler
 			if invokeReq, ok := req.(*bedrock.BedrockInvokeRequest); ok {
 				requestType, _ := ctx.Value(schemas.BifrostContextKeyHTTPRequestType).(schemas.RequestType)
 				switch requestType {
-				case schemas.EmbeddingRequest, schemas.ImageGenerationRequest, schemas.ImageEditRequest, schemas.ImageVariationRequest:
+				case schemas.EmbeddingRequest, schemas.ImageGenerationRequest, schemas.ImageEditRequest:
 					return nil, fmt.Errorf("request type %v is not supported on invoke-with-response-stream", requestType)
 				}
 				invokeReq.Stream = true
@@ -192,7 +192,6 @@ func bedrockStreamErrorConverter(ctx *schemas.BifrostContext, err *schemas.Bifro
 //   - Embedding (Titan inputText, Cohere texts)
 //   - ImageGeneration (taskType=TEXT_IMAGE, Stability AI and other providers prompt-only)
 //   - ImageEdit (taskType=INPAINTING/OUTPAINTING/BACKGROUND_REMOVAL, Stability AI image+prompt)
-//   - ImageVariation (taskType=IMAGE_VARIATION)
 //   - ResponsesRequest (messages array — Anthropic Messages, Nova, AI21)
 //   - TextCompletionRequest (prompt — Anthropic legacy, Mistral, Llama, Cohere)
 func createBedrockInvokeRouteConfig(pathPrefix string, handlerStore lib.HandlerStore) RouteConfig {
@@ -231,13 +230,6 @@ func createBedrockInvokeRouteConfig(pathPrefix string, handlerStore lib.HandlerS
 					return nil, fmt.Errorf("failed to convert invoke image edit request: %w", err)
 				}
 				return &schemas.BifrostRequest{ImageEditRequest: editReq}, nil
-
-			case schemas.ImageVariationRequest:
-				varReq, err := invokeReq.ToBifrostImageVariationRequest(ctx)
-				if err != nil {
-					return nil, fmt.Errorf("failed to convert invoke image variation request: %w", err)
-				}
-				return &schemas.BifrostRequest{ImageVariationRequest: varReq}, nil
 
 			case schemas.ResponsesRequest:
 				// Messages-based (Anthropic Messages, Nova, AI21) -> Responses path

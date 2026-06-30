@@ -6,7 +6,6 @@ import (
 
 	configstoreTables "github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/maximhq/bifrost/framework/kvstore"
-	"github.com/maximhq/bifrost/framework/logstore"
 
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/valyala/fasthttp"
@@ -21,17 +20,10 @@ type testHandlerStore struct {
 func (s testHandlerStore) GetHeaderMatcher() *HeaderMatcher                      { return s.matcher }
 func (s testHandlerStore) GetProvidersForModel(_ string) []schemas.ModelProvider { return nil }
 func (s testHandlerStore) GetStreamChunkInterceptor() StreamChunkInterceptor     { return nil }
-func (s testHandlerStore) GetAsyncJobExecutor() *logstore.AsyncJobExecutor       { return nil }
-func (s testHandlerStore) GetAsyncJobResultTTL() int                             { return 0 }
 func (s testHandlerStore) GetKVStore() *kvstore.Store                            { return nil }
-func (s testHandlerStore) GetMCPHeaderCombinedAllowlist() schemas.WhiteList {
-	return schemas.WhiteList{}
-}
-func (s testHandlerStore) ShouldAllowPerRequestStorageOverride() bool { return false }
-func (s testHandlerStore) ShouldAllowPerRequestRawOverride() bool     { return false }
-func (s testHandlerStore) ShouldAllowDirectKeys() bool                { return s.allowDirectKeys }
-func (s testHandlerStore) GetMCPExternalServerURL() string            { return "" }
-func (s testHandlerStore) GetMCPExternalClientURL() string            { return "" }
+func (s testHandlerStore) ShouldAllowPerRequestStorageOverride() bool            { return false }
+func (s testHandlerStore) ShouldAllowPerRequestRawOverride() bool                { return false }
+func (s testHandlerStore) ShouldAllowDirectKeys() bool                           { return s.allowDirectKeys }
 
 func TestParseSessionIDFromBaggage(t *testing.T) {
 	tests := []struct {

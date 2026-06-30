@@ -493,20 +493,6 @@ func getVirtualKeyFromBifrostContext(ctx *schemas.BifrostContext) *string {
 	return &vkValue
 }
 
-// getResultTTLFromHeaderWithDefault extracts the result TTL from the x-bf-async-job-result-ttl header.
-// Returns the default TTL if the header is not present or invalid.
-func getResultTTLFromHeaderWithDefault(ctx *fasthttp.RequestCtx, defaultTTL int) int {
-	resultTTL := string(ctx.Request.Header.Peek(schemas.AsyncHeaderResultTTL))
-	if resultTTL == "" {
-		return defaultTTL
-	}
-	resultTTLInt, err := strconv.Atoi(resultTTL)
-	if err != nil || resultTTLInt < 0 {
-		return defaultTTL
-	}
-	return resultTTLInt
-}
-
 // isAnthropicAPIKeyAuth checks if the request uses standard API key authentication.
 // Returns true for API key auth (x-api-key header), false for OAuth (Bearer sk-ant-oat*).
 // This is required for Claude Code specifically, which may use OAuth authentication.
