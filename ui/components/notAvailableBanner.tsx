@@ -11,7 +11,7 @@ const NotAvailableBanner = () => {
 						Config store setup is missing.
 					</AlertTitle>
 					<AlertDescription className="mt-2 space-y-2 text-xs">
-						<div>The UI requires a database connection to store configuration data, but no database is currently configured.</div>
+						<div>Web 后台需要数据库连接来保存配置数据，但当前还没有配置数据库。</div>
 						<div className="text-muted-foreground">
 							To enable the UI, please add the database settings to your config.json (see{" "}
 							<a

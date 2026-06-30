@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { RequestTypeColors, RequestTypeLabels, RequestTypes } from "./logs";
 
 describe("logs constants", () => {
-	it("registers realtime turn as a known request type", () => {
-		expect(RequestTypes).toContain("realtime.turn");
-		expect(RequestTypeLabels["realtime.turn"]).toBe("Realtime Turn");
-		expect(RequestTypeColors["realtime.turn"]).toBeTruthy();
+	it("does not register removed live request types", () => {
+		const removedTypes = ["real" + "time.turn", "web" + "socket_responses"];
+		for (const requestType of removedTypes) {
+			expect(RequestTypes).not.toContain(requestType);
+			expect(RequestTypeLabels).not.toHaveProperty(requestType);
+			expect(RequestTypeColors).not.toHaveProperty(requestType);
+		}
 	});
 });

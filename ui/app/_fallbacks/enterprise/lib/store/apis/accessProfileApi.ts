@@ -1,7 +1,7 @@
 import { GetUserAccessProfilesResponse } from "@enterprise/lib/types/accessProfile";
 
 // OSS build has no access-profile backend — return undefined data so consumers
-// (e.g. useVirtualKeyUsage) fall back to VK-owned budget/rate-limit values.
+// Lite fallback: access profiles are not part of the shipped surface.
 export const useGetUserAccessProfilesQuery = (
 	_userId: string,
 	_opts?: { skip?: boolean; pollingInterval?: number },

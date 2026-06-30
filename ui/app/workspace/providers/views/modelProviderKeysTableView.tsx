@@ -63,7 +63,7 @@ function ProviderKeyActionsMenu({
 					disabled={!hasUpdateAccess}
 				>
 					<PencilIcon className="mr-1 h-4 w-4" />
-					Edit
+					编辑
 				</DropdownMenuItem>
 				<DropdownMenuItem
 					variant="destructive"
@@ -75,7 +75,7 @@ function ProviderKeyActionsMenu({
 					disabled={!hasDeleteAccess}
 				>
 					<TrashIcon className="mr-1 h-4 w-4" />
-					Delete
+					删除
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -87,8 +87,8 @@ export default function ModelProviderKeysTableView({ provider, className, header
 	const isVLLM = providerName === "vllm";
 	const isOllamaOrSGL = providerName === "ollama" || providerName === "sgl";
 	const entityLabel = isVLLM ? "model" : isOllamaOrSGL ? "server" : "key";
-	const entityLabelPlural = isVLLM ? "models" : isOllamaOrSGL ? "servers" : "keys";
-	const EntityLabel = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1);
+	const entityLabelZh = isVLLM ? "模型" : isOllamaOrSGL ? "服务" : "Key";
+	const entityLabelPluralZh = isVLLM ? "模型" : isOllamaOrSGL ? "服务" : "Key";
 	const hasUpdateProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Update);
 	const hasDeleteProviderAccess = useRbac(RbacResource.ModelProvider, RbacOperation.Delete);
 	const [updateProviderKey, { isLoading: isUpdatingProviderKey }] = useUpdateProviderKeyMutation();
@@ -109,14 +109,14 @@ export default function ModelProviderKeysTableView({ provider, className, header
 				<AlertDialog open={showDeleteKeyDialog.show}>
 					<AlertDialogContent onClick={(e) => e.stopPropagation()}>
 						<AlertDialogHeader>
-							<AlertDialogTitle>Delete {EntityLabel}</AlertDialogTitle>
+							<AlertDialogTitle>删除{entityLabelZh}</AlertDialogTitle>
 							<AlertDialogDescription>
-								Are you sure you want to delete this {entityLabel}. This action cannot be undone.
+								确认删除这个{entityLabelZh}吗？此操作不可撤销。
 							</AlertDialogDescription>
 						</AlertDialogHeader>
 						<AlertDialogFooter className="pt-4">
 							<AlertDialogCancel onClick={() => setShowDeleteKeyDialog(undefined)} disabled={isMutatingProviderKey}>
-								Cancel
+								取消
 							</AlertDialogCancel>
 							<AlertDialogAction
 								disabled={isMutatingProviderKey || !hasDeleteProviderAccess}
@@ -127,17 +127,17 @@ export default function ModelProviderKeysTableView({ provider, className, header
 									})
 										.unwrap()
 										.then(() => {
-											toast.success(`${EntityLabel} deleted successfully`);
+												toast.success(`${entityLabelZh}已删除`);
 											setShowDeleteKeyDialog(undefined);
 										})
 										.catch((err) => {
-											toast.error(`Failed to delete ${entityLabel}`, {
+												toast.error(`删除${entityLabelZh}失败`, {
 												description: getErrorMessage(err),
 											});
 										});
 								}}
 							>
-								Delete
+								删除
 							</AlertDialogAction>
 						</AlertDialogFooter>
 					</AlertDialogContent>
@@ -154,7 +154,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 			)}
 			<CardHeader className="mb-4 px-0">
 				<CardTitle className="flex items-center justify-between">
-					<div className="flex items-center gap-2">Configured {entityLabelPlural}</div>
+						<div className="flex items-center gap-2">已配置{entityLabelPluralZh}</div>
 					<div className="flex items-center gap-2">
 						{headerActions}
 						{!isKeyless && hasUpdateProviderAccess ? (
@@ -166,7 +166,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 								}}
 							>
 								<PlusIcon className="h-4 w-4" />
-								Add new {entityLabel}
+								新增{entityLabelZh}
 							</Button>
 						) : null}
 					</div>
@@ -174,8 +174,8 @@ export default function ModelProviderKeysTableView({ provider, className, header
 			</CardHeader>
 			{isKeyless ? (
 				<div className="text-muted-foreground flex flex-col items-center justify-center gap-2 rounded-sm border py-10 text-center text-sm">
-					<p>This is a keyless provider - no API keys are required.</p>
-					<p>You can edit the provider configuration using the button above.</p>
+					<p>这是无 Key Provider，不需要配置 API Key。</p>
+					<p>可使用上方按钮编辑 Provider 配置。</p>
 				</div>
 			) : (
 				<div className="flex w-full flex-col gap-2 rounded-sm border">
@@ -188,9 +188,9 @@ export default function ModelProviderKeysTableView({ provider, className, header
 						</colgroup>
 						<TableHeader className="w-full">
 							<TableRow>
-								<TableHead>{isVLLM ? "Model" : isOllamaOrSGL ? "Server" : "API Key"}</TableHead>
-								<TableHead>Weight</TableHead>
-								<TableHead>Enabled</TableHead>
+								<TableHead>{isVLLM ? "模型" : isOllamaOrSGL ? "服务" : "API Key"}</TableHead>
+								<TableHead>权重</TableHead>
+								<TableHead>启用</TableHead>
 								<TableHead className="text-right"></TableHead>
 							</TableRow>
 						</TableHeader>
@@ -198,7 +198,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 							{keys.length === 0 && (
 								<TableRow data-testid="keys-table-empty-state">
 									<TableCell colSpan={4} className="py-6 text-center">
-										No {entityLabelPlural} found.
+											没有找到{entityLabelPluralZh}。
 									</TableCell>
 								</TableRow>
 							)}
@@ -218,14 +218,14 @@ export default function ModelProviderKeysTableView({ provider, className, header
 														<TooltipTrigger asChild>
 															<button
 																type="button"
-																aria-label="Key status: list models working"
+																	aria-label="Key 状态：模型列表可用"
 																data-testid={`key-status-success-${key.name}`}
 																className="inline-flex"
 															>
 																<CheckCircle2 aria-hidden className="h-4 w-4 flex-shrink-0 text-green-600" />
 															</button>
 														</TooltipTrigger>
-														<TooltipContent>List models working</TooltipContent>
+															<TooltipContent>模型列表可用</TooltipContent>
 													</Tooltip>
 												)}
 												{key.status === "list_models_failed" &&
@@ -246,7 +246,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 																<TooltipTrigger asChild>
 																	<button
 																		type="button"
-																		aria-label="Key status: secret reference may not be resolved"
+																			aria-label="Key 状态：密钥引用可能未解析"
 																		data-testid={`key-status-warning-${key.name}`}
 																		className="inline-flex"
 																	>
@@ -254,7 +254,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 																	</button>
 																</TooltipTrigger>
 																<TooltipContent className="max-w-xs break-words">
-																	{key.description} — verify the secret reference is configured on the server
+																		{key.description} - 请确认服务端已配置该密钥引用
 																</TooltipContent>
 															</Tooltip>
 														) : (
@@ -262,7 +262,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 																<TooltipTrigger asChild>
 																	<button
 																		type="button"
-																		aria-label="Key status: list models failed"
+																			aria-label="Key 状态：模型列表失败"
 																		data-testid={`key-status-error-${key.name}`}
 																		className="inline-flex"
 																	>
@@ -270,7 +270,7 @@ export default function ModelProviderKeysTableView({ provider, className, header
 																	</button>
 																</TooltipTrigger>
 																<TooltipContent className="max-w-xs break-words">
-																	{key.description || "Model discovery failed for this key"}
+																		{key.description || "此 Key 的模型发现失败"}
 																</TooltipContent>
 															</Tooltip>
 														);
@@ -298,10 +298,10 @@ export default function ModelProviderKeysTableView({ provider, className, header
 													})
 														.unwrap()
 														.then(() => {
-															toast.success(`${EntityLabel} ${checked ? "enabled" : "disabled"} successfully`);
+																toast.success(`${entityLabelZh}已${checked ? "启用" : "停用"}`);
 														})
 														.catch((err) => {
-															toast.error(`Failed to update ${entityLabel}`, { description: getErrorMessage(err) });
+																toast.error(`更新${entityLabelZh}失败`, { description: getErrorMessage(err) });
 														})
 														.finally(() => {
 															setTogglingKeyIds((prev) => {

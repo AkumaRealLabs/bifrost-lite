@@ -1,4 +1,5 @@
 import { BaseProvider, ConcurrencyAndBufferSize, NetworkConfig } from "@/lib/types/config";
+import { LiteRequestTypes } from "./lite";
 import { ProviderName } from "./logs";
 
 /**
@@ -102,80 +103,34 @@ export const DefaultPerformanceConfig = {
 	buffer_size: 5000,
 } satisfies ConcurrencyAndBufferSize;
 
-export const MCP_STATUS_COLORS: Record<string, string> = {
-	connected: "bg-green-100 text-green-800",
-	error: "bg-red-100 text-red-800",
-	disconnected: "bg-gray-100 text-gray-800",
-	pending_tools: "bg-yellow-100 text-yellow-800",
-	disabled: "bg-orange-100 text-orange-800",
-};
 
 // Mapping of what IS supported by each base provider
 export const PROVIDER_SUPPORTED_REQUESTS: Record<BaseProvider, string[]> = {
 	openai: [
-		"list_models",
-		"text_completion",
-		"text_completion_stream",
-		"chat_completion",
-		"chat_completion_stream",
-		"responses",
-		"responses_stream",
-		"embedding",
-		"speech",
-		"speech_stream",
-		"transcription",
-		"transcription_stream",
-		"image_generation",
-		"image_generation_stream",
-		"image_edit",
-		"image_edit_stream",
-		"image_variation",
-		"count_tokens",
-		"video_generation",
-		"video_retrieve",
-		"video_download",
-		"video_delete",
-		"video_list",
-		"video_remix",
+		...LiteRequestTypes,
 	],
-	anthropic: ["list_models", "chat_completion", "chat_completion_stream", "responses", "responses_stream", "count_tokens"],
+	anthropic: ["list_models", "chat_completion", "chat_completion_stream", "responses", "responses_stream"],
 	gemini: [
 		"list_models",
 		"chat_completion",
 		"chat_completion_stream",
 		"responses",
 		"responses_stream",
-		"embedding",
-		"transcription",
-		"transcription_stream",
-		"speech",
-		"speech_stream",
 		"image_generation",
 		"image_edit",
-		"count_tokens",
-		"video_generation",
-		"video_retrieve",
-		"video_download",
-		"video_delete",
-		"video_list",
-		"video_remix",
 	],
-	cohere: ["list_models", "chat_completion", "chat_completion_stream", "responses", "responses_stream", "embedding", "count_tokens"],
+	cohere: ["list_models", "chat_completion", "chat_completion_stream", "responses", "responses_stream"],
 	bedrock: [
 		"list_models",
-		"text_completion",
 		"chat_completion",
 		"chat_completion_stream",
 		"responses",
 		"responses_stream",
-		"embedding",
 		"image_generation",
 		"image_edit",
-		"image_variation",
 	],
-	replicate: [
+	huggingface: [
 		"list_models",
-		"text_completion",
 		"chat_completion",
 		"chat_completion_stream",
 		"responses",
@@ -184,22 +139,17 @@ export const PROVIDER_SUPPORTED_REQUESTS: Record<BaseProvider, string[]> = {
 		"image_generation_stream",
 		"image_edit",
 		"image_edit_stream",
-		"video_generation",
-		"video_retrieve",
-		"video_download",
-		"video_delete",
-		"video_list",
-		"video_remix",
 	],
-	fireworks: [
+	replicate: [
 		"list_models",
-		"text_completion",
-		"text_completion_stream",
 		"chat_completion",
 		"chat_completion_stream",
 		"responses",
 		"responses_stream",
-		"embedding",
+		"image_generation",
+		"image_generation_stream",
+		"image_edit",
+		"image_edit_stream",
 	],
 };
 

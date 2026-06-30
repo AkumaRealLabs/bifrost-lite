@@ -107,7 +107,6 @@ export default function ClientSettingsView() {
 			localConfig.drop_excess_requests !== config.drop_excess_requests ||
 			localConfig.disable_db_pings_in_health !== config.disable_db_pings_in_health ||
 			localConfig.dump_errors_in_console_logs !== config.dump_errors_in_console_logs ||
-			localConfig.async_job_result_ttl !== config.async_job_result_ttl ||
 			!headerFilterConfigEqual(localConfig.header_filter_config, config.header_filter_config)
 		);
 	}, [config, localConfig]);
@@ -154,15 +153,15 @@ export default function ClientSettingsView() {
 				localLargePayloadConfig.max_payload_bytes < minBytes ||
 				localLargePayloadConfig.truncated_log_bytes < minBytes
 			) {
-				toast.error("All byte values must be at least 1024 (1 KB).");
+				toast.error("所有字节值都必须至少为 1024（1 KB）。");
 				return;
 			}
 			if (localLargePayloadConfig.max_payload_bytes < localLargePayloadConfig.request_threshold_bytes) {
-				toast.error("Max payload size must be greater than or equal to the request threshold.");
+				toast.error("最大载荷大小必须大于或等于请求阈值。");
 				return;
 			}
 			if (localLargePayloadConfig.max_payload_bytes < localLargePayloadConfig.response_threshold_bytes) {
-				toast.error("Max payload size must be greater than or equal to the response threshold.");
+				toast.error("最大载荷大小必须大于或等于响应阈值。");
 				return;
 			}
 		}
@@ -173,7 +172,7 @@ export default function ClientSettingsView() {
 		// Save core config if changed
 		if (hasCoreConfigChanges) {
 			if (!bifrostConfig) {
-				toast.error("Configuration not loaded. Please refresh and try again.");
+				toast.error("配置尚未加载，请刷新后重试。");
 				return;
 			}
 			// Clean up empty strings from header filter config
@@ -189,7 +188,7 @@ export default function ClientSettingsView() {
 				await updateCoreConfig({ ...bifrostConfig!, client_config: cleanedConfig }).unwrap();
 				coreConfigSaved = true;
 			} catch (error) {
-				toast.error(`Failed to save client config: ${getErrorMessage(error)}`);
+				toast.error(`保存客户端配置失败：${getErrorMessage(error)}`);
 			}
 		}
 
@@ -199,15 +198,15 @@ export default function ClientSettingsView() {
 				await updateLargePayloadConfig(localLargePayloadConfig).unwrap();
 				largePayloadSaved = true;
 			} catch (error) {
-				toast.error(`Failed to save large payload config: ${getErrorMessage(error)}`);
+				toast.error(`保存大载荷配置失败：${getErrorMessage(error)}`);
 			}
 		}
 
 		if (coreConfigSaved || largePayloadSaved) {
 			if (largePayloadSaved) {
-				toast.success("Settings updated. Large payload changes require a restart to apply.");
+				toast.success("设置已更新。大载荷相关修改需要重启才能生效。");
 			} else {
-				toast.success("Client settings updated successfully.");
+				toast.success("客户端设置已更新");
 			}
 		}
 	}, [
@@ -287,8 +286,8 @@ export default function ClientSettingsView() {
 	return (
 		<div className="mx-auto w-full max-w-4xl space-y-6">
 			<div>
-				<h2 className="text-lg font-semibold tracking-tight">Client Settings</h2>
-				<p className="text-muted-foreground text-sm">Configure client behavior and request handling.</p>
+				<h2 className="text-lg font-semibold tracking-tight">客户端设置</h2>
+				<p className="text-muted-foreground text-sm">配置客户端行为和请求处理方式。</p>
 			</div>
 
 			<div className="space-y-4">
@@ -296,13 +295,13 @@ export default function ClientSettingsView() {
 				<div className="flex items-center justify-between space-x-2">
 					<div className="space-y-0.5">
 						<label htmlFor="drop-excess-requests" className="text-sm font-medium">
-							Drop Excess Requests
+							丢弃超量请求
 						</label>
 						<p className="text-muted-foreground text-sm">
-							If enabled, Bifrost will drop requests that exceed pool capacity.{" "}
+							启用后，Bifrost 会丢弃超过连接池容量的请求。{" "}
 							{localConfig.drop_excess_requests && droppedRequests > 0 ? (
 								<span>
-									Have dropped <b>{droppedRequests} requests</b> since last restart.
+									上次重启后已丢弃 <b>{droppedRequests} 个请求</b>。
 								</span>
 							) : (
 								<></>
@@ -322,10 +321,10 @@ export default function ClientSettingsView() {
 				<div className="flex items-center justify-between space-x-2">
 					<div className="space-y-0.5">
 						<label htmlFor="disable-db-pings-in-health" className="text-sm font-medium">
-							Disable DB Pings in Health Check
+							健康检查跳过数据库探测
 						</label>
 						<p className="text-muted-foreground text-sm">
-							If enabled, the /health endpoint will skip database connectivity checks and return OK immediately.
+							启用后，/health 端点会跳过数据库连接检查并立即返回 OK。
 						</p>
 					</div>
 					<Switch
@@ -341,10 +340,10 @@ export default function ClientSettingsView() {
 				<div className="flex items-center justify-between space-x-2">
 					<div className="space-y-0.5">
 						<label htmlFor="dump-errors-in-console-logs" className="text-sm font-medium">
-							Dump Errors in Console Logs
+							在控制台日志输出完整错误
 						</label>
 						<p className="text-muted-foreground text-sm">
-							If enabled, full error details are written to the server console logs. Useful for debugging, but may be noisy in production.
+							启用后，完整错误详情会写入服务端控制台日志。便于调试，但生产环境可能较吵。
 						</p>
 					</div>
 					<Switch
@@ -356,34 +355,13 @@ export default function ClientSettingsView() {
 						disabled={!hasSettingsUpdateAccess}
 					/>
 				</div>
-				{/* Async Job Result TTL */}
-				<div className="flex items-center justify-between space-x-2">
-					<div className="space-y-0.5">
-						<label htmlFor="async-job-result-ttl" className="text-sm font-medium">
-							Async Job Result TTL (seconds)
-						</label>
-						<p className="text-muted-foreground text-sm">
-							Default time-to-live for async job results in seconds. Results are automatically cleaned up after expiry.
-						</p>
-					</div>
-					<Input
-						id="async-job-result-ttl"
-						type="number"
-						min={1}
-						className="w-32"
-						value={localConfig.async_job_result_ttl}
-						onChange={(e) => handleConfigChange("async_job_result_ttl", parseInt(e.target.value) || 0)}
-						disabled={!hasSettingsUpdateAccess}
-						data-testid="client-settings-async-job-result-ttl-input"
-					/>
-				</div>
 			</div>
 
 			{/* Header Filter Section */}
 			<div className="space-y-4">
 				<div>
-					<h3 className="text-lg font-semibold tracking-tight">Header Forwarding</h3>
-					<p className="text-muted-foreground text-sm">Control which extra headers are forwarded to LLM providers.</p>
+					<h3 className="text-lg font-semibold tracking-tight">Header 转发</h3>
+					<p className="text-muted-foreground text-sm">控制哪些额外 Header 会转发给 LLM Provider。</p>
 				</div>
 
 				<Accordion type="multiple" className="w-full rounded-sm border px-4">
@@ -391,61 +369,59 @@ export default function ClientSettingsView() {
 						<AccordionTrigger>
 							<span className="flex items-center gap-2">
 								<Info className="h-4 w-4" />
-								About Header Forwarding
+								关于 Header 转发
 							</span>
 						</AccordionTrigger>
 						<AccordionContent className="space-y-3">
 							<div>
-								<p className="mb-2 font-medium">Two ways to forward headers:</p>
+								<p className="mb-2 font-medium">Header 转发有两种方式：</p>
 								<ul className="text-muted-foreground list-inside list-disc space-y-1 text-sm">
 									<li>
-										<span className="font-medium">Prefixed headers:</span> Use{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-*</code> prefix. For example,{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-custom-id</code> is forwarded as{" "}
+										<span className="font-medium">带前缀 Header：</span> 使用{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-*</code> 前缀。例如{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-custom-id</code> 会按{" "}
 										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">custom-id</code>.
+										{" "}转发。
 									</li>
 									<li>
-										<span className="font-medium">Direct headers:</span> Any header explicitly added to the allowlist can be forwarded
-										directly without the prefix (e.g.,{" "}
+										<span className="font-medium">直接 Header：</span> 显式加入允许列表的 Header 可以不带前缀直接转发，例如{" "}
 										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">anthropic-beta</code>).
 									</li>
 								</ul>
 							</div>
 							<div>
-								<p className="mb-2 font-medium">How allowlist and denylist work:</p>
+								<p className="mb-2 font-medium">允许列表和拒绝列表规则：</p>
 								<ul className="text-muted-foreground list-inside list-disc space-y-1 text-sm">
 									<li>
-										<span className="font-medium">Allowlist empty:</span> Only{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-*</code> prefixed headers are forwarded
-										(default behavior)
+										<span className="font-medium">允许列表为空：</span> 只转发{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-*</code> 前缀 Header（默认行为）
 									</li>
 									<li>
-										<span className="font-medium">Allowlist configured:</span> Prefixed headers filtered by allowlist, plus any direct
-										header in the allowlist is forwarded
+										<span className="font-medium">配置允许列表：</span> 带前缀 Header 会按允许列表过滤，允许列表中的直接 Header 也会被转发
 									</li>
 									<li>
-										<span className="font-medium">Denylist:</span> Headers in the denylist are always blocked from forwarding
+										<span className="font-medium">拒绝列表：</span> 拒绝列表中的 Header 始终不会转发
 									</li>
 									<li>
-										<span className="font-medium">Wildcards:</span> Use{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">*</code> at the end of a pattern to match prefixes
-										(e.g., <code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">anthropic-*</code> matches all headers starting
-										with <code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">anthropic-</code>). Use{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">*</code> alone to match all headers.
+										<span className="font-medium">通配符：</span> 在模式末尾使用{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">*</code> 匹配前缀。例如{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">anthropic-*</code> 会匹配所有以{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">anthropic-</code> 开头的 Header。单独使用{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">*</code> 表示匹配所有 Header。
 									</li>
 								</ul>
 							</div>
 							<div>
-								<p className="mb-2 font-medium">Important:</p>
+								<p className="mb-2 font-medium">注意：</p>
 								<ul className="text-muted-foreground list-inside list-disc space-y-1 text-sm">
 									<li>
-										Allowlist/denylist entries should be the header name <span className="font-medium">without</span> the{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-</code> prefix
+										允许列表/拒绝列表中应填写<span className="font-medium">不带</span>{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-</code> 前缀的 Header 名称
 									</li>
 									<li>
-										Example: To allow <code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-custom-id</code> or direct{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">custom-id</code>, add{" "}
-										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">custom-id</code> to the allowlist
+										示例：要允许 <code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">x-bf-eh-custom-id</code> 或直接{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">custom-id</code>，请把{" "}
+										<code className="bg-muted rounded px-1 py-0.5 font-mono text-xs">custom-id</code> 加入允许列表
 									</li>
 								</ul>
 							</div>
@@ -456,13 +432,12 @@ export default function ClientSettingsView() {
 						<AccordionTrigger>
 							<span className="flex items-center gap-2">
 								<Info className="h-4 w-4" />
-								Security Note
+								安全说明
 							</span>
 						</AccordionTrigger>
 						<AccordionContent>
 							<p className="text-sm">
-								Some headers are always blocked for security reasons regardless of configuration. These headers cannot be added to the
-								allowlist or denylist:
+								出于安全原因，部分 Header 无论如何配置都会被阻止，不能加入允许列表或拒绝列表：
 							</p>
 							<p className="text-muted-foreground mt-1 font-mono text-xs">
 								proxy-authorization, cookie, host, content-length, connection, transfer-encoding, x-api-key, x-goog-api-key, x-bf-api-key,
@@ -475,10 +450,10 @@ export default function ClientSettingsView() {
 				{/* Allowlist Section */}
 				<div className="space-y-3">
 					<div className="space-y-1">
-						<h4 className="text-sm font-medium">Allowlist</h4>
+						<h4 className="text-sm font-medium">允许列表</h4>
 						<p className="text-muted-foreground text-xs">
-							Headers to allow. Enter names without the <code className="bg-muted rounded px-1 font-mono">x-bf-eh-</code> prefix. Any header
-							in this list can also be sent directly without the prefix.
+							允许转发的 Header。请输入不带 <code className="bg-muted rounded px-1 font-mono">x-bf-eh-</code> 前缀的名称。列表中的 Header
+							也可以不带前缀直接发送。
 						</p>
 					</div>
 
@@ -486,7 +461,7 @@ export default function ClientSettingsView() {
 						{(localConfig.header_filter_config?.allowlist || []).map((header, index) => (
 							<div key={index} className="flex items-center gap-2">
 								<Input
-									placeholder="e.g. anthropic-*, custom-id"
+									placeholder="例如 anthropic-*, custom-id"
 									data-testid="header-filter-allowlist-input"
 									className={cn(
 										"font-mono lowercase",
@@ -511,7 +486,7 @@ export default function ClientSettingsView() {
 						))}
 						<Button type="button" variant="outline" size="sm" onClick={handleAddAllowlistHeader} disabled={!hasSettingsUpdateAccess}>
 							<Plus className="mr-2 h-4 w-4" />
-							Add Header
+							添加 Header
 						</Button>
 					</div>
 				</div>
@@ -519,10 +494,9 @@ export default function ClientSettingsView() {
 				{/* Denylist Section */}
 				<div className="space-y-3">
 					<div className="space-y-1">
-						<h4 className="text-sm font-medium">Denylist</h4>
+						<h4 className="text-sm font-medium">拒绝列表</h4>
 						<p className="text-muted-foreground text-xs">
-							Headers to block. Enter names without the <code className="bg-muted rounded px-1 font-mono">x-bf-eh-</code> prefix. Applies to
-							both prefixed and direct header forwarding.
+							禁止转发的 Header。请输入不带 <code className="bg-muted rounded px-1 font-mono">x-bf-eh-</code> 前缀的名称。对前缀转发和直接转发都生效。
 						</p>
 					</div>
 
@@ -530,7 +504,7 @@ export default function ClientSettingsView() {
 						{(localConfig.header_filter_config?.denylist || []).map((header, index) => (
 							<div key={index} className="flex items-center gap-2">
 								<Input
-									placeholder="e.g. x-internal-*"
+									placeholder="例如 x-internal-*"
 									data-testid="header-filter-denylist-input"
 									className={cn(
 										"font-mono lowercase",
@@ -555,7 +529,7 @@ export default function ClientSettingsView() {
 						))}
 						<Button type="button" variant="outline" size="sm" onClick={handleAddDenylistHeader} disabled={!hasSettingsUpdateAccess}>
 							<Plus className="mr-2 h-4 w-4" />
-							Add Header
+							添加 Header
 						</Button>
 					</div>
 				</div>
@@ -573,16 +547,16 @@ export default function ClientSettingsView() {
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<span>
-								<Button disabled>{isLoading ? "Saving..." : "Save Changes"}</Button>
+								<Button disabled>{isLoading ? "正在保存..." : "保存修改"}</Button>
 							</span>
 						</TooltipTrigger>
 						<TooltipContent>
-							Remove security header{invalidSecurityHeaders.length > 1 ? "s" : ""}: {invalidSecurityHeaders.join(", ")}
+							请移除安全 Header：{invalidSecurityHeaders.join(", ")}
 						</TooltipContent>
 					</Tooltip>
 				) : (
 					<Button onClick={handleSave} disabled={!hasChanges || isLoading || isQueriesLoading || !hasSettingsUpdateAccess}>
-						{isLoading ? "Saving..." : "Save Changes"}
+						{isLoading ? "正在保存..." : "保存修改"}
 					</Button>
 				)}
 			</div>

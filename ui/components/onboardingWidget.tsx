@@ -3,9 +3,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { getErrorMessage, useGetCoreConfigQuery, useLazyGetCoreConfigQuery } from "@/lib/store";
 import { useUpdateClientMetadataMutation } from "@/lib/store/apis/configApi";
-import { useGetModelConfigsQuery, useGetVirtualKeysQuery } from "@/lib/store/apis/governanceApi";
+import { useGetVirtualKeysQuery } from "@/lib/store/apis/governanceApi";
 import { useGetAllKeysQuery } from "@/lib/store/apis/providersApi";
-import { useGetSCIMProvidersQuery } from "@enterprise/lib/store/apis/scimApi";
 import { cn } from "@/lib/utils";
 import { useNavigate } from "@tanstack/react-router";
 import type confetti from "canvas-confetti";
@@ -18,7 +17,7 @@ const ONBOARDING_DISMISSED_COOKIE = "bifrost_onboarding_dismissed";
 const METADATA_DISMISSED_KEY = "onboarding_dismissed";
 const METADATA_SKIPPED_KEY = "onboarding_skipped";
 
-type Section = "Security" | "Provider Setup" | "Everything Else";
+type Section = "安全" | "Provider 设置" | "其他";
 
 interface Step {
 	id: string;
@@ -76,16 +75,10 @@ export default function OnboardingWidget() {
 	const { data: vksResponse } = useGetVirtualKeysQuery(undefined, {
 		skip: shouldSkipChecklistQueries || !IS_ENTERPRISE,
 	});
-	const { data: modelConfigsResponse } = useGetModelConfigsQuery(undefined, {
-		skip: shouldSkipChecklistQueries || !IS_ENTERPRISE,
-	});
-	const { data: scimProviders } = useGetSCIMProvidersQuery(undefined, {
-		skip: shouldSkipChecklistQueries || !IS_ENTERPRISE,
-	});
 	const checklistReady =
 		bifrostConfig !== undefined &&
 		allKeys !== undefined &&
-		(!IS_ENTERPRISE || (vksResponse !== undefined && modelConfigsResponse !== undefined && scimProviders !== undefined));
+		(!IS_ENTERPRISE || vksResponse !== undefined);
 
 	const skippedIds = useMemo<string[]>(() => {
 		return parseSkippedIds(bifrostConfig?.metadata?.[METADATA_SKIPPED_KEY]);
@@ -104,60 +97,46 @@ export default function OnboardingWidget() {
 		const common: Step[] = [
 			{
 				id: "cors",
-				title: "Restrict CORS origins",
+				title: "限制 CORS 来源",
 				route: "/workspace/config/security",
-				section: "Security",
+				section: "安全",
 				complete: (clientConfig?.allowed_origins?.length ?? 0) > 0,
 			},
 			{
 				id: "dashboard-auth",
-				title: "Set up dashboard auth",
+				title: "设置后台登录认证",
 				route: "/workspace/config/security",
-				section: "Security",
+				section: "安全",
 				complete: !!authConfig?.is_enabled && authValueSet(authConfig?.admin_username) && authValueSet(authConfig?.admin_password),
 			},
 			{
 				id: "enforce-inference-auth",
-				title: "Enforce auth on inference",
+				title: "推理接口强制鉴权",
 				route: "/workspace/config/security",
-				section: "Security",
+				section: "安全",
 				complete: !!clientConfig?.enforce_auth_on_inference,
 			},
 			{
 				id: "provider-key",
-				title: "Add a provider key",
+				title: "添加 Provider Key",
 				route: "/workspace/providers",
-				section: "Provider Setup",
+				section: "Provider 设置",
 				complete: (allKeys?.length ?? 0) > 0,
 			},
 		];
 		const enterprise: Step[] = IS_ENTERPRISE
 			? [
 					{
-						id: "scim",
-						title: "Configure SCIM provisioning",
-						route: "/workspace/scim",
-						section: "Everything Else",
-						complete: (scimProviders?.length ?? 0) > 0,
-					},
-					{
-						id: "models",
-						title: "Configure governance model catalog",
-						route: "/workspace/model-catalog",
-						section: "Everything Else",
-						complete: (modelConfigsResponse?.total_count ?? 0) > 0,
-					},
-					{
 						id: "virtual-keys",
-						title: "Set up virtual keys / access profiles",
+						title: "设置虚拟 Key",
 						route: "/workspace/virtual-keys",
-						section: "Everything Else",
+						section: "其他",
 						complete: (vksResponse?.total_count ?? 0) > 0,
 					},
 				]
 			: [];
 		return [...common, ...enterprise];
-	}, [allKeys, clientConfig, authConfig, scimProviders, modelConfigsResponse, vksResponse]);
+	}, [allKeys, clientConfig, authConfig, vksResponse]);
 
 	// Map step id → checkbox element so we can launch confetti from the
 	// exact tick position when a step transitions to complete.
@@ -312,14 +291,14 @@ export default function OnboardingWidget() {
 							👋
 						</span>
 						<div className="min-w-0 flex-1">
-							<div className="text-sm font-semibold">Setup checklist</div>
+							<div className="text-sm font-semibold">初始化检查清单</div>
 							<div className="text-muted-foreground text-xs">
-								{doneCount} of {steps.length} steps complete
+								已完成 {doneCount} / {steps.length} 项
 							</div>
 						</div>
 					</div>
 					<button
-						aria-label="Close for now"
+						aria-label="暂时关闭"
 						type="button"
 						data-testid="onboarding-close"
 						onClick={() => setClosedForSession(true)}
@@ -389,12 +368,12 @@ export default function OnboardingWidget() {
 												disabled={writingMetadata}
 												className="text-muted-foreground hover:text-foreground text-xs opacity-0 transition-opacity group-hover:opacity-100 focus:opacity-100 focus-visible:opacity-100 disabled:opacity-50"
 											>
-												Skip
+												跳过
 											</button>
 											<ChevronRight className="text-muted-foreground size-4 transition-transform group-hover:translate-x-0.5" />
 										</>
 									)}
-									{skipped && !step.complete && <span className="text-muted-foreground text-xs">Skipped</span>}
+									{skipped && !step.complete && <span className="text-muted-foreground text-xs">已跳过</span>}
 								</div>
 							</div>
 						);
@@ -407,7 +386,7 @@ export default function OnboardingWidget() {
 						onClick={handleHideForMe}
 						className="text-muted-foreground hover:text-foreground py-2 text-center"
 					>
-						I'll do it later
+						稍后再说
 					</button>
 					<button
 						type="button"
@@ -416,7 +395,7 @@ export default function OnboardingWidget() {
 						disabled={writingMetadata}
 						className="text-muted-foreground hover:text-foreground py-2 text-center disabled:opacity-50"
 					>
-						Hide for everyone
+						所有人隐藏
 					</button>
 				</CardFooter>
 			</Card>

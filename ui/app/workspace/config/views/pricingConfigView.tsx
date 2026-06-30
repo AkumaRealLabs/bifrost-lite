@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { getErrorMessage, useForcePricingSyncMutation, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
+import { getErrorMessage, useGetCoreConfigQuery, useUpdateCoreConfigMutation } from "@/lib/store";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
@@ -18,7 +18,6 @@ export default function PricingConfigView() {
 	const { data: bifrostConfig } = useGetCoreConfigQuery({ fromDB: true });
 	const config = bifrostConfig?.framework_config;
 	const [updateCoreConfig, { isLoading }] = useUpdateCoreConfigMutation();
-	const [forcePricingSync, { isLoading: isForceSyncing }] = useForcePricingSyncMutation();
 
 	const {
 		register,
@@ -70,17 +69,8 @@ export default function PricingConfigView() {
 					model_parameters_url: data.model_parameters_url,
 				},
 			}).unwrap();
-			toast.success("Pricing configuration updated successfully.");
+			toast.success("价格配置已更新");
 			reset(data);
-		} catch (error) {
-			toast.error(getErrorMessage(error));
-		}
-	};
-
-	const handleForceSync = async () => {
-		try {
-			await forcePricingSync().unwrap();
-			toast.success("Pricing sync triggered successfully.");
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
@@ -90,16 +80,16 @@ export default function PricingConfigView() {
 		<div className="mx-auto w-full max-w-7xl space-y-4" data-testid="pricing-config-view">
 			<form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 				<div>
-					<h2 className="text-lg font-semibold tracking-tight">Pricing Configuration</h2>
-					<p className="text-muted-foreground text-sm">Configure custom pricing datasheet and sync intervals.</p>
+				<h2 className="text-lg font-semibold tracking-tight">价格配置</h2>
+				<p className="text-muted-foreground text-sm">配置自定义价格表和同步间隔。</p>
 				</div>
 
 				<div className="space-y-4">
 					{/* Pricing Datasheet URL */}
 					<div className="space-y-2 rounded-sm border p-4">
 						<div className="space-y-0.5">
-							<Label htmlFor="pricing-datasheet-url">Pricing Datasheet URL</Label>
-							<p className="text-muted-foreground text-sm">URL to a custom pricing datasheet. Leave empty to use default pricing.</p>
+							<Label htmlFor="pricing-datasheet-url">价格表 URL</Label>
+							<p className="text-muted-foreground text-sm">自定义价格表的 URL。留空则使用默认价格。</p>
 						</div>
 						<Input
 							id="pricing-datasheet-url"
@@ -109,12 +99,12 @@ export default function PricingConfigView() {
 							{...register("pricing_datasheet_url", {
 								pattern: {
 									value: /^(https?:\/\/)?((localhost|(\d{1,3}\.){3}\d{1,3})(:\d+)?|([\da-z\.-]+)\.([a-z\.]{2,6}))([\/\w \.-]*)*\/?$/,
-									message: "Please enter a valid URL.",
+								message: "请输入有效的 URL。",
 								},
 								validate: {
 									checkIfHttp: (value) => {
 										if (!value) return true; // Allow empty
-										return value.startsWith("http://") || value.startsWith("https://") || "URL must start with http:// or https://";
+										return value.startsWith("http://") || value.startsWith("https://") || "URL 必须以 http:// 或 https:// 开头";
 									},
 								},
 							})}
@@ -126,8 +116,8 @@ export default function PricingConfigView() {
 					{/* Model Parameters URL */}
 					<div className="space-y-2 rounded-sm border p-4">
 						<div className="space-y-0.5">
-							<Label htmlFor="model-parameters-url">Model Parameters URL</Label>
-							<p className="text-muted-foreground text-sm">URL to a custom model parameters datasheet. Leave empty to use default.</p>
+							<Label htmlFor="model-parameters-url">模型参数 URL</Label>
+							<p className="text-muted-foreground text-sm">自定义模型参数表的 URL。留空则使用默认值。</p>
 						</div>
 						<Input
 							id="model-parameters-url"
@@ -137,12 +127,12 @@ export default function PricingConfigView() {
 							{...register("model_parameters_url", {
 								pattern: {
 									value: /^(https?:\/\/)?((localhost|(\d{1,3}\.){3}\d{1,3})(:\d+)?|([\da-z\.-]+)\.([a-z\.]{2,6}))([\/\w \.-]*)*\/?$/,
-									message: "Please enter a valid URL.",
+								message: "请输入有效的 URL。",
 								},
 								validate: {
 									checkIfHttp: (value) => {
 										if (!value) return true;
-										return value.startsWith("http://") || value.startsWith("https://") || "URL must start with http:// or https://";
+										return value.startsWith("http://") || value.startsWith("https://") || "URL 必须以 http:// 或 https:// 开头";
 									},
 								},
 							})}
@@ -155,22 +145,22 @@ export default function PricingConfigView() {
 					<div className="space-y-2 rounded-sm border p-4">
 						<div className="space-y-2">
 							<div className="space-y-0.5">
-								<Label htmlFor="pricing-sync-interval">Pricing Sync Interval (hours)</Label>
-								<p className="text-muted-foreground text-sm">How often to sync pricing data from the datasheet URL.</p>
+								<Label htmlFor="pricing-sync-interval">价格同步间隔（小时）</Label>
+								<p className="text-muted-foreground text-sm">从价格表 URL 同步价格数据的频率。</p>
 							</div>
 							<Input
 								id="pricing-sync-interval"
 								type="number"
 								className={errors.pricing_sync_interval_hours ? "border-destructive" : ""}
 								{...register("pricing_sync_interval_hours", {
-									required: "Pricing sync interval is required",
+									required: "价格同步间隔不能为空",
 									min: {
 										value: 1,
-										message: "Sync interval must be at least 1 hour",
+										message: "同步间隔至少为 1 小时",
 									},
 									max: {
 										value: 8760,
-										message: "Sync interval cannot exceed 8760 hours (1 year)",
+										message: "同步间隔不能超过 8760 小时（一年）",
 									},
 									valueAsNumber: true,
 								})}
@@ -182,17 +172,8 @@ export default function PricingConfigView() {
 					</div>
 				</div>
 				<div className="flex justify-end gap-2 pt-2">
-					<Button
-						variant="outline"
-						type="button"
-						onClick={handleForceSync}
-						disabled={isForceSyncing || !hasSettingsUpdateAccess}
-						data-testid="pricing-force-sync-btn"
-					>
-						{isForceSyncing ? "Syncing..." : "Force Sync Now"}
-					</Button>
 					<Button type="submit" disabled={!hasChanges || isLoading || !hasSettingsUpdateAccess} data-testid="pricing-save-btn">
-						{isLoading ? "Saving..." : "Save Changes"}
+						{isLoading ? "正在保存..." : "保存修改"}
 					</Button>
 				</div>
 			</form>

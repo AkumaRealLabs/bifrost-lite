@@ -48,41 +48,6 @@ import SpeechView from "../views/speechView";
 import TranscriptionView from "../views/transcriptionView";
 import VideoView from "../views/videoView";
 
-const formatRealtimeTransport = (value: unknown): string => {
-	const transport = String(value ?? "").trim();
-	switch (transport.toLowerCase()) {
-		case "websocket":
-			return "WebSocket";
-		case "webrtc":
-			return "WebRTC";
-		default:
-			return transport || "Unknown";
-	}
-};
-
-const getRealtimeTransportBadgeClass = (value: unknown): string => {
-	switch (String(value ?? "").toLowerCase()) {
-		case "websocket":
-			return "border-indigo-300 bg-indigo-50 text-indigo-700 dark:border-indigo-600 dark:bg-indigo-950 dark:text-indigo-300";
-		case "webrtc":
-			return "border-purple-300 bg-purple-50 text-purple-700 dark:border-purple-600 dark:bg-purple-950 dark:text-purple-300";
-		default:
-			return "border-slate-300 bg-slate-50 text-slate-700 dark:border-slate-600 dark:bg-slate-950 dark:text-slate-300";
-	}
-};
-
-const formatRealtimeSource = (value: unknown): string => {
-	const source = String(value ?? "").trim();
-	switch (source.toLowerCase()) {
-		case "ei":
-			return "Event Initiated";
-		case "lm":
-			return "Language Model";
-		default:
-			return source || "Unknown";
-	}
-};
-
 const extractResponsesText = (msg: ResponsesMessage): string => {
 	if (msg.type === "reasoning") {
 		const summaryText = (msg.summary ?? [])
@@ -539,7 +504,6 @@ export function LogDetailView({
 	const isContainer = isContainerOperation(log.object);
 	const showTabs = !isContainer;
 	const isPassthrough = isPassthroughOperation(log.object);
-	const isRealtimeTurn = log.object === "realtime.turn";
 	const passthroughParams = isPassthrough
 		? (log.params as {
 				method?: string;
@@ -657,17 +621,6 @@ export function LogDetailView({
 							>
 								{RequestTypeLabels[log.object as keyof typeof RequestTypeLabels] ?? log.object}
 							</Badge>
-							{log.routing_rule && (
-								<Link
-									to="/workspace/logs"
-									search={{ routing_rule_ids: [log.routing_rule.id] }}
-									data-testid="logdetails-header-routing-rule-link"
-								>
-									<Badge variant="outline" className="bg-card text-muted-foreground rounded-sm px-2 py-0.5 font-normal hover:underline">
-										rule: {log.routing_rule.name}
-									</Badge>
-								</Link>
-							)}
 							{log.metadata?.isAsyncRequest ? (
 								<Badge variant="outline" className="rounded-sm bg-teal-100 px-2 py-0.5 text-teal-800 dark:bg-teal-900 dark:text-teal-200">
 									Async
@@ -694,22 +647,6 @@ export function LogDetailView({
 									Large Payload
 								</Badge>
 							)}
-							{isRealtimeTurn && log.metadata?.realtime_transport && (
-								<Badge
-									variant="outline"
-									className={cn("rounded-sm px-2 py-0.5 font-medium", getRealtimeTransportBadgeClass(log.metadata.realtime_transport))}
-								>
-									{formatRealtimeTransport(log.metadata.realtime_transport)}
-								</Badge>
-							)}
-							{isRealtimeTurn && log.metadata?.realtime_voice && (
-								<Badge
-									variant="outline"
-									className="rounded-sm border-amber-300 bg-amber-50 px-2 py-0.5 font-medium text-amber-700 dark:border-amber-600 dark:bg-amber-950 dark:text-amber-300"
-								>
-									{log.metadata.realtime_voice}
-								</Badge>
-							)}
 						</div>
 						<div className="mt-3 flex items-center gap-2">
 							<div className="text-muted-foreground w-24 shrink-0 text-[10.5px] font-semibold tracking-wider uppercase">Request</div>
@@ -723,19 +660,6 @@ export function LogDetailView({
 								</div>
 								<code className="text-foreground truncate font-mono text-[13px]">{log.cache_debug.cache_id}</code>
 								<CopyInlineButton text={log.cache_debug.cache_id} testId="logdetails-copy-cache-id-button" />
-							</div>
-						)}
-						{log.routing_rule && (
-							<div className="mt-1 flex items-center gap-2">
-								<div className="text-muted-foreground w-24 shrink-0 text-[10.5px] font-semibold tracking-wider uppercase">Rule</div>
-								<Link
-									to="/workspace/logs"
-									search={{ routing_rule_ids: [log.routing_rule.id] }}
-									className="truncate text-[13px] font-medium text-blue-600 hover:underline dark:text-blue-400"
-									data-testid="logdetails-header-rule-link"
-								>
-									&ldquo;{log.routing_rule.name}&rdquo;
-								</Link>
 							</div>
 						)}
 						{log.selected_key && (
@@ -757,9 +681,9 @@ export function LogDetailView({
 						<span className="uppercase">{log.provider}</span>
 					</div>
 				</div>
-				<div className="border-border grid grid-cols-2 border-t md:grid-cols-5">
-					<HeroStat
-						label="Latency"
+					<div className="border-border grid grid-cols-2 border-t md:grid-cols-6">
+						<HeroStat
+							label="Latency"
 						valueClass="text-primary"
 						value={log.latency == null || isNaN(log.latency) ? "—" : formatLatency(log.latency)}
 						sub={(() => {
@@ -769,11 +693,11 @@ export function LogDetailView({
 							const startStr = format(start, "HH:mm:ss");
 							if (log.latency == null || isNaN(log.latency)) return startStr;
 							return `${startStr} → ${format(addMilliseconds(start, log.latency), "HH:mm:ss")}`;
-						})()}
-						hasRightBorder
-					/>
-					<HeroStat
-						label="Model"
+							})()}
+							hasRightBorder
+						/>
+						<HeroStat
+							label="Model"
 						mono
 						value={log.model || "—"}
 						sub={log.provider?.toLowerCase() || ""}
@@ -809,19 +733,11 @@ export function LogDetailView({
 						}
 						hasRightBorder
 					/>
-					{isRealtimeTurn ? (
-						<HeroStat
-							label="Voice"
-							value={log.metadata?.realtime_voice ? String(log.metadata.realtime_voice) : "\u2014"}
-							sub={log.metadata?.realtime_transport ? formatRealtimeTransport(log.metadata.realtime_transport) : ""}
-						/>
-					) : (
-						<HeroStat
-							label="Tools available"
-							value={(log.params?.tools?.length ?? 0).toString()}
-							sub={(log.params as any)?.tool_choice != null ? `choice: ${formatToolChoice((log.params as any).tool_choice)}` : ""}
-						/>
-					)}
+					<HeroStat
+						label="Tools available"
+						value={(log.params?.tools?.length ?? 0).toString()}
+						sub={(log.params as any)?.tool_choice != null ? `choice: ${formatToolChoice((log.params as any).tool_choice)}` : ""}
+					/>
 				</div>
 			</div>
 			<details className="group bg-card rounded-sm border" open={false}>
@@ -852,12 +768,12 @@ export function LogDetailView({
 									return d && !isNaN(d.getTime()) ? format(addMilliseconds(d, log.latency || 0), "yyyy-MM-dd hh:mm:ss aa") : "N/A";
 								})()}
 							/>
-							<LogEntryDetailsView
-								className="w-full"
-								label="Latency"
-								value={log.latency == null || isNaN(log.latency) ? "N/A" : <div>{log.latency.toFixed(2)}ms</div>}
-							/>
-						</div>
+								<LogEntryDetailsView
+									className="w-full"
+									label="Latency"
+									value={log.latency == null || isNaN(log.latency) ? "N/A" : <div>{log.latency.toFixed(2)}ms</div>}
+								/>
+							</div>
 					</div>
 					<DottedSeparator />
 					<div className="space-y-4">
@@ -957,97 +873,16 @@ export function LogDetailView({
 									className="w-full"
 									label="Selected Prompt"
 									value={
-										<Link
-											to="/workspace/prompt-repo"
-											className="text-blue-600 hover:underline dark:text-blue-400"
-											data-testid="logdetails-selected-prompt-link"
-										>
-											<span className="break-words">
-												{selectedPromptDisplayName}
-												{selectedPromptDisplayName && log.selected_prompt_version ? " · " : ""}
-												{log.selected_prompt_version ? <>v{log.selected_prompt_version}</> : null}
-											</span>
-										</Link>
+										<span className="break-words">
+											{selectedPromptDisplayName}
+											{selectedPromptDisplayName && log.selected_prompt_version ? " · " : ""}
+											{log.selected_prompt_version ? <>v{log.selected_prompt_version}</> : null}
+										</span>
 									}
 								/>
 							)}
 							{log.number_of_retries > 0 && (
 								<LogEntryDetailsView className="w-full" label="Number of Retries" value={log.number_of_retries} />
-							)}
-							{(log.team_ids?.length || log.team_id) && (
-								<LogEntryDetailsView
-									className="w-full"
-									label={(log.team_ids?.length ?? 0) > 1 ? "Teams" : "Team"}
-									value={
-										<span className="inline-flex flex-wrap gap-x-1">
-											{(log.team_ids?.length
-												? log.team_ids.map((id, i) => ({ id, name: log.team_names?.[i] || id }))
-												: [{ id: log.team_id!, name: log.team_name || log.team_id! }]
-											).map((t, i, arr) => (
-												<Link
-													key={t.id}
-													to="/workspace/logs"
-													search={{ team_ids: [t.id] }}
-													className="text-blue-600 hover:underline dark:text-blue-400"
-													data-testid={`logdetails-team-link-${t.id}`}
-												>
-													{t.name}
-													{i < arr.length - 1 ? "," : ""}
-												</Link>
-											))}
-										</span>
-									}
-								/>
-							)}
-							{(log.customer_ids?.length || log.customer_id) && (
-								<LogEntryDetailsView
-									className="w-full"
-									label={(log.customer_ids?.length ?? 0) > 1 ? "Customers" : "Customer"}
-									value={
-										<span className="inline-flex flex-wrap gap-x-1">
-											{(log.customer_ids?.length
-												? log.customer_ids.map((id, i) => ({ id, name: log.customer_names?.[i] || id }))
-												: [{ id: log.customer_id!, name: log.customer_name || log.customer_id! }]
-											).map((c, i, arr) => (
-												<Link
-													key={c.id}
-													to="/workspace/logs"
-													search={{ customer_ids: [c.id] }}
-													className="text-blue-600 hover:underline dark:text-blue-400"
-													data-testid={`logdetails-customer-link-${c.id}`}
-												>
-													{c.name}
-													{i < arr.length - 1 ? "," : ""}
-												</Link>
-											))}
-										</span>
-									}
-								/>
-							)}
-							{(log.business_unit_ids?.length || log.business_unit_id) && (
-								<LogEntryDetailsView
-									className="w-full"
-									label={(log.business_unit_ids?.length ?? 0) > 1 ? "Business Units" : "Business Unit"}
-									value={
-										<span className="inline-flex flex-wrap gap-x-1">
-											{(log.business_unit_ids?.length
-												? log.business_unit_ids.map((id, i) => ({ id, name: log.business_unit_names?.[i] || id }))
-												: [{ id: log.business_unit_id!, name: log.business_unit_name || log.business_unit_id! }]
-											).map((b, i, arr) => (
-												<Link
-													key={b.id}
-													to="/workspace/logs"
-													search={{ business_unit_ids: [b.id] }}
-													className="text-blue-600 hover:underline dark:text-blue-400"
-													data-testid={`logdetails-business-unit-link-${b.id}`}
-												>
-													{b.name}
-													{i < arr.length - 1 ? "," : ""}
-												</Link>
-											))}
-										</span>
-									}
-								/>
 							)}
 							{log.user_id && (
 								<LogEntryDetailsView
@@ -1111,23 +946,6 @@ export function LogDetailView({
 									}
 								/>
 							)}
-							{log.routing_rule && (
-								<LogEntryDetailsView
-									className="w-full"
-									label="Routing Rule"
-									value={
-										<Link
-											to="/workspace/logs"
-											search={{ routing_rule_ids: [log.routing_rule.id] }}
-											className="text-blue-600 hover:underline dark:text-blue-400"
-											data-testid="logdetails-routing-rule-link"
-										>
-											{log.routing_rule.name}
-										</Link>
-									}
-								/>
-							)}
-
 							{(log.params as any)?.audio && (
 								<>
 									{(log.params as any).audio.format && (
@@ -1135,65 +953,6 @@ export function LogDetailView({
 									)}
 									{(log.params as any).audio.voice && (
 										<LogEntryDetailsView className="w-full" label="Audio Voice" value={(log.params as any).audio.voice} />
-									)}
-								</>
-							)}
-
-							{isRealtimeTurn && (
-								<>
-									{log.metadata?.realtime_session_id && (
-										<LogEntryDetailsView
-											className="w-full"
-											label="Realtime Session"
-											value={
-												<span className="flex items-center gap-1">
-													<code className="font-mono text-xs">{log.metadata.realtime_session_id}</code>
-													<CopyInlineButton
-														text={String(log.metadata.realtime_session_id)}
-														testId="logdetails-copy-realtime-session-id-button"
-													/>
-												</span>
-											}
-										/>
-									)}
-									{log.metadata?.provider_session_id && (
-										<LogEntryDetailsView
-											className="w-full"
-											label="Provider Session"
-											value={
-												<span className="flex items-center gap-1">
-													<code className="font-mono text-xs">{log.metadata.provider_session_id}</code>
-													<CopyInlineButton
-														text={String(log.metadata.provider_session_id)}
-														testId="logdetails-copy-provider-session-id-button"
-													/>
-												</span>
-											}
-										/>
-									)}
-									{log.metadata?.realtime_transport && (
-										<LogEntryDetailsView
-											className="w-full"
-											label="Transport"
-											value={formatRealtimeTransport(log.metadata.realtime_transport)}
-										/>
-									)}
-									{log.metadata?.realtime_voice && (
-										<LogEntryDetailsView className="w-full" label="Voice" value={String(log.metadata.realtime_voice)} />
-									)}
-									{log.metadata?.realtime_source && (
-										<LogEntryDetailsView
-											className="w-full"
-											label="Turn Source"
-											value={formatRealtimeSource(log.metadata.realtime_source)}
-										/>
-									)}
-									{log.metadata?.realtime_event_type && (
-										<LogEntryDetailsView
-											className="w-full"
-											label="Trigger Event"
-											value={<code className="font-mono text-xs">{log.metadata.realtime_event_type}</code>}
-										/>
 									)}
 								</>
 							)}
@@ -1238,42 +997,7 @@ export function LogDetailView({
 										label="Cost"
 										value={log.cost != null ? `$${parseFloat(log.cost.toFixed(6))}` : "-"}
 									/>
-									{isRealtimeTurn && (
-										<>
-											<LogEntryDetailsView
-												className="w-full"
-												label="Input Text Tokens"
-												value={(log.token_usage?.prompt_tokens ?? 0) - (log.token_usage?.prompt_tokens_details?.audio_tokens ?? 0)}
-											/>
-											<LogEntryDetailsView
-												className="w-full"
-												label="Input Audio Tokens"
-												value={log.token_usage?.prompt_tokens_details?.audio_tokens ?? 0}
-											/>
-											<LogEntryDetailsView
-												className="w-full"
-												label="Output Text Tokens"
-												value={
-													(log.token_usage?.completion_tokens ?? 0) -
-													(log.token_usage?.completion_tokens_details?.audio_tokens ?? 0) -
-													(log.token_usage?.completion_tokens_details?.reasoning_tokens ?? 0)
-												}
-											/>
-											<LogEntryDetailsView
-												className="w-full"
-												label="Output Audio Tokens"
-												value={log.token_usage?.completion_tokens_details?.audio_tokens ?? 0}
-											/>
-											{(log.token_usage?.completion_tokens_details?.reasoning_tokens ?? 0) > 0 && (
-												<LogEntryDetailsView
-													className="w-full"
-													label="Reasoning Tokens"
-													value={log.token_usage?.completion_tokens_details?.reasoning_tokens ?? 0}
-												/>
-											)}
-										</>
-									)}
-									{!isRealtimeTurn && log.token_usage?.prompt_tokens_details && (
+									{log.token_usage?.prompt_tokens_details && (
 										<>
 											{log.token_usage.prompt_tokens_details.cached_read_tokens && (
 												<LogEntryDetailsView
@@ -1298,7 +1022,7 @@ export function LogDetailView({
 											)}
 										</>
 									)}
-									{!isRealtimeTurn && log.token_usage?.completion_tokens_details && (
+									{log.token_usage?.completion_tokens_details && (
 										<>
 											{log.token_usage.completion_tokens_details.reasoning_tokens && (
 												<LogEntryDetailsView
@@ -1468,19 +1192,6 @@ export function LogDetailView({
 						log.metadata &&
 						Object.keys(log.metadata).filter((k) => {
 							if (k === "isAsyncRequest") return false;
-							if (
-								isRealtimeTurn &&
-								[
-									"realtime_session_id",
-									"provider_session_id",
-									"realtime_source",
-									"realtime_event_type",
-									"realtime_transport",
-									"realtime_voice",
-									"realtime",
-								].includes(k)
-							)
-								return false;
 							return true;
 						}).length > 0 && (
 							<>
@@ -1491,19 +1202,6 @@ export function LogDetailView({
 										{Object.entries(log.metadata)
 											.filter(([key]) => {
 												if (key === "isAsyncRequest") return false;
-												if (
-													isRealtimeTurn &&
-													[
-														"realtime_session_id",
-														"provider_session_id",
-														"realtime_source",
-														"realtime_event_type",
-														"realtime_transport",
-														"realtime_voice",
-														"realtime",
-													].includes(key)
-												)
-													return false;
 												return true;
 											})
 											.map(([key, value]) => (
@@ -1635,11 +1333,10 @@ export function LogDetailView({
 							isStreaming={log.stream}
 						/>
 					)}
-					{(log.image_generation_input || log.image_edit_input || log.image_variation_input || log.image_generation_output) && (
+					{(log.image_generation_input || log.image_edit_input || log.image_generation_output) && (
 						<ImageView
 							imageInput={log.image_generation_input}
 							imageEditInput={log.image_edit_input}
-							imageVariationInput={log.image_variation_input}
 							imageOutput={log.image_generation_output}
 							requestType={log.object}
 						/>
@@ -2349,7 +2046,6 @@ const copyRequestBody = async (log: LogEntry, copy: (text: string) => Promise<vo
 	try {
 		const isChat = log.object === "chat.completion" || log.object === "chat_completion" || log.object === "chat.completion.chunk";
 		const isResponses = log.object === "response" || log.object === "response.completion.chunk" || log.object === "compaction";
-		const isRealtimeTurn = log.object === "realtime.turn";
 		const isSpeech = log.object === "audio.speech" || log.object === "audio.speech.chunk";
 		const isTextCompletion = log.object === "text.completion" || log.object === "text.completion.chunk";
 		const isEmbedding = log.object === "list";
@@ -2383,7 +2079,7 @@ const copyRequestBody = async (log: LogEntry, copy: (text: string) => Promise<vo
 			return [];
 		};
 
-		const isSupportedType = isChat || isResponses || isRealtimeTurn || isSpeech || isTextCompletion || isEmbedding;
+		const isSupportedType = isChat || isResponses || isSpeech || isTextCompletion || isEmbedding;
 		if (!isSupportedType) {
 			if (log.object === "audio.transcription" || log.object === "audio.transcription.chunk") {
 				toast.error("Copy request body is not available for transcription requests");
@@ -2397,14 +2093,7 @@ const copyRequestBody = async (log: LogEntry, copy: (text: string) => Promise<vo
 			model: log.provider && log.model ? `${log.provider}/${log.model}` : log.model || "",
 		};
 
-		if (isRealtimeTurn) {
-			if (log.input_history && log.input_history.length > 0) {
-				requestBody.messages = log.input_history;
-			}
-			if (log.output_message) {
-				requestBody.output = log.output_message;
-			}
-		} else if (isChat && log.input_history && log.input_history.length > 0) {
+		if (isChat && log.input_history && log.input_history.length > 0) {
 			requestBody.messages = log.input_history;
 		} else if (isResponses && log.responses_input_history && log.responses_input_history.length > 0) {
 			requestBody.input = log.responses_input_history;
@@ -2434,10 +2123,10 @@ const copyRequestBody = async (log: LogEntry, copy: (text: string) => Promise<vo
 			Object.assign(requestBody, paramsCopy);
 		}
 
-		if ((isChat || isResponses || isRealtimeTurn) && log.params?.tools && Array.isArray(log.params.tools) && log.params.tools.length > 0) {
+		if ((isChat || isResponses) && log.params?.tools && Array.isArray(log.params.tools) && log.params.tools.length > 0) {
 			requestBody.tools = log.params.tools;
 		}
-		if ((isResponses || isRealtimeTurn) && log.params?.instructions) {
+		if (isResponses && log.params?.instructions) {
 			requestBody.instructions = log.params.instructions;
 		}
 

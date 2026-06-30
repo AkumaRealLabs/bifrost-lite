@@ -31,7 +31,6 @@ export interface UserAccessProfile {
 	provider_configs?: unknown[];
 	budgets?: AccessProfileBudgetLine[];
 	rate_limit?: AccessProfileRateLimitLine;
-	mcp_configs?: unknown;
 	created_at: string;
 	updated_at: string;
 }

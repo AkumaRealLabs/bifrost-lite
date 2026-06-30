@@ -18,7 +18,7 @@ function LogActionsMenu({ log, onDelete }: { log: LogEntry; onDelete: (log: LogE
 	return (
 		<DropdownMenu open={isOpen} onOpenChange={setIsOpen}>
 			<DropdownMenuTrigger asChild onClick={(event) => event.stopPropagation()}>
-				<Button variant="ghost" size="icon" data-testid="log-actions-btn" aria-label="Log actions" className="h-7 w-7">
+				<Button variant="ghost" size="icon" data-testid="log-actions-btn" aria-label="日志操作" className="h-7 w-7">
 					<MoreHorizontal className="h-4 w-4" />
 				</Button>
 			</DropdownMenuTrigger>
@@ -34,26 +34,11 @@ function LogActionsMenu({ log, onDelete }: { log: LogEntry; onDelete: (log: LogE
 					}}
 				>
 					<Trash2 className="h-4 w-4" />
-					Delete
+					删除
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
-}
-
-function getAssistantToolCallSummary(log?: LogEntry): string {
-	const toolCalls = log?.output_message?.tool_calls || [];
-	return toolCalls
-		.map((toolCall) => {
-			const name = toolCall?.function?.name;
-			if (!name) {
-				return "";
-			}
-			const argumentsText = toolCall?.function?.arguments?.trim();
-			return argumentsText ? `${name}(${argumentsText})` : name;
-		})
-		.filter(Boolean)
-		.join("\n");
 }
 
 function getMessageFromContent(content?: ChatMessageContent): string {
@@ -72,46 +57,9 @@ function getMessageFromContent(content?: ChatMessageContent): string {
 	return lastTextContentBlock;
 }
 
-export function getRealtimeTurnMessages(log?: LogEntry): {
-	tool?: string;
-	user?: string;
-	assistant?: string;
-	assistantToolCall?: string;
-} {
-	const toolMessages = log?.input_history?.filter((message) => message.role === "tool") || [];
-	const userMessages = log?.input_history?.filter((message) => message.role === "user") || [];
-	return {
-		tool:
-			toolMessages
-				.map((m) => getMessageFromContent(m.content))
-				.filter(Boolean)
-				.join("\n") || "",
-		user:
-			userMessages
-				.map((m) => getMessageFromContent(m.content))
-				.filter(Boolean)
-				.join("\n") || "",
-		assistant: log?.output_message ? getMessageFromContent(log.output_message.content) : "",
-		assistantToolCall: getAssistantToolCallSummary(log),
-	};
-}
-
 export function getMessage(log?: LogEntry) {
 	if (log?.object === "list_models") {
 		return "N/A";
-	}
-	if (log?.object === "realtime.turn") {
-		const messages = getRealtimeTurnMessages(log);
-		const parts = [
-			messages.tool ? `Tool Result: ${messages.tool}` : "",
-			messages.user ? `User: ${messages.user}` : "",
-			messages.assistantToolCall ? `Assistant Tool Call: ${messages.assistantToolCall}` : "",
-			messages.assistant ? `Assistant: ${messages.assistant}` : "",
-		].filter(Boolean);
-		if (parts.length > 0) {
-			return parts.join("\n");
-		}
-		return "";
 	}
 	if (log?.input_history && log.input_history.length > 0) {
 		const lastInput = log.input_history[log.input_history.length - 1];
@@ -148,13 +96,13 @@ export function getMessage(log?: LogEntry) {
 	} else if (log?.speech_input) {
 		return log.speech_input.input;
 	} else if (log?.transcription_input) {
-		return "Audio file";
+		return "音频文件";
 	} else if (log?.image_generation_input?.prompt) {
 		return log.image_generation_input.prompt;
 	}
 	const obj = log?.object as string | undefined;
-	if (obj === "image_edit" || obj === "image_edit_stream" || obj === "image_variation") {
-		return "Image file";
+	if (obj === "image_edit" || obj === "image_edit_stream") {
+		return "图片文件";
 	}
 	if (log?.content_summary) {
 		return log.content_summary;
@@ -165,36 +113,23 @@ export function getMessage(log?: LogEntry) {
 export function LogMessageCell({ log, contentClassName = "max-w-full" }: { log: LogEntry; contentClassName?: string }) {
 	const input = getMessage(log);
 	const isLargePayload = log.is_large_payload_request || log.is_large_payload_response;
-	const realtimeMessages = log.object === "realtime.turn" ? getRealtimeTurnMessages(log) : null;
 
 	return (
 		<div className="flex items-center gap-1.5">
 			{isLargePayload && (
 				<span
 					className="shrink-0 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/50 dark:text-amber-400"
-					title="Large payload - streamed directly to provider"
+					title="大载荷请求，直接流式转发到 Provider"
 				>
 					LP
 				</span>
 			)}
-			{realtimeMessages &&
-			(realtimeMessages.tool || realtimeMessages.user || realtimeMessages.assistantToolCall || realtimeMessages.assistant) ? (
-				<div className={cn(contentClassName, "font-mono text-sm font-normal leading-5")}>
-					{realtimeMessages.tool ? <div className="truncate">Tool Result: {realtimeMessages.tool}</div> : null}
-					{realtimeMessages.user ? <div className="truncate">User: {realtimeMessages.user}</div> : null}
-					{realtimeMessages.assistantToolCall ? (
-						<div className="truncate">Assistant Tool Call: {realtimeMessages.assistantToolCall}</div>
-					) : null}
-					{realtimeMessages.assistant ? <div className="truncate">Assistant: {realtimeMessages.assistant}</div> : null}
-				</div>
-			) : (
-				<div className={cn(contentClassName, "truncate font-mono text-[12px] font-normal")}>
-					{input ||
-						(isLargePayload
-							? `Large payload ${log.is_large_payload_request && log.is_large_payload_response ? "request & response" : log.is_large_payload_request ? "request" : "response"}`
-							: "-")}
-				</div>
-			)}
+			<div className={cn(contentClassName, "truncate font-mono text-[12px] font-normal")}>
+				{input ||
+					(isLargePayload
+						? `Large payload ${log.is_large_payload_request && log.is_large_payload_response ? "request & response" : log.is_large_payload_request ? "request" : "response"}`
+						: "-")}
+			</div>
 		</div>
 	);
 }
@@ -219,7 +154,7 @@ export const createColumns = (
 			accessorKey: "timestamp",
 			header: ({ column }) => (
 				<Button variant="ghost" data-testid="logs-time-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-					Time
+					时间
 					<ArrowUpDown className="ml-2 h-4 w-4" />
 				</Button>
 			),
@@ -241,7 +176,7 @@ export const createColumns = (
 		},
 		{
 			id: "request_type",
-			header: "Type",
+			header: "类型",
 			size: 150,
 			cell: ({ row }) => {
 				return (
@@ -259,13 +194,13 @@ export const createColumns = (
 		},
 		{
 			accessorKey: "input",
-			header: "Message",
+			header: "消息",
 			size: 350,
 			cell: ({ row }) => <LogMessageCell log={row.original} />,
 		},
 		{
 			accessorKey: "model",
-			header: "Model",
+			header: "模型",
 			size: 190,
 			cell: ({ row }) => {
 				const provider = row.original.provider as ProviderName | undefined;
@@ -285,7 +220,7 @@ export const createColumns = (
 			accessorKey: "latency",
 			header: ({ column }) => (
 				<Button variant="ghost" data-testid="logs-latency-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-					Latency
+					延迟
 					<ArrowUpDown className="ml-2 h-4 w-4" />
 				</Button>
 			),
@@ -353,7 +288,7 @@ export const createColumns = (
 			accessorKey: "cost",
 			header: ({ column }) => (
 				<Button variant="ghost" data-testid="logs-cost-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
-					Cost
+					成本
 					<ArrowUpDown className="ml-2 h-4 w-4" />
 				</Button>
 			),
@@ -372,39 +307,15 @@ export const createColumns = (
 	const attributionColumns: ColumnDef<LogEntry>[] = [
 		{
 			id: "virtual_key",
-			header: "Virtual Key",
+			header: "虚拟 Key",
 			size: 170,
 			cell: ({ row }) => attributionCell(row.original.virtual_key?.name ?? row.original.virtual_key_id),
 		},
 		{
-			id: "routing_rule",
-			header: "Routing Rule",
-			size: 170,
-			cell: ({ row }) => attributionCell(row.original.routing_rule?.name ?? row.original.routing_rule_id),
-		},
-		{
-			id: "team",
-			header: "Team",
-			size: 150,
-			cell: ({ row }) => attributionCell(row.original.team_name ?? row.original.team_id),
-		},
-		{
-			id: "customer",
-			header: "Customer",
-			size: 150,
-			cell: ({ row }) => attributionCell(row.original.customer_name ?? row.original.customer_id),
-		},
-		{
 			id: "user",
-			header: "User",
+			header: "用户",
 			size: 150,
 			cell: ({ row }) => attributionCell(row.original.user_name ?? row.original.user_id),
-		},
-		{
-			id: "business_unit",
-			header: "Business Unit",
-			size: 150,
-			cell: ({ row }) => attributionCell(row.original.business_unit_name ?? row.original.business_unit_id),
 		},
 	];
 

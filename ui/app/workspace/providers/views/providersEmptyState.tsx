@@ -15,20 +15,20 @@ export function ProvidersEmptyState({ addProviderDropdown }: ProvidersEmptyState
 				<Server className="h-[5.5rem] w-[5.5rem]" strokeWidth={1} />
 			</div>
 			<div className="flex flex-col gap-1">
-				<h1 className="text-muted-foreground text-xl font-medium">Add a provider to start routing requests</h1>
+				<h1 className="text-muted-foreground text-xl font-medium">添加 Provider 后即可开始路由请求</h1>
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
-					Configure API keys for OpenAI, Anthropic, Bedrock, and other supported providers. Bifrost unifies them behind a single API.
+					配置 OpenAI、Anthropic、Bedrock 等 Provider 的 API Key，Bifrost Lite 会统一到一个 OpenAI-compatible 入口。
 				</div>
 				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
 					<Button
 						variant="outline"
-						aria-label="Read more about providers (opens in new tab)"
+						aria-label="阅读 Provider 文档（新标签页打开）"
 						data-testid="providers-button-read-more"
 						onClick={() => {
 							window.open(`${PROVIDERS_DOCS_URL}?utm_source=bfd`, "_blank", "noopener,noreferrer");
 						}}
 					>
-						Read more <ArrowUpRight className="text-muted-foreground h-3 w-3" />
+						查看文档 <ArrowUpRight className="text-muted-foreground h-3 w-3" />
 					</Button>
 					{addProviderDropdown}
 				</div>

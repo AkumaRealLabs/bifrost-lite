@@ -3,7 +3,7 @@ import { Outlet, createRootRoute, redirect } from "@tanstack/react-router";
 /**
  * Root route. Intentionally minimal — does NOT wrap children in providers,
  * because the existing nested layouts (app/workspace/layout.tsx →
- * ClientLayout, app/login/layout.tsx, app/pprof/layout.tsx) each set up
+ * ClientLayout, app/login/layout.tsx) each set up
  * their own ThemeProvider / ReduxProvider / NuqsAdapter / etc.
  *
  * If/when we consolidate provider setup, the providers can move here.

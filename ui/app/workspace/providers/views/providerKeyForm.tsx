@@ -69,13 +69,13 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 
 	const getTooltipContent = useCallback(() => {
 		if (!hasUpdateProviderAccess) {
-			return "You do not have permission to modify provider keys";
+			return "你没有修改 Provider Key 的权限";
 		}
 		if (!form.formState.isValid && form.formState.errors.root?.message) {
 			return form.formState.errors.root?.message;
 		}
 		if (!form.formState.isDirty) {
-			return "No changes made";
+			return "没有变更";
 		}
 		return null;
 	}, [form?.formState.errors, form?.formState.isValid, form?.formState.isDirty, hasUpdateProviderAccess]);
@@ -117,7 +117,7 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 					form.setError("key.name", { message: getErrorMessage(err) });
 					return;
 				}
-				toast.error(isEditing ? "Error updating key" : "Error creating key", {
+				toast.error(isEditing ? "更新 Key 失败" : "创建 Key 失败", {
 					description: getErrorMessage(err),
 				});
 			});
@@ -133,7 +133,7 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 				<div className="bg-card sticky bottom-0 border-t px-8 py-4">
 					<div className="flex justify-end space-x-3">
 						<Button type="button" variant="outline" onClick={onCancel} data-testid="key-cancel-btn">
-							Cancel
+							取消
 						</Button>
 						<TooltipProvider>
 							<Tooltip>
@@ -146,7 +146,7 @@ export default function ProviderKeyForm({ provider, keyId, onCancel, onSave }: P
 											data-testid="key-save-btn"
 										>
 											<Save className="h-4 w-4 shrink-0" />
-											Save
+												保存
 										</Button>
 									</span>
 								</TooltipTrigger>

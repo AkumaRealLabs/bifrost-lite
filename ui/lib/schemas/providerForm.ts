@@ -4,31 +4,6 @@ import { isValidAliases, isValidVertexAuthCredentials } from "@/lib/utils/valida
 import { z } from "zod";
 
 // Base schemas for reusable types
-const ProxyTypeSchema = z.enum(["none", "http", "socks5", "environment"]);
-
-const ProxyConfigSchema = z
-	.object({
-		type: ProxyTypeSchema,
-		url: z.string().optional(),
-		username: z.string().optional(),
-		password: z.string().optional(),
-	})
-	.superRefine((v, ctx) => {
-		const needsUrl = v.type === "http" || v.type === "socks5";
-		if (needsUrl && !(v.url && v.url.trim())) {
-			ctx.addIssue({ code: "custom", path: ["url"], message: "Proxy URL is required for http/socks5" });
-		}
-		const user = v.username?.trim();
-		const pass = v.password?.trim();
-		if ((user && !pass) || (pass && !user)) {
-			ctx.addIssue({
-				code: "custom",
-				path: ["password"],
-				message: "Username and password must both be provided",
-			});
-		}
-	});
-
 const NetworkConfigSchema = z
 	.object({
 		base_url: z.string().optional(),
@@ -170,7 +145,6 @@ export const ProviderFormSchema = z
 		keys: z.array(KeySchema),
 		networkConfig: NetworkConfigSchema.optional(),
 		performanceConfig: ConcurrencyAndBufferSizeSchema.optional(),
-		proxyConfig: ProxyConfigSchema.optional(),
 		sendBackRawResponse: z.boolean().default(false),
 		allowedRequests: AllowedRequestsSchema.optional(),
 		isDirty: z.boolean(),

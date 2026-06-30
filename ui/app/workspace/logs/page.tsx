@@ -44,10 +44,7 @@ export default function LogsPage() {
 	const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
 	const [sessionHighlightedLogId, setSessionHighlightedLogId] = useState<string | null>(null);
 	// Stable handler so SessionDetailsSheet's loadSessionPage useCallback doesn't
-	// recreate on every parent re-render. Without this, every live WebSocket log
-	// tick would re-render LogsPage, hand the sheet a fresh inline arrow, recreate
-	// loadSessionPage, and trip the reset effect — wiping sessionLogs and
-	// refetching from offset 0 while the sheet is open.
+	// recreate on every parent re-render.
 	const handleSessionSheetOpenChange = useCallback((open: boolean) => {
 		if (!open) {
 			setSelectedSessionId(null);
@@ -80,12 +77,7 @@ export default function LogsPage() {
 			objects: parseAsArrayOf(parseAsString).withDefault([]),
 			selected_key_ids: parseAsArrayOf(parseAsString).withDefault([]),
 			virtual_key_ids: parseAsArrayOf(parseAsString).withDefault([]),
-			routing_rule_ids: parseAsArrayOf(parseAsString).withDefault([]),
-			routing_engine_used: parseAsArrayOf(parseAsString).withDefault([]),
 			user_ids: parseAsArrayOf(parseAsString).withDefault([]),
-			team_ids: parseAsArrayOf(parseAsString).withDefault([]),
-			customer_ids: parseAsArrayOf(parseAsString).withDefault([]),
-			business_unit_ids: parseAsArrayOf(parseAsString).withDefault([]),
 			content_search: parseAsSafeString.withDefault(""),
 			start_time: parseAsInteger.withDefault(defaultTimeRange.startTime),
 			end_time: parseAsInteger.withDefault(defaultTimeRange.endTime),
@@ -96,7 +88,6 @@ export default function LogsPage() {
 			polling: parseAsBoolean.withDefault(true).withOptions({ clearOnDefault: false }),
 			period: parseAsString.withDefault(hasExplicitTimeRange ? "" : "1h").withOptions({ clearOnDefault: false }),
 			missing_cost_only: parseAsBoolean.withDefault(false),
-			cache_hit_types: parseAsArrayOf(parseAsString).withDefault([]),
 			metadata_filters: parseAsString.withDefault(""),
 			selected_log: parseAsString.withDefault(""),
 		},
@@ -123,15 +114,9 @@ export default function LogsPage() {
 			objects: urlState.objects,
 			selected_key_ids: urlState.selected_key_ids,
 			virtual_key_ids: urlState.virtual_key_ids,
-			routing_rule_ids: urlState.routing_rule_ids,
-			routing_engine_used: urlState.routing_engine_used,
 			user_ids: urlState.user_ids,
-			team_ids: urlState.team_ids,
-			customer_ids: urlState.customer_ids,
-			business_unit_ids: urlState.business_unit_ids,
 			content_search: urlState.content_search,
 			missing_cost_only: urlState.missing_cost_only,
-			cache_hit_types: urlState.cache_hit_types,
 			metadata_filters: urlState.metadata_filters
 				? (() => {
 						try {
@@ -159,16 +144,10 @@ export default function LogsPage() {
 			urlState.objects,
 			urlState.selected_key_ids,
 			urlState.virtual_key_ids,
-			urlState.routing_rule_ids,
-			urlState.routing_engine_used,
 			urlState.user_ids,
-			urlState.team_ids,
-			urlState.customer_ids,
-			urlState.business_unit_ids,
 			urlState.content_search,
 			urlState.parent_request_id,
 			urlState.missing_cost_only,
-			urlState.cache_hit_types,
 			urlState.metadata_filters,
 			urlState.start_time,
 			urlState.end_time,
@@ -209,17 +188,11 @@ export default function LogsPage() {
 				objects: newFilters.objects || [],
 				selected_key_ids: newFilters.selected_key_ids || [],
 				virtual_key_ids: newFilters.virtual_key_ids || [],
-				routing_rule_ids: newFilters.routing_rule_ids || [],
-				routing_engine_used: newFilters.routing_engine_used || [],
 				user_ids: newFilters.user_ids || [],
-				team_ids: newFilters.team_ids || [],
-				customer_ids: newFilters.customer_ids || [],
-				business_unit_ids: newFilters.business_unit_ids || [],
 				content_search: newFilters.content_search || "",
 				start_time: newFilters.start_time ? dateUtils.toUnixTimestamp(new Date(newFilters.start_time)) : undefined,
 				end_time: newFilters.end_time ? dateUtils.toUnixTimestamp(new Date(newFilters.end_time)) : undefined,
 				missing_cost_only: newFilters.missing_cost_only ?? false,
-				cache_hit_types: newFilters.cache_hit_types || [],
 				metadata_filters: newFilters.metadata_filters ? JSON.stringify(newFilters.metadata_filters) : "",
 				offset: 0,
 			});
@@ -400,19 +373,19 @@ export default function LogsPage() {
 	const statCards = useMemo(
 		() => [
 			{
-				title: "Total Requests",
+				title: "总请求数",
 				value: <NumberFlow value={stats?.total_requests ?? 0} format={COMPACT_NUMBER_FORMAT} />,
 				icon: <BarChart className="size-4" />,
 			},
 			{
-				title: "Success Rate",
+				title: "成功率",
 				value: <NumberFlow value={stats?.success_rate ?? 0} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="%" />,
 				icon: <CheckCircle className="size-4" />,
 				description:
-					"Success rate as perceived by the system. Each fallback counts as a separate attempt. Retries on the same request are counted as one attempt.",
+					"系统视角的成功率。每一次 fallback 都计为一次独立尝试；同一请求内的重试按一次尝试统计。",
 			},
 			{
-				title: "User Success Rate",
+				title: "用户成功率",
 				value: (
 					<NumberFlow
 						value={stats?.user_facing_success_rate ?? 0}
@@ -421,22 +394,22 @@ export default function LogsPage() {
 					/>
 				),
 				icon: <CheckCircle className="size-4" />,
-				description: "Success rate as perceived by the end user. It includes fallback chains as one request.",
+				description: "终端用户视角的成功率。一次 fallback 链路按一个请求统计。",
 			},
 			{
-				title: "Avg Latency",
+				title: "平均延迟",
 				value: (
 					<NumberFlow value={stats?.average_latency ?? 0} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
 				),
 				icon: <Clock className="size-4" />,
 			},
 			{
-				title: "Total Tokens",
+				title: "总 Token",
 				value: <NumberFlow value={stats?.total_tokens ?? 0} format={COMPACT_NUMBER_FORMAT} />,
 				icon: <Hash className="size-4" />,
 			},
 			{
-				title: "Total Cost",
+				title: "总成本",
 				value: (
 					<NumberFlow
 						value={stats?.total_cost ?? 0}
@@ -472,25 +445,21 @@ export default function LogsPage() {
 
 	const COLUMN_LABELS: Record<string, string> = useMemo(
 		() => ({
-			timestamp: "Time",
-			request_type: "Type",
-			input: "Message",
+			timestamp: "时间",
+			request_type: "类型",
+			input: "消息",
 			provider: "Provider",
-			model: "Model",
-			latency: "Latency",
+			model: "模型",
+			latency: "延迟",
 			tokens: "Tokens",
-			cost: "Cost",
+			cost: "成本",
 			virtual_key: "Virtual Key",
-			routing_rule: "Routing Rule",
-			team: "Team",
-			customer: "Customer",
-			user: "User",
-			business_unit: "Business Unit",
+			user: "用户",
 		}),
 		[],
 	);
 
-	const DEFAULT_HIDDEN_COLUMNS = useMemo(() => ["virtual_key", "routing_rule", "team", "customer", "user", "business_unit"], []);
+	const DEFAULT_HIDDEN_COLUMNS = useMemo(() => ["virtual_key", "user"], []);
 
 	const {
 		entries: columnEntries,

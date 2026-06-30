@@ -2,14 +2,11 @@ import Provider from "@/components/provider";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ModelProvider } from "@/lib/types/config";
-import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { useEffect, useMemo, useState } from "react";
 import {
 	ApiStructureFormFragment,
 	BetaHeadersFormFragment,
-	GovernanceFormFragment,
 	OpenAIConfigFormFragment,
-	ProxyFormFragment,
 } from "../fragments";
 import { DebuggingFormFragment } from "../fragments/debuggingFormFragment";
 import { NetworkFormFragment } from "../fragments/networkFormFragment";
@@ -23,46 +20,36 @@ interface Props {
 
 const ANTHROPIC_FAMILY_PROVIDERS = ["anthropic", "vertex", "bedrock", "azure"];
 
-const availableTabs = (hasCustomProviderConfig: boolean, hasGovernanceAccess: boolean, isOpenAI: boolean, isAnthropicFamily: boolean) => {
+const availableTabs = (hasCustomProviderConfig: boolean, isOpenAI: boolean, isAnthropicFamily: boolean) => {
 	const tabs = [];
 	if (hasCustomProviderConfig) {
 		tabs.push({
 			id: "api-structure",
-			label: "API Structure",
+			label: "API 结构",
 		});
 	}
 	tabs.push({
 		id: "network",
-		label: "Network",
-	});
-	tabs.push({
-		id: "proxy",
-		label: "Proxy",
+		label: "网络",
 	});
 	tabs.push({
 		id: "performance",
-		label: "Performance",
+		label: "性能",
 	});
-	if (hasGovernanceAccess) {
-		tabs.push({
-			id: "governance",
-			label: "Governance",
-		});
-	}
 	if (isAnthropicFamily) {
 		tabs.push({
 			id: "beta-headers",
-			label: "Beta Headers",
+			label: "Beta Header",
 		});
 	}
 	tabs.push({
 		id: "debugging",
-		label: "Debugging",
+		label: "调试",
 	});
 	if (isOpenAI) {
 		tabs.push({
 			id: "openai-config",
-			label: "OpenAI Config",
+			label: "OpenAI 配置",
 		});
 	}
 	return tabs;
@@ -70,14 +57,13 @@ const availableTabs = (hasCustomProviderConfig: boolean, hasGovernanceAccess: bo
 
 export default function ProviderConfigSheet({ show, onCancel, provider }: Props) {
 	const [selectedTab, setSelectedTab] = useState<string | undefined>(undefined);
-	const hasGovernanceAccess = useRbac(RbacResource.Governance, RbacOperation.View);
 	const hasCustomProviderConfig = !!provider.custom_provider_config;
 	const isOpenAI = provider.name === "openai";
 	const isAnthropicFamily = ANTHROPIC_FAMILY_PROVIDERS.includes(provider.name.toLowerCase());
 
 	const tabs = useMemo(() => {
-		return availableTabs(hasCustomProviderConfig, hasGovernanceAccess, isOpenAI, isAnthropicFamily);
-	}, [hasCustomProviderConfig, hasGovernanceAccess, isOpenAI, isAnthropicFamily]);
+		return availableTabs(hasCustomProviderConfig, isOpenAI, isAnthropicFamily);
+	}, [hasCustomProviderConfig, isOpenAI, isAnthropicFamily]);
 
 	useEffect(() => {
 		setSelectedTab((previousTab) => {
@@ -103,7 +89,7 @@ export default function ProviderConfigSheet({ show, onCancel, provider }: Props)
 							<div className="flex items-center">
 								<Provider provider={provider.name} size={24} className="mt-0" />
 							</div>
-							Provider configuration
+							Provider 配置
 						</div>
 					</SheetTitle>
 				</SheetHeader>
@@ -133,14 +119,8 @@ export default function ProviderConfigSheet({ show, onCancel, provider }: Props)
 							<TabsContent value="network">
 								<NetworkFormFragment provider={provider} />
 							</TabsContent>
-							<TabsContent value="proxy">
-								<ProxyFormFragment provider={provider} />
-							</TabsContent>
 							<TabsContent value="performance">
 								<PerformanceFormFragment provider={provider} />
-							</TabsContent>
-							<TabsContent value="governance">
-								<GovernanceFormFragment provider={provider} />
 							</TabsContent>
 							<TabsContent value="beta-headers">
 								<BetaHeadersFormFragment provider={provider} />

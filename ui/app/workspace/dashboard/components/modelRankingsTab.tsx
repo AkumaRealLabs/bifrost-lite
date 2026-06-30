@@ -157,11 +157,11 @@ function TopModelsChart({
 
 	return (
 		<ChartCard
-			title="Top Models"
+			title="热门模型"
 			loading={loadingModels}
 			testId="dashboard-rankings-top-models"
 			className="z-[1] h-full"
-			totalLabel="Total"
+			totalLabel="总计"
 			total={grandTotal !== null ? <NumberFlow value={grandTotal} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 			totalTooltip={grandTotal !== null ? grandTotal.toLocaleString("en-US") : undefined}
 		>
@@ -207,7 +207,7 @@ function TopModelsChart({
 						</ResponsiveContainer>
 					</ChartErrorBoundary>
 				) : (
-					<div className="text-muted-foreground flex h-full items-center justify-center text-sm">No data available</div>
+					<div className="text-muted-foreground flex h-full items-center justify-center text-sm">暂无数据</div>
 				)}
 			</div>
 			<div className="py-2">
@@ -279,20 +279,20 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 			) : !rankingsData?.rankings?.length ? (
 				<Card className="rounded-sm p-4 shadow-none">
 					<div className="text-muted-foreground flex h-[200px] items-center justify-center text-sm">
-						No model usage data available for this time period.
+						当前时间范围内没有模型用量数据。
 					</div>
 				</Card>
 			) : (
 				<Card className="rounded-sm p-2 shadow-none" data-testid="dashboard-model-rankings-table">
-					<span className="text-primary pl-2 text-sm font-medium">Model Rankings</span>
+					<span className="text-primary pl-2 text-sm font-medium">模型排行</span>
 					<Table>
 						<TableHeader>
 							<TableRow>
 								<TableHead className="w-12">#</TableHead>
-								<TableHead>Model</TableHead>
+								<TableHead>模型</TableHead>
 								<TableHead className="text-right">
 									<SortableHeader
-										label="Requests"
+										label="请求"
 										field="total_requests"
 										currentSort={sortField}
 										currentOrder={sortOrder}
@@ -301,7 +301,7 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 								</TableHead>
 								<TableHead className="text-right">
 									<SortableHeader
-										label="Success Rate"
+										label="成功率"
 										field="success_rate"
 										currentSort={sortField}
 										currentOrder={sortOrder}
@@ -318,11 +318,11 @@ function ModelRankingsTabImpl({ rankingsData, loading, modelData, loadingModels,
 									/>
 								</TableHead>
 								<TableHead className="text-right">
-									<SortableHeader label="Cost" field="total_cost" currentSort={sortField} currentOrder={sortOrder} onSort={handleSort} />
+									<SortableHeader label="成本" field="total_cost" currentSort={sortField} currentOrder={sortOrder} onSort={handleSort} />
 								</TableHead>
 								<TableHead className="text-right">
 									<SortableHeader
-										label="Avg Latency"
+										label="平均延迟"
 										field="avg_latency"
 										currentSort={sortField}
 										currentOrder={sortOrder}
