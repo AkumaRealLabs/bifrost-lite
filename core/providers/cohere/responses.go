@@ -14,20 +14,20 @@ import (
 
 // CohereResponsesStreamState tracks state during streaming conversion for responses API
 type CohereResponsesStreamState struct {
-	ContentIndexToOutputIndex     map[int]int    // Maps Cohere content_index to OpenAI output_index
-	ToolArgumentBuffers           map[int]string // Maps output_index to accumulated tool argument JSON
-	ToolCallNames                 map[int]string // Maps output_index to tool name
-	ItemIDs                       map[int]string // Maps output_index to item ID for stable IDs
-	ReasoningContentIndices       map[int]bool   // Tracks which content indices are reasoning blocks
-	AnnotationIndexToContentIndex map[int]int    // Maps annotation index to content index for citation pairing
+	ContentIndexToOutputIndex     map[int]int              // Maps Cohere content_index to OpenAI output_index
+	ToolArgumentBuffers           map[int]string           // Maps output_index to accumulated tool argument JSON
+	ToolCallNames                 map[int]string           // Maps output_index to tool name
+	ItemIDs                       map[int]string           // Maps output_index to item ID for stable IDs
+	ReasoningContentIndices       map[int]bool             // Tracks which content indices are reasoning blocks
+	AnnotationIndexToContentIndex map[int]int              // Maps annotation index to content index for citation pairing
 	TextBuffers                   map[int]*strings.Builder // Maps output_index to accumulated text content for done events
-	CurrentOutputIndex            int            // Current output index counter
-	MessageID                     *string        // Message ID from message_start
-	Model                         *string        // Model name from message_start
-	CreatedAt                     int            // Timestamp for created_at consistency
-	HasEmittedCreated             bool           // Whether we've emitted response.created
-	HasEmittedInProgress          bool           // Whether we've emitted response.in_progress
-	ToolPlanOutputIndex           *int           // Output index for tool plan text item (if created)
+	CurrentOutputIndex            int                      // Current output index counter
+	MessageID                     *string                  // Message ID from message_start
+	Model                         *string                  // Model name from message_start
+	CreatedAt                     int                      // Timestamp for created_at consistency
+	HasEmittedCreated             bool                     // Whether we've emitted response.created
+	HasEmittedInProgress          bool                     // Whether we've emitted response.in_progress
+	ToolPlanOutputIndex           *int                     // Output index for tool plan text item (if created)
 }
 
 // cohereResponsesStreamStatePool provides a pool for Cohere responses stream state objects.

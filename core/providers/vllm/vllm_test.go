@@ -66,8 +66,6 @@ func TestVLLM(t *testing.T) {
 			ImageGenerationStream:      false,
 			ImageEdit:                  false,
 			ImageEditStream:            false,
-			ImageVariation:             false,
-			ImageVariationStream:       false,
 		},
 	}
 

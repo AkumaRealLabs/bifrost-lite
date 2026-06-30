@@ -85,22 +85,6 @@ func (request *OpenAIImageEditRequest) ToBifrostImageEditRequest(ctx *schemas.Bi
 	}
 }
 
-func (request *OpenAIImageVariationRequest) ToBifrostImageVariationRequest(ctx *schemas.BifrostContext) *schemas.BifrostImageVariationRequest {
-	if request == nil {
-		return nil
-	}
-
-	provider, model := schemas.ParseModelString(request.Model, "")
-
-	return &schemas.BifrostImageVariationRequest{
-		Provider:  provider,
-		Model:     model,
-		Input:     request.Input,
-		Params:    &request.ImageVariationParameters,
-		Fallbacks: schemas.ParseFallbacks(request.Fallbacks),
-	}
-}
-
 func ToOpenAIImageEditRequest(bifrostReq *schemas.BifrostImageEditRequest) *OpenAIImageEditRequest {
 	if bifrostReq == nil || bifrostReq.Input == nil || bifrostReq.Input.Images == nil || bifrostReq.Input.Prompt == "" {
 		return nil
@@ -265,91 +249,6 @@ func parseImageEditFormDataBodyFromRequest(writer *multipart.Writer, openaiReq *
 		if _, err := maskPart.Write(openaiReq.Mask); err != nil {
 			return providerUtils.NewBifrostOperationError("failed to write mask data", err)
 		}
-	}
-
-	// Close the multipart writer
-	if err := writer.Close(); err != nil {
-		return providerUtils.NewBifrostOperationError("failed to close multipart writer", err)
-	}
-
-	return nil
-}
-
-func ToOpenAIImageVariationRequest(bifrostReq *schemas.BifrostImageVariationRequest) *OpenAIImageVariationRequest {
-	if bifrostReq == nil || bifrostReq.Input == nil || bifrostReq.Input.Image.Image == nil || len(bifrostReq.Input.Image.Image) == 0 {
-		return nil
-	}
-
-	req := &OpenAIImageVariationRequest{
-		Model: bifrostReq.Model,
-		Input: bifrostReq.Input,
-	}
-
-	if bifrostReq.Params != nil {
-		req.ImageVariationParameters = *bifrostReq.Params
-	}
-
-	if bifrostReq.Params != nil {
-		req.ExtraParams = bifrostReq.Params.ExtraParams
-	}
-
-	return req
-}
-
-func parseImageVariationFormDataBodyFromRequest(writer *multipart.Writer, openaiReq *OpenAIImageVariationRequest, providerName schemas.ModelProvider) *schemas.BifrostError {
-	// Add model field (required)
-	if err := writer.WriteField("model", openaiReq.Model); err != nil {
-		return providerUtils.NewBifrostOperationError("failed to write model field", err)
-	}
-
-	// Add image file (required)
-	if openaiReq.Input == nil || openaiReq.Input.Image.Image == nil || len(openaiReq.Input.Image.Image) == 0 {
-		return providerUtils.NewBifrostOperationError("image is required", nil)
-	}
-
-	// Add optional parameters before the image part so metadata arrives first upstream.
-	if openaiReq.N != nil {
-		if err := writer.WriteField("n", strconv.Itoa(*openaiReq.N)); err != nil {
-			return providerUtils.NewBifrostOperationError("failed to write n field", err)
-		}
-	}
-
-	if openaiReq.ResponseFormat != nil {
-		if err := writer.WriteField("response_format", *openaiReq.ResponseFormat); err != nil {
-			return providerUtils.NewBifrostOperationError("failed to write response_format field", err)
-		}
-	}
-
-	if openaiReq.Size != nil {
-		if err := writer.WriteField("size", *openaiReq.Size); err != nil {
-			return providerUtils.NewBifrostOperationError("failed to write size field", err)
-		}
-	}
-
-	if openaiReq.User != nil {
-		if err := writer.WriteField("user", *openaiReq.User); err != nil {
-			return providerUtils.NewBifrostOperationError("failed to write user field", err)
-		}
-	}
-
-	// Detect MIME type
-	mimeType := http.DetectContentType(openaiReq.Input.Image.Image)
-	// If still not detected, default to PNG
-	if mimeType == "application/octet-stream" || mimeType == "" {
-		mimeType = "image/png"
-	}
-
-	filename := "image"
-	part, err := writer.CreatePart(map[string][]string{
-		"Content-Disposition": {fmt.Sprintf(`form-data; name="image"; filename="%s"`, filename)},
-		"Content-Type":        {mimeType},
-	})
-	if err != nil {
-		return providerUtils.NewBifrostOperationError("failed to create image part", err)
-	}
-
-	if _, err := part.Write(openaiReq.Input.Image.Image); err != nil {
-		return providerUtils.NewBifrostOperationError("failed to write image data", err)
 	}
 
 	// Close the multipart writer

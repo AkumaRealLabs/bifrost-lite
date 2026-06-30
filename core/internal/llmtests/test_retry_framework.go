@@ -1462,9 +1462,9 @@ func GetTestRetryConfigForScenario(scenarioName string, testConfig Comprehensive
 		return DefaultListModelsRetryConfig()
 	case "ImageGeneration", "ImageGenerationStream":
 		return DefaultImageGenerationRetryConfig()
-	case "ImageEdit", "ImageVariation":
+	case "ImageEdit":
 		return DefaultImageGenerationRetryConfig()
-	case "ImageEditStream", "ImageVariationStream":
+	case "ImageEditStream":
 		return DefaultImageGenerationRetryConfig() // Reuse streaming config
 	default:
 		// For basic scenarios like SimpleChat, TextCompletion

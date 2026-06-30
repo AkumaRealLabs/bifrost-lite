@@ -75,7 +75,6 @@ func TestAzure(t *testing.T) {
 			ImageGenerationStream:        false, // Skipped for Azure
 			ImageEdit:                    false, // Model not deployed on Azure endpoint
 			ImageEditStream:              false, // Model not deployed on Azure endpoint
-			ImageVariation:               false, // Not supported by Azure
 			VideoGeneration:              false, // disabled for now because of long running operations
 			VideoDownload:                false,
 			VideoRetrieve:                false,

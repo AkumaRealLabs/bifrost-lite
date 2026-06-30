@@ -115,10 +115,6 @@ func TestOpencodeUnsupportedOperations(t *testing.T) {
 			_, err := p.ImageEditStream(nil, nil, nil, schemas.Key{}, nil)
 			return err
 		}},
-		{name: "ImageVariation", requestType: schemas.ImageVariationRequest, invoke: func(p *opencodeProvider) *schemas.BifrostError {
-			_, err := p.ImageVariation(nil, schemas.Key{}, nil)
-			return err
-		}},
 		{name: "VideoGeneration", requestType: schemas.VideoGenerationRequest, invoke: func(p *opencodeProvider) *schemas.BifrostError {
 			_, err := p.VideoGeneration(nil, schemas.Key{}, nil)
 			return err

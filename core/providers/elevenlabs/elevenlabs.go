@@ -47,7 +47,6 @@ func NewElevenlabsProvider(config *schemas.ProviderConfig, logger schemas.Logger
 	}
 
 	// Configure proxy and retry policy
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -740,11 +739,6 @@ func (provider *ElevenlabsProvider) ImageEdit(ctx *schemas.BifrostContext, key s
 // ImageEditStream is not supported by the Elevenlabs provider.
 func (provider *ElevenlabsProvider) ImageEditStream(ctx *schemas.BifrostContext, postHookRunner schemas.PostHookRunner, postHookSpanFinalizer func(context.Context), key schemas.Key, request *schemas.BifrostImageEditRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
 	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageEditStreamRequest, provider.GetProviderKey())
-}
-
-// ImageVariation is not supported by the Elevenlabs provider.
-func (provider *ElevenlabsProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration is not supported by the ElevenLabs provider.

@@ -119,7 +119,7 @@ func TestConfigureTLS_HandlesInvalidCACertPEM(t *testing.T) {
 }
 
 func TestConfigureTLS_MergesWithExistingTLSConfig(t *testing.T) {
-	// Simulate client that already has TLSConfig from ConfigureProxy
+	// Simulate client that already has TLSConfig.
 	existingRootCAs, _ := x509.SystemCertPool()
 	if existingRootCAs == nil {
 		existingRootCAs = x509.NewCertPool()

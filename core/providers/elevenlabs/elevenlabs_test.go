@@ -2,7 +2,6 @@ package elevenlabs_test
 
 import (
 	"os"
-	"strings"
 	"testing"
 
 	"github.com/maximhq/bifrost/core/internal/llmtests"
@@ -12,7 +11,7 @@ import (
 
 func TestElevenlabs(t *testing.T) {
 	t.Parallel()
-	if strings.TrimSpace(os.Getenv("ELEVENLABS_API_KEY")) == "" {
+	if os.Getenv("ELEVENLABS_API_KEY") == "" {
 		t.Skip("Skipping Elevenlabs tests because ELEVENLABS_API_KEY is not set")
 	}
 
@@ -23,14 +22,10 @@ func TestElevenlabs(t *testing.T) {
 	defer cancel()
 	defer client.Shutdown()
 
-	realtimeAgentID := strings.TrimSpace(os.Getenv("ELEVENLABS_AGENT_ID"))
-	hasRealtimeAgent := false
-
 	testConfig := llmtests.ComprehensiveTestConfig{
 		Provider:             schemas.Elevenlabs,
 		SpeechSynthesisModel: "eleven_turbo_v2_5",
 		TranscriptionModel:   "scribe_v1",
-		RealtimeModel:        realtimeAgentID,
 		Scenarios: llmtests.TestScenarios{
 			TextCompletion:        false,
 			TextCompletionStream:  false,
@@ -52,7 +47,6 @@ func TestElevenlabs(t *testing.T) {
 			Embedding:             false,
 			Reasoning:             false,
 			ListModels:            false,
-			Realtime:              hasRealtimeAgent,
 		},
 	}
 

@@ -55,13 +55,13 @@ func TestConfigureDialer_SetsDial(t *testing.T) {
 }
 
 // TestConfigureDialer_ComposesWithExistingDial verifies that when a custom Dial
-// function is already set (e.g., from ConfigureProxy), ConfigureDialer wraps it
+// function is already set, ConfigureDialer wraps it
 // and still enables TCP keepalive on the resulting connection.
 func TestConfigureDialer_ComposesWithExistingDial(t *testing.T) {
 	var proxyDialCalled atomic.Bool
 
 	client := &fasthttp.Client{}
-	// Simulate a proxy dial function (set by ConfigureProxy)
+	// Simulate an existing custom dial function.
 	client.Dial = func(addr string) (net.Conn, error) {
 		proxyDialCalled.Store(true)
 		return net.Dial("tcp", addr)
@@ -374,15 +374,21 @@ func TestConfigureDialer_SSRFZeroTimeout(t *testing.T) {
 // TestConfigureDialer_SSRFMultiIPAllFail verifies that when all resolved IPs
 // fail to connect, the last dial error is returned (not a generic message).
 func TestConfigureDialer_SSRFMultiIPAllFail(t *testing.T) {
-	// 192.0.2.0/24 is TEST-NET-1 (RFC 5737) — documentation-only, never routed.
-	// A connection attempt to it will fail (refused or timeout) without any
-	// private-IP rejection, letting us exercise the lastErr return path.
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen on local port: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close local listener: %v", err)
+	}
+
 	client := &fasthttp.Client{ReadTimeout: 200 * time.Millisecond}
 	ConfigureDialer(client, false)
 
-	_, err := client.Dial("192.0.2.1:9")
+	_, err = client.Dial(addr)
 	if err == nil {
-		t.Fatal("expected connection error for unroutable TEST-NET address")
+		t.Fatal("expected connection error for closed local port")
 	}
 	// Must not be the generic "no usable address" sentinel — a real dial error
 	// was returned.
