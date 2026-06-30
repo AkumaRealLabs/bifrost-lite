@@ -176,7 +176,7 @@ func TestSearchLogs_MetadataFilter_StringMatching_SQLite(t *testing.T) {
 // TestSearchLogs_MetadataFilter_StringMatching_Postgres exercises the metadata string matching fix on Postgres,
 // where the old code generated JSONB number/boolean fragments that never matched stored string values.
 func TestSearchLogs_MetadataFilter_StringMatching_Postgres(t *testing.T) {
-	store, _ := setupPerfTestDB(t)
+	store, _ := setupPostgresTestDB(t)
 	runMetadataStringMatchingSuite(t, store)
 	runPostgresMetadataBooleanStringMatchingSuite(t, store)
 }
@@ -190,6 +190,6 @@ func TestSearchLogs_PaginationTotalCount_SQLite(t *testing.T) {
 
 // TestSearchLogs_PaginationTotalCount_Postgres verifies pagination.TotalCount on Postgres.
 func TestSearchLogs_PaginationTotalCount_Postgres(t *testing.T) {
-	store, _ := setupPerfTestDB(t)
+	store, _ := setupPostgresTestDB(t)
 	runPaginationTotalCountSuite(t, store)
 }

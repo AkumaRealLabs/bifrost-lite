@@ -15,7 +15,6 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/maximhq/bifrost/core/schemas"
-	"github.com/maximhq/bifrost/framework/configstore/tables"
 	"github.com/maximhq/bifrost/framework/queryscope"
 	"golang.org/x/sync/errgroup"
 	"gorm.io/gorm"
@@ -32,11 +31,12 @@ func isValidMetadataKey(key string) bool {
 
 const bulkUpdateCostChunkSize = 500
 const sessionLogPageLimit = 50
+const maxContentSummaryBytes = 4096
 
 const (
 	// defaultMaxQueryLimit is a safety cap for unbounded queries (FindAll, FindAllDistinct).
 	defaultMaxQueryLimit = 10000
-	// defaultMaxSearchLimit is the maximum number of rows returned by SearchLogs / SearchMCPToolLogs.
+	// defaultMaxSearchLimit is the maximum number of rows returned by SearchLogs.
 	defaultMaxSearchLimit = 1000
 	// defaultMaxRankingsLimit caps the number of model+provider groups returned by GetModelRankings.
 	defaultMaxRankingsLimit = 100
@@ -262,6 +262,12 @@ func (s *RDBLogStore) applyFilters(baseQuery *gorm.DB, filters SearchFilters) *g
 	}
 	if filters.MaxLatency != nil {
 		baseQuery = baseQuery.Where("latency <= ?", *filters.MaxLatency)
+	}
+	if filters.MinTTFBMs != nil {
+		baseQuery = baseQuery.Where("ttfb_ms >= ?", *filters.MinTTFBMs)
+	}
+	if filters.MaxTTFBMs != nil {
+		baseQuery = baseQuery.Where("ttfb_ms <= ?", *filters.MaxTTFBMs)
 	}
 	if filters.MinTokens != nil {
 		baseQuery = baseQuery.Where("total_tokens >= ?", *filters.MinTokens)
@@ -619,6 +625,8 @@ func (s *RDBLogStore) SearchLogs(ctx context.Context, filters SearchFilters, pag
 		orderClause = "timestamp " + direction
 	case "latency":
 		orderClause = "latency " + direction
+	case "ttfb_ms":
+		orderClause = "ttfb_ms " + direction
 	case "tokens":
 		orderClause = "total_tokens " + direction
 	case "cost":
@@ -852,9 +860,6 @@ func normalizeAggregateTimestamp(value any) string {
 // listSelectColumns returns a SELECT clause for list queries that omits large
 // output/detail TEXT columns and uses SQL JSON functions to extract only the
 // last element from input_history and responses_input_history arrays.
-//
-// Realtime turn rows are kept intact because the logs table renders them as a
-// combined Tool/User/Assistant summary and needs the full turn context.
 func (s *RDBLogStore) listSelectColumns() string {
 	baseCols := strings.Join([]string{
 		"id", "parent_request_id", "timestamp", "object_type", "provider", "model", "alias",
@@ -866,7 +871,7 @@ func (s *RDBLogStore) listSelectColumns() string {
 		"user_id", "team_id", "team_name", "customer_id", "customer_name",
 		"business_unit_id", "business_unit_name",
 		"speech_input", "transcription_input", "image_generation_input", "video_generation_input",
-		"latency", "token_usage", "cost", "status", "error_details", "stream",
+		"latency", "ttfb_ms", "token_usage", "cost", "status", "error_details", "stream",
 		fmt.Sprintf("substr(content_summary, 1, %d) AS content_summary", maxContentSummaryBytes),
 		"metadata", "cache_debug",
 		"is_large_payload_request", "is_large_payload_response",
@@ -882,18 +887,11 @@ func (s *RDBLogStore) listSelectColumns() string {
 		// would otherwise abort the whole list query. bifrost_safe_jsonb
 		// wraps the cast in an EXCEPTION block and returns the raw TEXT on
 		// any parse failure; see migrationAddSafeJsonbFunction.
-		inputHistoryExpr = `CASE
-			WHEN object_type = 'realtime.turn' THEN input_history
-			ELSE bifrost_safe_jsonb(input_history)
-			END AS input_history`
-		responsesInputExpr = `CASE
-			WHEN object_type = 'realtime.turn' THEN responses_input_history
-			ELSE bifrost_safe_jsonb(responses_input_history)
-			END AS responses_input_history`
-		outputMessageExpr = `CASE WHEN object_type = 'realtime.turn' THEN output_message ELSE NULL END AS output_message`
+		inputHistoryExpr = `bifrost_safe_jsonb(input_history) AS input_history`
+		responsesInputExpr = `bifrost_safe_jsonb(responses_input_history) AS responses_input_history`
+		outputMessageExpr = `NULL AS output_message`
 	default: // sqlite
 		inputHistoryExpr = `CASE
-			WHEN object_type = 'realtime.turn' THEN input_history
 			WHEN input_history IS NOT NULL AND input_history != '' AND input_history != '[]'
 			     AND json_valid(input_history) = 1
 			     AND json_type(input_history) = 'array'
@@ -901,14 +899,13 @@ func (s *RDBLogStore) listSelectColumns() string {
 			THEN json_array(json_extract(input_history, '$[' || (json_array_length(input_history) - 1) || ']'))
 			ELSE input_history END AS input_history`
 		responsesInputExpr = `CASE
-			WHEN object_type = 'realtime.turn' THEN responses_input_history
 			WHEN responses_input_history IS NOT NULL AND responses_input_history != '' AND responses_input_history != '[]'
 			     AND json_valid(responses_input_history) = 1
 			     AND json_type(responses_input_history) = 'array'
 			     AND json_array_length(responses_input_history) > 0
 			THEN json_array(json_extract(responses_input_history, '$[' || (json_array_length(responses_input_history) - 1) || ']'))
 			ELSE responses_input_history END AS responses_input_history`
-		outputMessageExpr = `CASE WHEN object_type = 'realtime.turn' THEN output_message ELSE NULL END AS output_message`
+		outputMessageExpr = `NULL AS output_message`
 	}
 
 	return baseCols + ", " + inputHistoryExpr + ", " + responsesInputExpr + ", " + outputMessageExpr
@@ -1602,14 +1599,115 @@ func computePercentile(sorted []float64, p float64) float64 {
 	return sorted[lower]*(1-frac) + sorted[upper]*frac
 }
 
+func (s *RDBLogStore) percentileContSelect(column string, percentile float64, alias string) string {
+	switch s.db.Dialector.Name() {
+	case "postgres":
+		return fmt.Sprintf("percentile_cont(%.2f) WITHIN GROUP (ORDER BY %s) as %s", percentile, column, alias)
+	default:
+		// SQLite/MySQL paths scan rows and compute ranking percentiles in Go.
+		return fmt.Sprintf("NULL as %s", alias)
+	}
+}
+
+func (s *RDBLogStore) modelRankingsSelectClause() string {
+	return fmt.Sprintf(`
+		model,
+		provider,
+		COUNT(*) as total_requests,
+		SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+		SUM(total_tokens) as total_tokens,
+		COALESCE(SUM(cost), 0) as total_cost,
+		AVG(latency) as avg_latency,
+		%s
+	`, s.percentileContSelect("ttfb_ms", 0.95, "p95_ttfb_ms"))
+}
+
+func (s *RDBLogStore) attachModelRankingTTFB(ctx context.Context, filters SearchFilters, rankings []ModelRankingWithTrend) error {
+	if len(rankings) == 0 {
+		return nil
+	}
+
+	pairConditions := make([]string, len(rankings))
+	pairArgs := make([]interface{}, 0, len(rankings)*2)
+	type rankingKey struct {
+		provider string
+		model    string
+	}
+	rankingIndexes := make(map[rankingKey]int, len(rankings))
+	for i, ranking := range rankings {
+		pairConditions[i] = "(model = ? AND provider = ?)"
+		pairArgs = append(pairArgs, ranking.Model, ranking.Provider)
+		rankingIndexes[rankingKey{provider: ranking.Provider, model: ranking.Model}] = i
+	}
+
+	var rows []struct {
+		Model    string  `gorm:"column:model"`
+		Provider string  `gorm:"column:provider"`
+		TTFBMs   float64 `gorm:"column:ttfb_ms"`
+	}
+
+	query := s.ScopedDB(ctx).Model(&Log{})
+	query = s.applyFilters(query, filters)
+	query = query.Where("status IN ?", []string{"success", "error"})
+	query = query.Where("ttfb_ms IS NOT NULL")
+	query = query.Where(strings.Join(pairConditions, " OR "), pairArgs...)
+
+	if s.db.Dialector.Name() == "postgres" {
+		var rows []struct {
+			Model     string          `gorm:"column:model"`
+			Provider  string          `gorm:"column:provider"`
+			P95TTFBMs sql.NullFloat64 `gorm:"column:p95_ttfb_ms"`
+		}
+		if err := query.
+			Select("model, provider, percentile_cont(0.95) WITHIN GROUP (ORDER BY ttfb_ms) as p95_ttfb_ms").
+			Group("model, provider").
+			Find(&rows).Error; err != nil {
+			return fmt.Errorf("failed to get model ranking TTFB values: %w", err)
+		}
+		for _, row := range rows {
+			if idx, ok := rankingIndexes[rankingKey{provider: row.Provider, model: row.Model}]; ok {
+				rankings[idx].P95TTFBMs = row.P95TTFBMs.Float64
+			}
+		}
+		return nil
+	}
+
+	if err := query.
+		Select("model, provider, ttfb_ms").
+		Order("model ASC, provider ASC, ttfb_ms ASC").
+		Find(&rows).Error; err != nil {
+		return fmt.Errorf("failed to get model ranking TTFB values: %w", err)
+	}
+
+	values := make(map[rankingKey][]float64)
+	for _, row := range rows {
+		key := rankingKey{provider: row.Provider, model: row.Model}
+		values[key] = append(values[key], row.TTFBMs)
+	}
+	for key, vals := range values {
+		if idx, ok := rankingIndexes[key]; ok {
+			rankings[idx].P95TTFBMs = computePercentile(vals, 0.95)
+		}
+	}
+	return nil
+}
+
 // GetLatencyHistogram returns time-bucketed latency percentiles (avg, p90, p95, p99) for the given filters.
 // PostgreSQL uses database-level percentile_cont aggregation (returns 1 row per bucket).
 // MySQL and SQLite fall back to Go-based percentile computation (loads individual latency values).
 func (s *RDBLogStore) GetLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+	return s.getNumericLatencyHistogram(ctx, filters, bucketSizeSeconds, "latency", "latency")
+}
+
+func (s *RDBLogStore) GetTTFBHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+	return s.getNumericLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttfb_ms", "TTFB")
+}
+
+func (s *RDBLogStore) getNumericLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*LatencyHistogramResult, error) {
 	if bucketSizeSeconds <= 0 {
 		bucketSizeSeconds = 3600
 	}
-	if s.db.Dialector.Name() == "postgres" && s.canUseMatView(filters) && bucketSizeSeconds >= 3600 {
+	if column == "latency" && s.db.Dialector.Name() == "postgres" && s.canUseMatView(filters) && bucketSizeSeconds >= 3600 {
 		return s.getLatencyHistogramFromMatView(ctx, filters, bucketSizeSeconds)
 	}
 
@@ -1618,21 +1716,21 @@ func (s *RDBLogStore) GetLatencyHistogram(ctx context.Context, filters SearchFil
 	baseQuery := s.ScopedDB(ctx).Model(&Log{})
 	baseQuery = s.applyFilters(baseQuery, filters)
 	baseQuery = baseQuery.Where("status IN ?", []string{"success", "error"})
-	baseQuery = baseQuery.Where("latency IS NOT NULL")
+	baseQuery = baseQuery.Where(column + " IS NOT NULL")
 
 	switch dialect {
 	case "sqlite":
-		return s.getLatencyHistogramSQLite(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getLatencyHistogramSQLite(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	case "mysql":
-		return s.getLatencyHistogramMySQL(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getLatencyHistogramMySQL(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	default:
-		return s.getLatencyHistogramPercentileCont(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getLatencyHistogramPercentileCont(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	}
 }
 
 // getLatencyHistogramPercentileCont uses database-level percentile_cont for PostgreSQL.
 // Returns 1 aggregated row per bucket instead of loading all individual latency values.
-func (s *RDBLogStore) getLatencyHistogramPercentileCont(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+func (s *RDBLogStore) getLatencyHistogramPercentileCont(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*LatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64           `gorm:"column:bucket_timestamp"`
 		AvgLatency      sql.NullFloat64 `gorm:"column:avg_latency"`
@@ -1643,20 +1741,20 @@ func (s *RDBLogStore) getLatencyHistogramPercentileCont(ctx context.Context, bas
 	}
 
 	selectClause := fmt.Sprintf(`
-		CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %d) * %d AS BIGINT) as bucket_timestamp,
-		AVG(latency) as avg_latency,
-		percentile_cont(0.90) WITHIN GROUP (ORDER BY latency) as p90_latency,
-		percentile_cont(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency,
-		percentile_cont(0.99) WITHIN GROUP (ORDER BY latency) as p99_latency,
+		CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %[1]d) * %[2]d AS BIGINT) as bucket_timestamp,
+		AVG(%[3]s) as avg_latency,
+		percentile_cont(0.90) WITHIN GROUP (ORDER BY %[3]s) as p90_latency,
+		percentile_cont(0.95) WITHIN GROUP (ORDER BY %[3]s) as p95_latency,
+		percentile_cont(0.99) WITHIN GROUP (ORDER BY %[3]s) as p99_latency,
 		COUNT(*) as total_requests
-	`, bucketSizeSeconds, bucketSizeSeconds)
+	`, bucketSizeSeconds, bucketSizeSeconds, column)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Group("bucket_timestamp").
 		Order("bucket_timestamp ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	computedBuckets := make(map[int64]LatencyHistogramBucket, len(results))
@@ -1678,22 +1776,22 @@ func (s *RDBLogStore) getLatencyHistogramPercentileCont(ctx context.Context, bas
 
 // getLatencyHistogramSQLite uses Go-based percentile computation for SQLite
 // which lacks percentile_cont.
-func (s *RDBLogStore) getLatencyHistogramSQLite(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+func (s *RDBLogStore) getLatencyHistogramSQLite(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*LatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64   `gorm:"column:bucket_timestamp"`
 		Latency         float64 `gorm:"column:latency"`
 	}
 
 	selectClause := fmt.Sprintf(
-		`(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp, latency`,
-		bucketSizeSeconds, bucketSizeSeconds,
+		`(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp, %s as latency`,
+		bucketSizeSeconds, bucketSizeSeconds, column,
 	)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Order("bucket_timestamp ASC, latency ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	type bucketData struct {
@@ -1733,22 +1831,22 @@ func (s *RDBLogStore) getLatencyHistogramSQLite(ctx context.Context, baseQuery *
 
 // getLatencyHistogramMySQL uses Go-based percentile computation for MySQL
 // which lacks percentile_cont.
-func (s *RDBLogStore) getLatencyHistogramMySQL(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+func (s *RDBLogStore) getLatencyHistogramMySQL(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*LatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64   `gorm:"column:bucket_timestamp"`
 		Latency         float64 `gorm:"column:latency"`
 	}
 
 	selectClause := fmt.Sprintf(
-		`(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp, latency`,
-		bucketSizeSeconds, bucketSizeSeconds,
+		`(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp, %s as latency`,
+		bucketSizeSeconds, bucketSizeSeconds, column,
 	)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Order("bucket_timestamp ASC, latency ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	type bucketData struct {
@@ -1827,15 +1925,7 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 	if s.db.Dialector.Name() == "postgres" && s.canUseMatViewForFreshAggregate(filters) {
 		return s.getModelRankingsFromMatView(ctx, filters)
 	}
-	selectClause := `
-		model,
-		provider,
-		COUNT(*) as total_requests,
-		SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
-		SUM(total_tokens) as total_tokens,
-		COALESCE(SUM(cost), 0) as total_cost,
-		AVG(latency) as avg_latency
-	`
+	selectClause := s.modelRankingsSelectClause()
 
 	// Query current period
 	currentQuery := s.ScopedDB(ctx).Model(&Log{})
@@ -1851,6 +1941,7 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 		TotalTokens   sql.NullInt64   `gorm:"column:total_tokens"`
 		TotalCost     sql.NullFloat64 `gorm:"column:total_cost"`
 		AvgLatency    sql.NullFloat64 `gorm:"column:avg_latency"`
+		P95TTFBMs     sql.NullFloat64 `gorm:"column:p95_ttfb_ms"`
 	}
 
 	if err := currentQuery.
@@ -1903,6 +1994,7 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 			TotalTokens   sql.NullInt64   `gorm:"column:total_tokens"`
 			TotalCost     sql.NullFloat64 `gorm:"column:total_cost"`
 			AvgLatency    sql.NullFloat64 `gorm:"column:avg_latency"`
+			P95TTFBMs     sql.NullFloat64 `gorm:"column:p95_ttfb_ms"`
 		}
 
 		if err := prevQuery.
@@ -1921,6 +2013,7 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 				TotalTokens:   r.TotalTokens.Int64,
 				TotalCost:     r.TotalCost.Float64,
 				AvgLatency:    r.AvgLatency.Float64,
+				P95TTFBMs:     r.P95TTFBMs.Float64,
 			}
 		}
 	}
@@ -1936,6 +2029,7 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 			TotalTokens:   r.TotalTokens.Int64,
 			TotalCost:     r.TotalCost.Float64,
 			AvgLatency:    r.AvgLatency.Float64,
+			P95TTFBMs:     r.P95TTFBMs.Float64,
 		}
 		if r.TotalRequests > 0 {
 			entry.SuccessRate = float64(r.SuccessCount) / float64(r.TotalRequests) * 100
@@ -1957,6 +2051,10 @@ func (s *RDBLogStore) GetModelRankings(ctx context.Context, filters SearchFilter
 			ModelRankingEntry: entry,
 			Trend:             trend,
 		}
+	}
+
+	if err := s.attachModelRankingTTFB(ctx, filters, rankings); err != nil {
+		return nil, err
 	}
 
 	return &ModelRankingResult{Rankings: rankings}, nil
@@ -2507,10 +2605,18 @@ func (s *RDBLogStore) GetProviderTokenHistogram(ctx context.Context, filters Sea
 // PostgreSQL uses database-level percentile_cont aggregation.
 // MySQL and SQLite fall back to Go-based percentile computation.
 func (s *RDBLogStore) GetProviderLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+	return s.getNumericProviderLatencyHistogram(ctx, filters, bucketSizeSeconds, "latency", "provider latency", true)
+}
+
+func (s *RDBLogStore) GetProviderTTFBHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+	return s.getNumericProviderLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttfb_ms", "provider TTFB", false)
+}
+
+func (s *RDBLogStore) getNumericProviderLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64, column string, label string, allowMatView bool) (*ProviderLatencyHistogramResult, error) {
 	if bucketSizeSeconds <= 0 {
 		bucketSizeSeconds = 3600
 	}
-	if s.db.Dialector.Name() == "postgres" && s.canUseMatView(filters) && bucketSizeSeconds >= 3600 {
+	if allowMatView && s.db.Dialector.Name() == "postgres" && s.canUseMatView(filters) && bucketSizeSeconds >= 3600 {
 		return s.getProviderLatencyHistogramFromMatView(ctx, filters, bucketSizeSeconds)
 	}
 
@@ -2519,21 +2625,21 @@ func (s *RDBLogStore) GetProviderLatencyHistogram(ctx context.Context, filters S
 	baseQuery := s.ScopedDB(ctx).Model(&Log{})
 	baseQuery = s.applyFilters(baseQuery, filters)
 	baseQuery = baseQuery.Where("status IN ?", []string{"success", "error"})
-	baseQuery = baseQuery.Where("latency IS NOT NULL")
+	baseQuery = baseQuery.Where(column + " IS NOT NULL")
 
 	switch dialect {
 	case "sqlite":
-		return s.getProviderLatencyHistogramSQLite(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getProviderLatencyHistogramSQLite(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	case "mysql":
-		return s.getProviderLatencyHistogramMySQL(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getProviderLatencyHistogramMySQL(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	default:
-		return s.getProviderLatencyHistogramPercentileCont(ctx, baseQuery, filters, bucketSizeSeconds)
+		return s.getProviderLatencyHistogramPercentileCont(ctx, baseQuery, filters, bucketSizeSeconds, column, label)
 	}
 }
 
 // getProviderLatencyHistogramPercentileCont uses database-level percentile_cont for PostgreSQL.
 // Returns 1 aggregated row per (bucket, provider) instead of loading all individual latency values.
-func (s *RDBLogStore) getProviderLatencyHistogramPercentileCont(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+func (s *RDBLogStore) getProviderLatencyHistogramPercentileCont(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*ProviderLatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64           `gorm:"column:bucket_timestamp"`
 		Provider        string          `gorm:"column:provider"`
@@ -2545,21 +2651,21 @@ func (s *RDBLogStore) getProviderLatencyHistogramPercentileCont(ctx context.Cont
 	}
 
 	selectClause := fmt.Sprintf(`
-		CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %d) * %d AS BIGINT) as bucket_timestamp,
+		CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %[1]d) * %[2]d AS BIGINT) as bucket_timestamp,
 		provider,
-		AVG(latency) as avg_latency,
-		percentile_cont(0.90) WITHIN GROUP (ORDER BY latency) as p90_latency,
-		percentile_cont(0.95) WITHIN GROUP (ORDER BY latency) as p95_latency,
-		percentile_cont(0.99) WITHIN GROUP (ORDER BY latency) as p99_latency,
+		AVG(%[3]s) as avg_latency,
+		percentile_cont(0.90) WITHIN GROUP (ORDER BY %[3]s) as p90_latency,
+		percentile_cont(0.95) WITHIN GROUP (ORDER BY %[3]s) as p95_latency,
+		percentile_cont(0.99) WITHIN GROUP (ORDER BY %[3]s) as p99_latency,
 		COUNT(*) as total_requests
-	`, bucketSizeSeconds, bucketSizeSeconds)
+	`, bucketSizeSeconds, bucketSizeSeconds, column)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Group("bucket_timestamp, provider").
 		Order("bucket_timestamp ASC, provider ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get provider latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	providersSet := make(map[string]bool)
@@ -2600,7 +2706,7 @@ func (s *RDBLogStore) getProviderLatencyHistogramPercentileCont(ctx context.Cont
 
 // getProviderLatencyHistogramSQLite uses Go-based percentile computation for SQLite
 // which lacks percentile_cont.
-func (s *RDBLogStore) getProviderLatencyHistogramSQLite(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+func (s *RDBLogStore) getProviderLatencyHistogramSQLite(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*ProviderLatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64   `gorm:"column:bucket_timestamp"`
 		Provider        string  `gorm:"column:provider"`
@@ -2608,15 +2714,15 @@ func (s *RDBLogStore) getProviderLatencyHistogramSQLite(ctx context.Context, bas
 	}
 
 	selectClause := fmt.Sprintf(
-		`(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp, provider, latency`,
-		bucketSizeSeconds, bucketSizeSeconds,
+		`(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp, provider, %s as latency`,
+		bucketSizeSeconds, bucketSizeSeconds, column,
 	)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Order("bucket_timestamp ASC, provider ASC, latency ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get provider latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	type providerBucketKey struct {
@@ -2671,7 +2777,7 @@ func (s *RDBLogStore) getProviderLatencyHistogramSQLite(ctx context.Context, bas
 
 // getProviderLatencyHistogramMySQL uses Go-based percentile computation for MySQL
 // which lacks percentile_cont.
-func (s *RDBLogStore) getProviderLatencyHistogramMySQL(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+func (s *RDBLogStore) getProviderLatencyHistogramMySQL(ctx context.Context, baseQuery *gorm.DB, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*ProviderLatencyHistogramResult, error) {
 	var results []struct {
 		BucketTimestamp int64   `gorm:"column:bucket_timestamp"`
 		Provider        string  `gorm:"column:provider"`
@@ -2679,15 +2785,15 @@ func (s *RDBLogStore) getProviderLatencyHistogramMySQL(ctx context.Context, base
 	}
 
 	selectClause := fmt.Sprintf(
-		`(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp, provider, latency`,
-		bucketSizeSeconds, bucketSizeSeconds,
+		`(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp, provider, %s as latency`,
+		bucketSizeSeconds, bucketSizeSeconds, column,
 	)
 
 	if err := baseQuery.
 		Select(selectClause).
 		Order("bucket_timestamp ASC, provider ASC, latency ASC").
 		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get provider latency histogram: %w", err)
+		return nil, fmt.Errorf("failed to get %s histogram: %w", label, err)
 	}
 
 	type bucketProviderKey struct {
@@ -2738,6 +2844,141 @@ func (s *RDBLogStore) getProviderLatencyHistogramMySQL(ctx context.Context, base
 	}
 
 	return s.buildProviderLatencyHistogramResult(computedBuckets, orderedBuckets, providers, filters, bucketSizeSeconds)
+}
+
+func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*TTFBStatsResult, error) {
+	if window <= 0 {
+		window = 15 * time.Minute
+	}
+	if minSamples <= 0 {
+		minSamples = 20
+	}
+
+	end := time.Now().UTC()
+	if filters.EndTime != nil && !filters.EndTime.IsZero() {
+		end = filters.EndTime.UTC()
+	}
+	start := end.Add(-window)
+	if filters.StartTime == nil || filters.StartTime.Before(start) {
+		filters.StartTime = &start
+	}
+	if filters.EndTime == nil {
+		filters.EndTime = &end
+	}
+
+	query := s.ScopedDB(ctx).Model(&Log{})
+	query = s.applyFilters(query, filters)
+	query = query.Where("status IN ?", []string{"success", "error"})
+	query = query.Where("ttfb_ms IS NOT NULL")
+	query = query.Where("provider IS NOT NULL AND provider != ''")
+	query = query.Where("model IS NOT NULL AND model != ''")
+
+	result := &TTFBStatsResult{
+		WindowSeconds: int64(window.Seconds()),
+		MinSamples:    minSamples,
+		Stats:         []TTFBStatsEntry{},
+	}
+
+	switch s.db.Dialector.Name() {
+	case "postgres":
+		var rows []struct {
+			Provider     string          `gorm:"column:provider"`
+			Model        string          `gorm:"column:model"`
+			VirtualKeyID string          `gorm:"column:virtual_key_id"`
+			SampleCount  int64           `gorm:"column:sample_count"`
+			AvgTTFBMs    sql.NullFloat64 `gorm:"column:avg_ttfb_ms"`
+			P90TTFBMs    sql.NullFloat64 `gorm:"column:p90_ttfb_ms"`
+			P95TTFBMs    sql.NullFloat64 `gorm:"column:p95_ttfb_ms"`
+			P99TTFBMs    sql.NullFloat64 `gorm:"column:p99_ttfb_ms"`
+		}
+		selectClause := `
+			provider,
+			model,
+			COALESCE(virtual_key_id, '') as virtual_key_id,
+			COUNT(*) as sample_count,
+			AVG(ttfb_ms) as avg_ttfb_ms,
+			percentile_cont(0.90) WITHIN GROUP (ORDER BY ttfb_ms) as p90_ttfb_ms,
+			percentile_cont(0.95) WITHIN GROUP (ORDER BY ttfb_ms) as p95_ttfb_ms,
+			percentile_cont(0.99) WITHIN GROUP (ORDER BY ttfb_ms) as p99_ttfb_ms
+		`
+		if err := query.
+			Select(selectClause).
+			Group("provider, model, COALESCE(virtual_key_id, '')").
+			Order("sample_count DESC, provider ASC, model ASC").
+			Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("failed to get TTFB stats: %w", err)
+		}
+		result.Stats = make([]TTFBStatsEntry, 0, len(rows))
+		for _, row := range rows {
+			result.Stats = append(result.Stats, TTFBStatsEntry{
+				Provider:      row.Provider,
+				Model:         row.Model,
+				VirtualKeyID:  row.VirtualKeyID,
+				SampleCount:   row.SampleCount,
+				AvgTTFBMs:     row.AvgTTFBMs.Float64,
+				P90TTFBMs:     row.P90TTFBMs.Float64,
+				P95TTFBMs:     row.P95TTFBMs.Float64,
+				P99TTFBMs:     row.P99TTFBMs.Float64,
+				HasMinSamples: row.SampleCount >= int64(minSamples),
+			})
+		}
+		return result, nil
+	default:
+		var rows []struct {
+			Provider     string  `gorm:"column:provider"`
+			Model        string  `gorm:"column:model"`
+			VirtualKeyID string  `gorm:"column:virtual_key_id"`
+			TTFBMs       float64 `gorm:"column:ttfb_ms"`
+		}
+		if err := query.
+			Select("provider, model, COALESCE(virtual_key_id, '') as virtual_key_id, ttfb_ms").
+			Order("provider ASC, model ASC, virtual_key_id ASC, ttfb_ms ASC").
+			Find(&rows).Error; err != nil {
+			return nil, fmt.Errorf("failed to get TTFB stats: %w", err)
+		}
+		type statsKey struct {
+			provider     string
+			model        string
+			virtualKeyID string
+		}
+		grouped := make(map[statsKey][]float64)
+		for _, row := range rows {
+			key := statsKey{provider: row.Provider, model: row.Model, virtualKeyID: row.VirtualKeyID}
+			grouped[key] = append(grouped[key], row.TTFBMs)
+		}
+		result.Stats = make([]TTFBStatsEntry, 0, len(grouped))
+		for key, values := range grouped {
+			var sum float64
+			for _, v := range values {
+				sum += v
+			}
+			sampleCount := int64(len(values))
+			result.Stats = append(result.Stats, TTFBStatsEntry{
+				Provider:      key.provider,
+				Model:         key.model,
+				VirtualKeyID:  key.virtualKeyID,
+				SampleCount:   sampleCount,
+				AvgTTFBMs:     sum / float64(sampleCount),
+				P90TTFBMs:     computePercentile(values, 0.90),
+				P95TTFBMs:     computePercentile(values, 0.95),
+				P99TTFBMs:     computePercentile(values, 0.99),
+				HasMinSamples: sampleCount >= int64(minSamples),
+			})
+		}
+		sort.Slice(result.Stats, func(i, j int) bool {
+			if result.Stats[i].SampleCount != result.Stats[j].SampleCount {
+				return result.Stats[i].SampleCount > result.Stats[j].SampleCount
+			}
+			if result.Stats[i].Provider != result.Stats[j].Provider {
+				return result.Stats[i].Provider < result.Stats[j].Provider
+			}
+			if result.Stats[i].Model != result.Stats[j].Model {
+				return result.Stats[i].Model < result.Stats[j].Model
+			}
+			return result.Stats[i].VirtualKeyID < result.Stats[j].VirtualKeyID
+		})
+		return result, nil
+	}
 }
 
 // buildProviderLatencyHistogramResult fills in bucket timestamps and returns the result.
@@ -3561,606 +3802,4 @@ func (s *RDBLogStore) DeleteLogs(ctx context.Context, ids []string) error {
 		return err
 	}
 	return nil
-}
-
-// ============================================================================
-// MCP Tool Log Methods
-// ============================================================================
-
-// applyMCPFilters applies search filters to a GORM query for MCP tool logs
-func (s *RDBLogStore) applyMCPFilters(baseQuery *gorm.DB, filters MCPToolLogSearchFilters) *gorm.DB {
-	if len(filters.ToolNames) > 0 {
-		baseQuery = baseQuery.Where("tool_name IN ?", filters.ToolNames)
-	}
-	if len(filters.ServerLabels) > 0 {
-		baseQuery = baseQuery.Where("server_label IN ?", filters.ServerLabels)
-	}
-	if len(filters.Status) > 0 {
-		baseQuery = baseQuery.Where("status IN ?", filters.Status)
-	}
-	if len(filters.VirtualKeyIDs) > 0 {
-		baseQuery = baseQuery.Where("virtual_key_id IN ?", filters.VirtualKeyIDs)
-	}
-	if len(filters.LLMRequestIDs) > 0 {
-		baseQuery = baseQuery.Where("llm_request_id IN ?", filters.LLMRequestIDs)
-	}
-	if filters.StartTime != nil {
-		baseQuery = baseQuery.Where("timestamp >= ?", *filters.StartTime)
-	}
-	if filters.EndTime != nil {
-		baseQuery = baseQuery.Where("timestamp <= ?", *filters.EndTime)
-	}
-	if filters.MinLatency != nil {
-		baseQuery = baseQuery.Where("latency >= ?", *filters.MinLatency)
-	}
-	if filters.MaxLatency != nil {
-		baseQuery = baseQuery.Where("latency <= ?", *filters.MaxLatency)
-	}
-	if filters.ContentSearch != "" {
-		// Search in both arguments and result fields
-		dialect := s.db.Dialector.Name()
-		if dialect == "postgres" {
-			// Must match idx_mcp_logs_arguments_fts / idx_mcp_logs_result_fts expressions
-			// exactly (incl. the left() cap) so the planner uses the GIN expression indexes.
-			baseQuery = baseQuery.Where(
-				fmt.Sprintf("(to_tsvector('simple', left(arguments, %d)) @@ plainto_tsquery('simple', ?) OR to_tsvector('simple', left(result, %d)) @@ plainto_tsquery('simple', ?))", ftsInputCharLimit, ftsInputCharLimit),
-				filters.ContentSearch, filters.ContentSearch,
-			)
-		} else {
-			search := "%" + filters.ContentSearch + "%"
-			baseQuery = baseQuery.Where("(arguments LIKE ? OR result LIKE ?)", search, search)
-		}
-	}
-	return baseQuery
-}
-
-// CreateMCPToolLog inserts a new MCP tool log entry into the database.
-func (s *RDBLogStore) CreateMCPToolLog(ctx context.Context, entry *MCPToolLog) error {
-	return s.db.WithContext(ctx).Create(entry).Error
-}
-
-// BatchCreateMCPToolLogsIfNotExists inserts multiple MCP tool log entries in a single transaction.
-// Uses ON CONFLICT DO NOTHING for idempotency.
-func (s *RDBLogStore) BatchCreateMCPToolLogsIfNotExists(ctx context.Context, entries []*MCPToolLog) error {
-	if len(entries) == 0 {
-		return nil
-	}
-	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "id"}},
-		DoNothing: true,
-	}).Create(&entries).Error
-}
-
-// FindMCPToolLog retrieves a single MCP tool log entry by its ID.
-func (s *RDBLogStore) FindMCPToolLog(ctx context.Context, id string) (*MCPToolLog, error) {
-	var log MCPToolLog
-	if err := s.db.WithContext(ctx).Where("id = ?", id).First(&log).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, ErrNotFound
-		}
-		return nil, err
-	}
-	return &log, nil
-}
-
-// UpdateMCPToolLog updates an MCP tool log entry in the database.
-func (s *RDBLogStore) UpdateMCPToolLog(ctx context.Context, id string, entry any) error {
-	serializedEntry, err := serializeMCPToolLogUpdateEntry(entry)
-	if err != nil {
-		return err
-	}
-
-	tx := s.db.WithContext(ctx).Model(&MCPToolLog{}).Where("id = ?", id).Updates(serializedEntry)
-	if tx.Error != nil {
-		return tx.Error
-	}
-	if tx.RowsAffected == 0 {
-		return ErrNotFound
-	}
-	return nil
-}
-
-// serializeMCPToolLogUpdateEntry serializes parsed MCP tool log fields before
-// passing the update payload to GORM. Non-MCPToolLog payloads are returned unchanged.
-func serializeMCPToolLogUpdateEntry(entry any) (any, error) {
-	switch v := entry.(type) {
-	case *MCPToolLog:
-		if err := v.SerializeFields(); err != nil {
-			return nil, err
-		}
-		return v, nil
-	case MCPToolLog:
-		copyEntry := v
-		if err := copyEntry.SerializeFields(); err != nil {
-			return nil, err
-		}
-		return copyEntry, nil
-	default:
-		return entry, nil
-	}
-}
-
-// SearchMCPToolLogs searches for MCP tool logs in the database.
-func (s *RDBLogStore) SearchMCPToolLogs(ctx context.Context, filters MCPToolLogSearchFilters, pagination PaginationOptions) (*MCPToolLogSearchResult, error) {
-	var err error
-	baseQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-
-	// Apply filters
-	baseQuery = s.applyMCPFilters(baseQuery, filters)
-
-	// Get total count for pagination
-	var totalCount int64
-	if err := baseQuery.Count(&totalCount).Error; err != nil {
-		return nil, err
-	}
-
-	// Build order clause
-	direction := "DESC"
-	if pagination.Order == "asc" {
-		direction = "ASC"
-	}
-
-	var orderClause string
-	switch pagination.SortBy {
-	case "timestamp":
-		orderClause = "timestamp " + direction
-	case "latency":
-		orderClause = "latency " + direction
-	case "cost":
-		orderClause = "cost " + direction
-	default:
-		orderClause = "timestamp " + direction
-	}
-
-	// Execute main query with sorting and pagination
-	var logs []MCPToolLog
-	mainQuery := baseQuery.Order(orderClause)
-
-	limit := pagination.Limit
-	if limit <= 0 || limit > defaultMaxSearchLimit {
-		limit = defaultMaxSearchLimit
-	}
-	pagination.Limit = limit
-	mainQuery = mainQuery.Limit(limit)
-	if pagination.Offset > 0 {
-		mainQuery = mainQuery.Offset(pagination.Offset)
-	}
-
-	if err = mainQuery.Find(&logs).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			pagination.TotalCount = totalCount
-			return &MCPToolLogSearchResult{
-				Logs:       logs,
-				Pagination: pagination,
-			}, nil
-		}
-		return nil, err
-	}
-
-	// Populate virtual key objects for logs that have virtual key information
-	for i := range logs {
-		if logs[i].VirtualKeyID != nil && logs[i].VirtualKeyName != nil {
-			logs[i].VirtualKey = &tables.TableVirtualKey{
-				ID:   *logs[i].VirtualKeyID,
-				Name: *logs[i].VirtualKeyName,
-			}
-		}
-	}
-
-	hasLogs := len(logs) > 0
-	if !hasLogs {
-		hasLogs, err = s.HasMCPToolLogs(ctx)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	pagination.TotalCount = totalCount
-	return &MCPToolLogSearchResult{
-		Logs:       logs,
-		Pagination: pagination,
-		HasLogs:    hasLogs,
-	}, nil
-}
-
-// GetMCPToolLogStats calculates statistics for MCP tool logs matching the given filters.
-func (s *RDBLogStore) GetMCPToolLogStats(ctx context.Context, filters MCPToolLogSearchFilters) (*MCPToolLogStats, error) {
-	baseQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-	baseQuery = s.applyMCPFilters(baseQuery, filters)
-
-	// Get total count (includes processing status)
-	var totalCount int64
-	if err := baseQuery.Count(&totalCount).Error; err != nil {
-		return nil, err
-	}
-
-	stats := &MCPToolLogStats{
-		TotalExecutions: totalCount,
-	}
-
-	if totalCount > 0 {
-		// Single query for all completed-execution stats
-		var result struct {
-			CompletedCount sql.NullInt64   `gorm:"column:completed_count"`
-			SuccessCount   sql.NullInt64   `gorm:"column:success_count"`
-			AvgLatency     sql.NullFloat64 `gorm:"column:avg_latency"`
-			TotalCost      sql.NullFloat64 `gorm:"column:total_cost"`
-		}
-
-		statsQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-		statsQuery = s.applyMCPFilters(statsQuery, filters)
-		statsQuery = statsQuery.Where("status IN ?", []string{"success", "error"})
-
-		if err := statsQuery.Select(`
-			COUNT(*) as completed_count,
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
-			AVG(latency) as avg_latency,
-			SUM(cost) as total_cost
-		`).Scan(&result).Error; err != nil {
-			return nil, err
-		}
-
-		completedCount := result.CompletedCount.Int64
-		if completedCount > 0 {
-			stats.SuccessRate = float64(result.SuccessCount.Int64) / float64(completedCount) * 100
-			if result.AvgLatency.Valid {
-				stats.AverageLatency = result.AvgLatency.Float64
-			}
-			if result.TotalCost.Valid {
-				stats.TotalCost = result.TotalCost.Float64
-			}
-		}
-	}
-
-	return stats, nil
-}
-
-// HasMCPToolLogs checks if there are any MCP tool logs in the database.
-func (s *RDBLogStore) HasMCPToolLogs(ctx context.Context) (bool, error) {
-	var log MCPToolLog
-	err := s.db.WithContext(ctx).Select("id").Limit(1).Take(&log).Error
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-// DeleteMCPToolLogs deletes multiple MCP tool log entries from the database by their IDs.
-func (s *RDBLogStore) DeleteMCPToolLogs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
-	}
-	if err := s.db.WithContext(ctx).Where("id IN ?", ids).Delete(&MCPToolLog{}).Error; err != nil {
-		return err
-	}
-	return nil
-}
-
-// FlushMCPToolLogs deletes old processing MCP tool log entries from the database.
-func (s *RDBLogStore) FlushMCPToolLogs(ctx context.Context, since time.Time) error {
-	result := s.db.WithContext(ctx).Where("status = ? AND created_at < ?", "processing", since).Delete(&MCPToolLog{})
-	if result.Error != nil {
-		return fmt.Errorf("failed to cleanup old processing MCP tool logs: %w", result.Error)
-	}
-	return nil
-}
-
-// GetAvailableToolNames returns all unique tool names from the MCP tool logs.
-// Scoped to recent data to avoid full table scans.
-func (s *RDBLogStore) GetAvailableToolNames(ctx context.Context, limit int, query string) ([]string, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -defaultFilterDataCutoffDays)
-	var toolNames []string
-	q := s.ScopedDB(ctx).Model(&MCPToolLog{}).
-		Where("tool_name IS NOT NULL AND tool_name != '' AND timestamp >= ?", cutoff)
-	if query != "" {
-		q = s.applyLikeFilter(q, "tool_name", query)
-	}
-	result := q.Distinct("tool_name").Limit(limit).Pluck("tool_name", &toolNames)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get available tool names: %w", result.Error)
-	}
-	return toolNames, nil
-}
-
-func (s *RDBLogStore) GetAvailableServerLabels(ctx context.Context, limit int, query string) ([]string, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -defaultFilterDataCutoffDays)
-	var serverLabels []string
-	q := s.ScopedDB(ctx).Model(&MCPToolLog{}).
-		Where("server_label IS NOT NULL AND server_label != '' AND timestamp >= ?", cutoff)
-	if query != "" {
-		q = s.applyLikeFilter(q, "server_label", query)
-	}
-	result := q.Distinct("server_label").Limit(limit).Pluck("server_label", &serverLabels)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get available server labels: %w", result.Error)
-	}
-	return serverLabels, nil
-}
-
-func (s *RDBLogStore) GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]MCPToolLog, error) {
-	cutoff := time.Now().UTC().AddDate(0, 0, -defaultFilterDataCutoffDays)
-	var logs []MCPToolLog
-	q := s.ScopedDB(ctx).
-		Model(&MCPToolLog{}).
-		Select("DISTINCT virtual_key_id, virtual_key_name").
-		Where("virtual_key_id IS NOT NULL AND virtual_key_id != '' AND virtual_key_name IS NOT NULL AND virtual_key_name != '' AND timestamp >= ?", cutoff)
-	if query != "" {
-		q = s.applyLikeFilter(q, "virtual_key_name", query)
-	}
-	result := q.Limit(limit).Find(&logs)
-	if result.Error != nil {
-		return nil, fmt.Errorf("failed to get available virtual keys from MCP logs: %w", result.Error)
-	}
-	return logs, nil
-}
-
-// GetMCPHistogram returns time-bucketed MCP tool call volume for the given filters.
-func (s *RDBLogStore) GetMCPHistogram(ctx context.Context, filters MCPToolLogSearchFilters, bucketSizeSeconds int64) (*MCPHistogramResult, error) {
-	if bucketSizeSeconds <= 0 {
-		bucketSizeSeconds = 3600
-	}
-
-	dialect := s.db.Dialector.Name()
-
-	baseQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-	baseQuery = s.applyMCPFilters(baseQuery, filters)
-	baseQuery = baseQuery.Where("status IN ?", []string{"success", "error"})
-
-	var results []struct {
-		BucketTimestamp int64 `gorm:"column:bucket_timestamp"`
-		Count           int64 `gorm:"column:count"`
-		Success         int64 `gorm:"column:success"`
-		Error           int64 `gorm:"column:error"`
-	}
-
-	var selectClause string
-	switch dialect {
-	case "sqlite":
-		selectClause = fmt.Sprintf(`
-			(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp,
-			COUNT(*) as count,
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	case "mysql":
-		selectClause = fmt.Sprintf(`
-			(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp,
-			COUNT(*) as count,
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	default:
-		selectClause = fmt.Sprintf(`
-			CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %d) * %d AS BIGINT) as bucket_timestamp,
-			COUNT(*) as count,
-			SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success,
-			SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as error
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	}
-
-	if err := baseQuery.
-		Select(selectClause).
-		Group("bucket_timestamp").
-		Order("bucket_timestamp ASC").
-		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get mcp histogram: %w", err)
-	}
-
-	resultMap := make(map[int64]struct {
-		Count   int64
-		Success int64
-		Error   int64
-	})
-	for _, r := range results {
-		resultMap[r.BucketTimestamp] = struct {
-			Count   int64
-			Success int64
-			Error   int64
-		}{Count: r.Count, Success: r.Success, Error: r.Error}
-	}
-
-	allTimestamps := generateBucketTimestamps(filters.StartTime, filters.EndTime, bucketSizeSeconds)
-
-	if len(allTimestamps) == 0 {
-		buckets := make([]MCPHistogramBucket, len(results))
-		for i, r := range results {
-			buckets[i] = MCPHistogramBucket{
-				Timestamp: time.Unix(r.BucketTimestamp, 0).UTC(),
-				Count:     r.Count,
-				Success:   r.Success,
-				Error:     r.Error,
-			}
-		}
-		return &MCPHistogramResult{Buckets: buckets, BucketSizeSeconds: bucketSizeSeconds}, nil
-	}
-
-	buckets := make([]MCPHistogramBucket, len(allTimestamps))
-	for i, ts := range allTimestamps {
-		if data, exists := resultMap[ts]; exists {
-			buckets[i] = MCPHistogramBucket{
-				Timestamp: time.Unix(ts, 0).UTC(),
-				Count:     data.Count,
-				Success:   data.Success,
-				Error:     data.Error,
-			}
-		} else {
-			buckets[i] = MCPHistogramBucket{Timestamp: time.Unix(ts, 0).UTC()}
-		}
-	}
-
-	return &MCPHistogramResult{Buckets: buckets, BucketSizeSeconds: bucketSizeSeconds}, nil
-}
-
-// GetMCPCostHistogram returns time-bucketed MCP cost data for the given filters.
-func (s *RDBLogStore) GetMCPCostHistogram(ctx context.Context, filters MCPToolLogSearchFilters, bucketSizeSeconds int64) (*MCPCostHistogramResult, error) {
-	if bucketSizeSeconds <= 0 {
-		bucketSizeSeconds = 3600
-	}
-
-	dialect := s.db.Dialector.Name()
-
-	baseQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-	baseQuery = s.applyMCPFilters(baseQuery, filters)
-	baseQuery = baseQuery.Where("status IN ?", []string{"success", "error"})
-
-	var results []struct {
-		BucketTimestamp int64   `gorm:"column:bucket_timestamp"`
-		TotalCost       float64 `gorm:"column:total_cost"`
-	}
-
-	var selectClause string
-	switch dialect {
-	case "sqlite":
-		selectClause = fmt.Sprintf(`
-			(CAST(strftime('%%s', timestamp) AS INTEGER) / %d) * %d as bucket_timestamp,
-			COALESCE(SUM(cost), 0) as total_cost
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	case "mysql":
-		selectClause = fmt.Sprintf(`
-			(FLOOR(UNIX_TIMESTAMP(timestamp) / %d) * %d) as bucket_timestamp,
-			COALESCE(SUM(cost), 0) as total_cost
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	default:
-		selectClause = fmt.Sprintf(`
-			CAST(FLOOR(EXTRACT(EPOCH FROM timestamp) / %d) * %d AS BIGINT) as bucket_timestamp,
-			COALESCE(SUM(cost), 0) as total_cost
-		`, bucketSizeSeconds, bucketSizeSeconds)
-	}
-
-	if err := baseQuery.
-		Select(selectClause).
-		Group("bucket_timestamp").
-		Order("bucket_timestamp ASC").
-		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get mcp cost histogram: %w", err)
-	}
-
-	resultMap := make(map[int64]float64)
-	for _, r := range results {
-		resultMap[r.BucketTimestamp] = r.TotalCost
-	}
-
-	allTimestamps := generateBucketTimestamps(filters.StartTime, filters.EndTime, bucketSizeSeconds)
-
-	if len(allTimestamps) == 0 {
-		buckets := make([]MCPCostHistogramBucket, len(results))
-		for i, r := range results {
-			buckets[i] = MCPCostHistogramBucket{
-				Timestamp: time.Unix(r.BucketTimestamp, 0).UTC(),
-				TotalCost: r.TotalCost,
-			}
-		}
-		return &MCPCostHistogramResult{Buckets: buckets, BucketSizeSeconds: bucketSizeSeconds}, nil
-	}
-
-	buckets := make([]MCPCostHistogramBucket, len(allTimestamps))
-	for i, ts := range allTimestamps {
-		if cost, exists := resultMap[ts]; exists {
-			buckets[i] = MCPCostHistogramBucket{
-				Timestamp: time.Unix(ts, 0).UTC(),
-				TotalCost: cost,
-			}
-		} else {
-			buckets[i] = MCPCostHistogramBucket{Timestamp: time.Unix(ts, 0).UTC()}
-		}
-	}
-
-	return &MCPCostHistogramResult{Buckets: buckets, BucketSizeSeconds: bucketSizeSeconds}, nil
-}
-
-// GetMCPTopTools returns the top N MCP tools by call count for the given filters.
-func (s *RDBLogStore) GetMCPTopTools(ctx context.Context, filters MCPToolLogSearchFilters, limit int) (*MCPTopToolsResult, error) {
-	if limit <= 0 {
-		limit = 10
-	}
-
-	baseQuery := s.ScopedDB(ctx).Model(&MCPToolLog{})
-	baseQuery = s.applyMCPFilters(baseQuery, filters)
-	baseQuery = baseQuery.Where("status IN ?", []string{"success", "error"})
-
-	var results []struct {
-		ToolName string  `gorm:"column:tool_name"`
-		Count    int64   `gorm:"column:count"`
-		Cost     float64 `gorm:"column:cost"`
-	}
-
-	if err := baseQuery.
-		Select("tool_name, COUNT(*) as count, COALESCE(SUM(cost), 0) as cost").
-		Group("tool_name").
-		Order("count DESC").
-		Limit(limit).
-		Find(&results).Error; err != nil {
-		return nil, fmt.Errorf("failed to get mcp top tools: %w", err)
-	}
-
-	tools := make([]MCPTopToolResult, len(results))
-	for i, r := range results {
-		tools[i] = MCPTopToolResult{
-			ToolName: r.ToolName,
-			Count:    r.Count,
-			Cost:     r.Cost,
-		}
-	}
-
-	return &MCPTopToolsResult{Tools: tools}, nil
-}
-
-// CreateAsyncJob creates a new async job record in the database.
-func (s *RDBLogStore) CreateAsyncJob(ctx context.Context, job *AsyncJob) error {
-	return s.db.WithContext(ctx).Create(job).Error
-}
-
-// FindAsyncJobByID retrieves an async job by its ID.
-func (s *RDBLogStore) FindAsyncJobByID(ctx context.Context, id string) (*AsyncJob, error) {
-	var job AsyncJob
-	result := s.db.WithContext(ctx).Where("id = ? AND (expires_at IS NULL OR expires_at > ?)", id, time.Now().UTC()).First(&job)
-	if result.Error != nil {
-		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			return nil, ErrNotFound
-		}
-		return nil, result.Error
-	}
-	return &job, nil
-}
-
-// UpdateAsyncJob updates an async job record with the provided fields.
-func (s *RDBLogStore) UpdateAsyncJob(ctx context.Context, id string, updates map[string]interface{}) error {
-	return s.db.WithContext(ctx).Model(&AsyncJob{}).Where("id = ?", id).Updates(updates).Error
-}
-
-// DeleteExpiredAsyncJobs deletes async jobs whose expires_at has passed.
-// Only deletes jobs that have a non-null expires_at (i.e., completed or failed jobs).
-// Deletes in batches to avoid long-running transactions that hold row locks.
-func (s *RDBLogStore) DeleteExpiredAsyncJobs(ctx context.Context) (int64, error) {
-	now := time.Now().UTC()
-	const batchLimit = 100
-	var totalDeleted int64
-	for {
-		result := s.db.WithContext(ctx).
-			Where("id IN (?)",
-				s.db.Model(&AsyncJob{}).Select("id").
-					Where("expires_at IS NOT NULL AND expires_at < ?", now).
-					Limit(batchLimit),
-			).Delete(&AsyncJob{})
-		if result.Error != nil {
-			return totalDeleted, result.Error
-		}
-		totalDeleted += result.RowsAffected
-		if result.RowsAffected < batchLimit {
-			break
-		}
-	}
-	return totalDeleted, nil
-}
-
-// DeleteStaleAsyncJobs deletes async jobs stuck in "processing" status since before the given time.
-// This handles edge cases like marshal failures or server crashes that leave jobs permanently stuck.
-func (s *RDBLogStore) DeleteStaleAsyncJobs(ctx context.Context, staleSince time.Time) (int64, error) {
-	result := s.db.WithContext(ctx).
-		Where("status = ? AND created_at < ?", "processing", staleSince).
-		Delete(&AsyncJob{})
-	return result.RowsAffected, result.Error
 }

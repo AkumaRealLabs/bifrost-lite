@@ -58,7 +58,7 @@ type NetworkConfig struct {
 	RetryBackoffInitial            time.Duration     `json:"retry_backoff_initial"`                    // Initial backoff duration (stored as nanoseconds, JSON as milliseconds)
 	RetryBackoffMax                time.Duration     `json:"retry_backoff_max"`                        // Maximum backoff duration (stored as nanoseconds, JSON as milliseconds)
 	InsecureSkipVerify             bool              `json:"insecure_skip_verify,omitempty"`           // Disables TLS certificate verification for provider connections
-	CACertPEM                      *SecretVar           `json:"ca_cert_pem,omitempty"`                    // PEM-encoded CA certificate to trust for provider endpoint connections (supports env.*)
+	CACertPEM                      *SecretVar        `json:"ca_cert_pem,omitempty"`                    // PEM-encoded CA certificate to trust for provider endpoint connections (supports env.*)
 	StreamIdleTimeoutInSeconds     int               `json:"stream_idle_timeout_in_seconds,omitempty"` // Idle timeout per stream chunk (0 = use default 60s)
 	MaxConnsPerHost                int               `json:"max_conns_per_host,omitempty"`             // Max TCP connections per provider host (default: 5000)
 	EnforceHTTP2                   bool              `json:"enforce_http2,omitempty"`                  // Force HTTP/2 on provider connections (relevant for net/http-based providers like Bedrock)
@@ -82,7 +82,7 @@ func (nc *NetworkConfig) UnmarshalJSON(data []byte) error {
 		RetryBackoffInitial            json.RawMessage   `json:"retry_backoff_initial"` // string ("500ms") or int (milliseconds)
 		RetryBackoffMax                json.RawMessage   `json:"retry_backoff_max"`     // string ("5s") or int (milliseconds)
 		InsecureSkipVerify             bool              `json:"insecure_skip_verify,omitempty"`
-		CACertPEM                      *SecretVar           `json:"ca_cert_pem,omitempty"`
+		CACertPEM                      *SecretVar        `json:"ca_cert_pem,omitempty"`
 		StreamIdleTimeoutInSeconds     int               `json:"stream_idle_timeout_in_seconds,omitempty"`
 		MaxConnsPerHost                int               `json:"max_conns_per_host,omitempty"`
 		EnforceHTTP2                   bool              `json:"enforce_http2,omitempty"`
@@ -237,80 +237,6 @@ var DefaultConcurrencyAndBufferSize = ConcurrencyAndBufferSize{
 	BufferSize:  DefaultBufferSize,
 }
 
-// ProxyType defines the type of proxy to use for connections.
-type ProxyType string
-
-const (
-	// NoProxy indicates no proxy should be used
-	NoProxy ProxyType = "none"
-	// HTTPProxy indicates an HTTP proxy should be used
-	HTTPProxy ProxyType = "http"
-	// Socks5Proxy indicates a SOCKS5 proxy should be used
-	Socks5Proxy ProxyType = "socks5"
-	// EnvProxy indicates the proxy should be read from environment variables
-	EnvProxy ProxyType = "environment"
-)
-
-// ProxyConfig holds the configuration for proxy settings.
-type ProxyConfig struct {
-	Type      ProxyType `json:"type"`        // Type of proxy to use
-	URL       *SecretVar   `json:"url"`         // URL of the proxy server (supports env.*)
-	Username  *SecretVar   `json:"username"`    // Username for proxy authentication (supports env.*)
-	Password  *SecretVar   `json:"password"`    // Password for proxy authentication (supports env.*)
-	CACertPEM *SecretVar   `json:"ca_cert_pem"` // PEM-encoded CA certificate to trust for TLS connections through the proxy (supports env.*)
-}
-
-// MarshalForStorage serializes proxy settings for persistence (e.g. proxy_config_json).
-// SecretVar fields are stored as plain strings (env.* token or literal). For HTTP API responses
-// use json.Marshal on *ProxyConfig so clients receive value/env_var/from_env objects.
-func (pc *ProxyConfig) MarshalForStorage() ([]byte, error) {
-	if pc == nil {
-		return []byte("null"), nil
-	}
-	type proxyConfigStorage struct {
-		Type      ProxyType `json:"type"`
-		URL       string    `json:"url,omitempty"`
-		Username  string    `json:"username,omitempty"`
-		Password  string    `json:"password,omitempty"`
-		CACertPEM string    `json:"ca_cert_pem,omitempty"`
-	}
-	alias := proxyConfigStorage{Type: pc.Type}
-	if pc.URL != nil {
-		alias.URL = SecretVarAsString(pc.URL)
-	}
-	if pc.Username != nil {
-		alias.Username = SecretVarAsString(pc.Username)
-	}
-	if pc.Password != nil {
-		alias.Password = SecretVarAsString(pc.Password)
-	}
-	if pc.CACertPEM != nil {
-		alias.CACertPEM = SecretVarAsString(pc.CACertPEM)
-	}
-	return json.Marshal(alias)
-}
-
-// Redacted returns a redacted copy of the proxy configuration.
-func (pc *ProxyConfig) Redacted() *ProxyConfig {
-	if pc == nil {
-		return nil
-	}
-	redactedConfig := ProxyConfig{Type: pc.Type}
-	if pc.CACertPEM != nil && pc.CACertPEM.IsSet() {
-		redactedConfig.CACertPEM = pc.CACertPEM.FullyRedacted()
-	}
-	if pc.URL != nil && pc.URL.IsSet() {
-		redactedConfig.URL = pc.URL.Redacted()
-	}
-	if pc.Username != nil && pc.Username.IsSet() {
-		redactedConfig.Username = pc.Username.Redacted()
-	}
-	if pc.Password != nil && pc.Password.IsSet() {
-		redactedConfig.Password = pc.Password.FullyRedacted()
-	}
-	return &redactedConfig
-}
-
 // AllowedRequests controls which operations are permitted.
 // A nil *AllowedRequests means "all operations allowed."
 // A non-nil value only allows fields set to true; omitted or false fields are disallowed.
@@ -335,7 +261,6 @@ type AllowedRequests struct {
 	ImageGenerationStream bool `json:"image_generation_stream"`
 	ImageEdit             bool `json:"image_edit"`
 	ImageEditStream       bool `json:"image_edit_stream"`
-	ImageVariation        bool `json:"image_variation"`
 	VideoGeneration       bool `json:"video_generation"`
 	VideoRetrieve         bool `json:"video_retrieve"`
 	VideoDownload         bool `json:"video_download"`
@@ -364,8 +289,6 @@ type AllowedRequests struct {
 	ContainerFileDelete   bool `json:"container_file_delete"`
 	Passthrough           bool `json:"passthrough"`
 	PassthroughStream     bool `json:"passthrough_stream"`
-	WebSocketResponses    bool `json:"websocket_responses"`
-	Realtime              bool `json:"realtime"`
 	CachedContentCreate   bool `json:"cached_content_create"`
 	CachedContentList     bool `json:"cached_content_list"`
 	CachedContentRetrieve bool `json:"cached_content_retrieve"`
@@ -420,8 +343,6 @@ func (ar *AllowedRequests) IsOperationAllowed(operation RequestType) bool {
 		return ar.ImageEdit
 	case ImageEditStreamRequest:
 		return ar.ImageEditStream
-	case ImageVariationRequest:
-		return ar.ImageVariation
 	case VideoGenerationRequest:
 		return ar.VideoGeneration
 	case VideoRetrieveRequest:
@@ -478,10 +399,6 @@ func (ar *AllowedRequests) IsOperationAllowed(operation RequestType) bool {
 		return ar.Passthrough
 	case PassthroughStreamRequest:
 		return ar.PassthroughStream
-	case WebSocketResponsesRequest:
-		return ar.WebSocketResponses
-	case RealtimeRequest:
-		return ar.Realtime
 	case CachedContentCreateRequest:
 		return ar.CachedContentCreate
 	case CachedContentListRequest:
@@ -521,7 +438,6 @@ type ProviderConfig struct {
 	ConcurrencyAndBufferSize ConcurrencyAndBufferSize `json:"concurrency_and_buffer_size"` // Concurrency settings
 	// Logger instance, can be provided by the user or bifrost default logger is used if not provided
 	Logger                  Logger                `json:"-"`
-	ProxyConfig             *ProxyConfig          `json:"proxy_config,omitempty"`     // Proxy configuration
 	SendBackRawRequest      bool                  `json:"send_back_raw_request"`      // Send raw request back in the bifrost response (default: false)
 	SendBackRawResponse     bool                  `json:"send_back_raw_response"`     // Send raw response back in the bifrost response (default: false)
 	StoreRawRequestResponse bool                  `json:"store_raw_request_response"` // Capture raw request/response for internal logging only; strip from API responses returned to clients (default: false)
@@ -636,8 +552,6 @@ type Provider interface {
 	// ImageEditStream performs an image edit stream request
 	ImageEditStream(ctx *BifrostContext, postHookRunner PostHookRunner, postHookSpanFinalizer func(context.Context), key Key,
 		request *BifrostImageEditRequest) (chan *BifrostStreamChunk, *BifrostError)
-	// ImageVariation performs an image variation request
-	ImageVariation(ctx *BifrostContext, key Key, request *BifrostImageVariationRequest) (*BifrostImageGenerationResponse, *BifrostError)
 	// VideoGeneration performs a video generation request
 	VideoGeneration(ctx *BifrostContext, key Key, request *BifrostVideoGenerationRequest) (*BifrostVideoGenerationResponse, *BifrostError)
 	// VideoRetrieve retrieves a video from the provider
@@ -704,18 +618,4 @@ type Provider interface {
 	Passthrough(ctx *BifrostContext, key Key, req *BifrostPassthroughRequest) (*BifrostPassthroughResponse, *BifrostError)
 	// PassthroughStream executes a streaming passthrough, forwarding raw response bytes as BifrostStreamChunks.
 	PassthroughStream(ctx *BifrostContext, postHookRunner PostHookRunner, postHookSpanFinalizer func(context.Context), key Key, req *BifrostPassthroughRequest) (chan *BifrostStreamChunk, *BifrostError)
-}
-
-// WebSocketCapableProvider is an optional interface that providers can implement
-// to indicate support for the OpenAI Responses API WebSocket Mode.
-// Checked via type assertion: provider.(WebSocketCapableProvider).
-// Providers that implement this interface will have native WS upstream connections
-// instead of the HTTP bridge fallback for Responses WS mode.
-type WebSocketCapableProvider interface {
-	// SupportsWebSocketMode returns true if the provider supports the Responses API WebSocket Mode.
-	SupportsWebSocketMode() bool
-	// WebSocketResponsesURL returns the WebSocket URL for the Responses API.
-	WebSocketResponsesURL(key Key) string
-	// WebSocketHeaders returns the headers required for the upstream WebSocket connection.
-	WebSocketHeaders(key Key) map[string]string
 }

@@ -8,22 +8,22 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 )
 
-type testRealtimeObservabilityPlugin struct {
+type testFlushObservabilityPlugin struct {
 	injected chan *schemas.Trace
 }
 
-func (p *testRealtimeObservabilityPlugin) GetName() string { return "test-observability" }
-func (p *testRealtimeObservabilityPlugin) Cleanup() error  { return nil }
-func (p *testRealtimeObservabilityPlugin) PreRequestHook(_ *schemas.BifrostContext, _ *schemas.BifrostRequest) error {
+func (p *testFlushObservabilityPlugin) GetName() string { return "test-observability" }
+func (p *testFlushObservabilityPlugin) Cleanup() error  { return nil }
+func (p *testFlushObservabilityPlugin) PreRequestHook(_ *schemas.BifrostContext, _ *schemas.BifrostRequest) error {
 	return nil
 }
-func (p *testRealtimeObservabilityPlugin) PreLLMHook(_ *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
+func (p *testFlushObservabilityPlugin) PreLLMHook(_ *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error) {
 	return req, nil, nil
 }
-func (p *testRealtimeObservabilityPlugin) PostLLMHook(_ *schemas.BifrostContext, resp *schemas.BifrostResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError, error) {
+func (p *testFlushObservabilityPlugin) PostLLMHook(_ *schemas.BifrostContext, resp *schemas.BifrostResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError, error) {
 	return resp, bifrostErr, nil
 }
-func (p *testRealtimeObservabilityPlugin) Inject(_ context.Context, trace *schemas.Trace) error {
+func (p *testFlushObservabilityPlugin) Inject(_ context.Context, trace *schemas.Trace) error {
 	if trace == nil {
 		p.injected <- nil
 		return nil
@@ -41,7 +41,7 @@ func TestTracer_CompleteAndFlushTraceInjectsObservabilityPlugins(t *testing.T) {
 	defer tracer.Stop()
 
 	traceID := tracer.CreateTrace("")
-	plugin := &testRealtimeObservabilityPlugin{
+	plugin := &testFlushObservabilityPlugin{
 		injected: make(chan *schemas.Trace, 1),
 	}
 

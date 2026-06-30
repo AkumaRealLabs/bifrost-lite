@@ -47,16 +47,9 @@ export const sessionApi = baseApi.injectEndpoints({
 					url: "/session/logout",
 					method: "POST",
 				});
-
-				const oauthLogout = await baseQuery({
-					url: "/scim/oauth/logout",
-					method: "POST",
-				});
-
-				if (passwordLogout.error && oauthLogout.error) {
-					return { error: oauthLogout.error };
+				if (passwordLogout.error) {
+					return { error: passwordLogout.error };
 				}
-
 				return { data: { message: "Logout successful" } };
 			},
 			// After logout, clear token and all cached data
@@ -69,7 +62,7 @@ export const sessionApi = baseApi.injectEndpoints({
 					dispatch(baseApi.util.resetApiState());
 				}
 			},
-			invalidatesTags: ["Sessions", "Config", "Providers", "Logs", "VirtualKeys", "Teams", "Customers", "Budgets", "RateLimits"],
+			invalidatesTags: ["Sessions", "Config", "Providers", "Logs", "VirtualKeys"],
 		}),
 	}),
 });

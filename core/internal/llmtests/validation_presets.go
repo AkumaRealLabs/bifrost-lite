@@ -380,7 +380,7 @@ func GetExpectationsForScenario(scenarioName string, testConfig ComprehensiveTes
 		}
 		expectations = ImageGenerationExpectations(1, "1024x1024")
 
-	case "ImageEdit", "ImageVariation":
+	case "ImageEdit":
 		// Reuse image generation expectations since they use the same response structure
 		if minImages, ok := customParams["min_images"].(int); ok {
 			if expectedSize, ok := customParams["expected_size"].(string); ok {
@@ -398,8 +398,7 @@ func GetExpectationsForScenario(scenarioName string, testConfig ComprehensiveTes
 	// Apply raw request/response expectations from test config
 	isStreaming := strings.HasSuffix(scenarioName, "Stream") || strings.HasSuffix(scenarioName, "Streaming")
 	isMultipartRequest := scenarioName == "Transcription" || scenarioName == "TranscriptionStream" ||
-		scenarioName == "ImageEdit" || scenarioName == "ImageEditStream" ||
-		scenarioName == "ImageVariation"
+		scenarioName == "ImageEdit" || scenarioName == "ImageEditStream"
 	// Skip raw request/response for CountTokens - not all providers support it uniformly
 	if scenarioName != "CountTokens" {
 		expectations = ApplyRawExpectations(expectations, testConfig, isStreaming, isMultipartRequest)

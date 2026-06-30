@@ -17,10 +17,10 @@ import {
 	ProviderTokenHistogramResponse,
 	RankingDimension,
 	RecalculateCostResponse,
+	TTFBStatsResponse,
 	TokenHistogramResponse,
 } from "@/lib/types/logs";
 import { baseApi } from "./baseApi";
-import { RoutingRule } from "@/lib/types/routingRules";
 
 // Helper function to build filter params
 function buildFilterParams(filters: LogFilters): Record<string, string | number> {
@@ -50,12 +50,6 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	if (filters.virtual_key_ids && filters.virtual_key_ids.length > 0) {
 		params.virtual_key_ids = filters.virtual_key_ids.join(",");
 	}
-	if (filters.routing_rule_ids && filters.routing_rule_ids.length > 0) {
-		params.routing_rule_ids = filters.routing_rule_ids.join(",");
-	}
-	if (filters.routing_engine_used && filters.routing_engine_used.length > 0) {
-		params.routing_engine_used = filters.routing_engine_used.join(",");
-	}
 	if (filters.stop_reasons && filters.stop_reasons.length > 0) {
 		params.stop_reasons = filters.stop_reasons.join(",");
 	}
@@ -67,24 +61,14 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	}
 	if (filters.min_latency !== undefined) params.min_latency = filters.min_latency;
 	if (filters.max_latency !== undefined) params.max_latency = filters.max_latency;
+	if (filters.min_ttfb_ms !== undefined) params.min_ttfb_ms = filters.min_ttfb_ms;
+	if (filters.max_ttfb_ms !== undefined) params.max_ttfb_ms = filters.max_ttfb_ms;
 	if (filters.min_tokens !== undefined) params.min_tokens = filters.min_tokens;
 	if (filters.max_tokens !== undefined) params.max_tokens = filters.max_tokens;
 	if (filters.missing_cost_only) params.missing_cost_only = "true";
-	if (filters.cache_hit_types && filters.cache_hit_types.length > 0) {
-		params.cache_hit_types = filters.cache_hit_types.join(",");
-	}
 	if (filters.content_search) params.content_search = filters.content_search;
 	if (filters.user_ids && filters.user_ids.length > 0) {
 		params.user_ids = filters.user_ids.join(",");
-	}
-	if (filters.team_ids && filters.team_ids.length > 0) {
-		params.team_ids = filters.team_ids.join(",");
-	}
-	if (filters.customer_ids && filters.customer_ids.length > 0) {
-		params.customer_ids = filters.customer_ids.join(",");
-	}
-	if (filters.business_unit_ids && filters.business_unit_ids.length > 0) {
-		params.business_unit_ids = filters.business_unit_ids.join(",");
 	}
 	if (filters.metadata_filters) {
 		for (const [key, value] of Object.entries(filters.metadata_filters)) {
@@ -232,6 +216,20 @@ export const logsApi = baseApi.injectEndpoints({
 			providesTags: ["Logs"],
 		}),
 
+		// Get streaming TTFB histogram with percentiles
+		getLogsTTFBHistogram: builder.query<
+			LatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttfb",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
 		// Get provider cost histogram with provider breakdown
 		getLogsProviderCostHistogram: builder.query<
 			ProviderCostHistogramResponse,
@@ -270,6 +268,39 @@ export const logsApi = baseApi.injectEndpoints({
 			query: ({ filters }) => ({
 				url: "/logs/histogram/latency/by-provider",
 				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
+		// Get provider streaming TTFB histogram with provider breakdown
+		getLogsProviderTTFBHistogram: builder.query<
+			ProviderLatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttfb/by-provider",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
+		getLogsTTFBStats: builder.query<
+			TTFBStatsResponse,
+			{
+				filters: LogFilters;
+				window_seconds?: number;
+				min_samples?: number;
+			}
+		>({
+			query: ({ filters, window_seconds, min_samples }) => ({
+				url: "/logs/ttfb/stats",
+				params: {
+					...buildFilterParams(filters),
+					...(window_seconds ? { window_seconds } : {}),
+					...(min_samples ? { min_samples } : {}),
+				},
 			}),
 			providesTags: ["Logs"],
 		}),
@@ -318,13 +349,8 @@ export const logsApi = baseApi.injectEndpoints({
 				aliases?: string[];
 				selected_keys?: RedactedDBKey[];
 				virtual_keys?: VirtualKey[];
-				routing_rules?: RoutingRule[];
-				routing_engines?: string[];
 				stop_reasons?: string[];
-				teams?: { id: string; name: string }[];
-				customers?: { id: string; name: string }[];
 				users?: { id: string; name: string }[];
-				business_units?: { id: string; name: string }[];
 				metadata_keys?: Record<string, string[]>;
 			},
 			{ dimensions?: string[]; q?: string } | void
@@ -380,9 +406,12 @@ export const {
 	useGetLogsCostHistogramQuery,
 	useGetLogsModelHistogramQuery,
 	useGetLogsLatencyHistogramQuery,
+	useGetLogsTTFBHistogramQuery,
 	useGetLogsProviderCostHistogramQuery,
 	useGetLogsProviderTokenHistogramQuery,
 	useGetLogsProviderLatencyHistogramQuery,
+	useGetLogsProviderTTFBHistogramQuery,
+	useGetLogsTTFBStatsQuery,
 	useGetLogSessionSummaryByIdQuery,
 	useGetDroppedRequestsQuery,
 	useGetAvailableFilterDataQuery,
@@ -394,9 +423,12 @@ export const {
 	useLazyGetLogsCostHistogramQuery,
 	useLazyGetLogsModelHistogramQuery,
 	useLazyGetLogsLatencyHistogramQuery,
+	useLazyGetLogsTTFBHistogramQuery,
 	useLazyGetLogsProviderCostHistogramQuery,
 	useLazyGetLogsProviderTokenHistogramQuery,
 	useLazyGetLogsProviderLatencyHistogramQuery,
+	useLazyGetLogsProviderTTFBHistogramQuery,
+	useLazyGetLogsTTFBStatsQuery,
 	useGetModelRankingsQuery,
 	useGetDimensionRankingsQuery,
 	useLazyGetModelRankingsQuery,

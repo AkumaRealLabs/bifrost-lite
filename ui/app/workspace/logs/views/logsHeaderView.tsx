@@ -82,8 +82,8 @@ export function LogsHeaderView({
 			await fetchLogs();
 			await fetchStats();
 			setOpenMoreActionsPopover(false);
-			toast.success(`Recalculated costs for ${response.updated} logs`, {
-				description: `${response.updated} logs updated, ${response.skipped} logs skipped, ${response.remaining} logs remaining`,
+			toast.success(`已为 ${response.updated} 条日志重算成本`, {
+				description: `已更新 ${response.updated} 条，跳过 ${response.skipped} 条，剩余 ${response.remaining} 条`,
 				duration: 5000,
 			});
 		} catch (err) {
@@ -117,7 +117,7 @@ export function LogsHeaderView({
 				disabled={loading}
 			>
 				<RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-				Refresh
+				刷新
 			</Button>
 			<Button
 				data-testid="logs-live-btn"
@@ -127,14 +127,14 @@ export function LogsHeaderView({
 				onClick={() => onPollToggle(!polling)}
 			>
 				{polling ? <Radio className="h-4 w-4 animate-pulse" /> : <Radio className="h-4 w-4" />}
-				Live
+				实时
 			</Button>
 			<div className="border-input flex h-7.5 flex-1 items-center gap-2 rounded-sm border">
 				<Search className="mr-0.5 ml-2 size-4" />
 				<Input
 					type="text"
 					className="!h-7 rounded-tl-none rounded-tr-sm rounded-br-sm rounded-bl-none border-none bg-slate-50 shadow-none outline-none focus-visible:ring-0"
-					placeholder="Search logs"
+					placeholder="搜索日志"
 					value={localSearch}
 					onChange={(e) => handleSearchChange(e.target.value)}
 				/>
@@ -174,8 +174,8 @@ export function LogsHeaderView({
 							<CommandItem className="hover:bg-accent/50 cursor-pointer" onSelect={handleRecalculateCosts}>
 								<Calculator className="text-muted-foreground size-4" />
 								<div className="flex flex-col">
-									<span className="text-sm">Recalculate costs</span>
-									<span className="text-muted-foreground text-xs">For all logs that don't have a cost</span>
+									<span className="text-sm">重算成本</span>
+									<span className="text-muted-foreground text-xs">仅处理缺失成本的日志</span>
 								</div>
 							</CommandItem>
 						</CommandList>

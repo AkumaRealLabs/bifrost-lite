@@ -2,7 +2,6 @@ package logging
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +11,7 @@ import (
 	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/framework/modelcatalog/datasheet"
+	"github.com/maximhq/bifrost/framework/streaming"
 )
 
 type testLogger struct{}
@@ -46,7 +46,7 @@ func newTestStore(t *testing.T) logstore.LogStore {
 func TestPostLLMHookNoPendingErrorPreservesMetadata(t *testing.T) {
 	store := newTestStore(t)
 	loggingHeaders := []string{"x-custom-log"}
-	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -60,7 +60,6 @@ func TestPostLLMHookNoPendingErrorPreservesMetadata(t *testing.T) {
 	ctx.SetValue(schemas.BifrostContextKeyDimensions, map[string]string{
 		"region": "us-east",
 	})
-	ctx.SetValue(schemas.BifrostIsAsyncRequest, true)
 
 	statusCode := 500
 	bifrostErr := &schemas.BifrostError{
@@ -102,15 +101,12 @@ func TestPostLLMHookNoPendingErrorPreservesMetadata(t *testing.T) {
 	if got := logEntry.MetadataParsed["region"]; got != "us-east" {
 		t.Fatalf("expected dimension metadata us-east, got %#v", got)
 	}
-	if got := logEntry.MetadataParsed["isAsyncRequest"]; got != true {
-		t.Fatalf("expected async metadata true, got %#v", got)
-	}
 }
 
 func TestPostLLMHookStreamingErrorPreservesHeaderMetadata(t *testing.T) {
 	store := newTestStore(t)
 	loggingHeaders := []string{"x-custom-log"}
-	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{LoggingHeaders: &loggingHeaders}, testLogger{}, store, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -205,7 +201,7 @@ func TestPostLLMHookCancelledStreamLogsCost(t *testing.T) {
 	}
 	pricingManager := modelcatalog.NewTestCatalogWithDatasheet(ds)
 
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, pricingManager, nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, pricingManager)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -295,7 +291,7 @@ func newTestPricingManager(t *testing.T) *modelcatalog.ModelCatalog {
 // already-parsed token counters must be left untouched (not double-applied).
 func TestApplyErrorBillingFromBilledUsage_ComputesCostWhenTokensAlreadyParsed(t *testing.T) {
 	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, newTestPricingManager(t), nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, newTestPricingManager(t))
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -336,7 +332,7 @@ func TestApplyErrorBillingFromBilledUsage_ComputesCostWhenTokensAlreadyParsed(t 
 // backfilled from BilledUsage.
 func TestApplyErrorBillingFromBilledUsage_FillsTokensAndCostWhenUnparsed(t *testing.T) {
 	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, newTestPricingManager(t), nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, newTestPricingManager(t))
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -382,183 +378,6 @@ func TestBuildInitialLogEntryPreservesMetadata(t *testing.T) {
 	}
 }
 
-// TestMCPHooksDeferDBWriteUntilPostHookBatch verifies MCP logs are kept in
-// memory after PreMCPHook and persisted by the batch writer after PostMCPHook.
-func TestMCPHooksDeferDBWriteUntilPostHookBatch(t *testing.T) {
-	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-
-	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	ctx.SetValue(schemas.BifrostContextKeyRequestID, "req-mcp-batch")
-	ctx.SetValue(schemas.BifrostContextKeyMCPLogID, "mcp-batch-flow")
-	ctx.SetValue(schemas.BifrostContextKeyUserID, "user-1")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceTeamID, "team-1")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerID, "customer-1")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceBusinessUnitID, "bu-1")
-
-	toolName := "docs-search"
-	_, _, err = plugin.PreMCPHook(ctx, &schemas.BifrostMCPRequest{
-		RequestType: schemas.MCPRequestTypeChatToolCall,
-		ChatAssistantMessageToolCall: &schemas.ChatAssistantMessageToolCall{
-			Function: schemas.ChatAssistantMessageToolCallFunction{
-				Name:      &toolName,
-				Arguments: `{"query":"find this"}`,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("PreMCPHook() error = %v", err)
-	}
-
-	if _, err := store.FindMCPToolLog(context.Background(), "mcp-batch-flow"); !errors.Is(err, logstore.ErrNotFound) {
-		t.Fatalf("expected MCP log to stay in memory before PostMCPHook, got err=%v", err)
-	}
-
-	result := `{"answer":"done"}`
-	_, _, err = plugin.PostMCPHook(ctx, &schemas.BifrostMCPResponse{
-		ChatMessage: &schemas.ChatMessage{
-			Role:    schemas.ChatMessageRoleTool,
-			Content: &schemas.ChatMessageContent{ContentStr: &result},
-		},
-		ExtraFields: schemas.BifrostMCPResponseExtraFields{
-			MCPRequestType: schemas.MCPRequestTypeChatToolCall,
-			ClientName:     "docs",
-			ToolName:       "search",
-			Latency:        42,
-		},
-	}, nil)
-	if err != nil {
-		t.Fatalf("PostMCPHook() error = %v", err)
-	}
-
-	if err := plugin.Cleanup(); err != nil {
-		t.Fatalf("Cleanup() error = %v", err)
-	}
-
-	logEntry, err := store.FindMCPToolLog(context.Background(), "mcp-batch-flow")
-	if err != nil {
-		t.Fatalf("FindMCPToolLog() error = %v", err)
-	}
-	if logEntry.Status != "success" {
-		t.Fatalf("expected status success, got %q", logEntry.Status)
-	}
-	if logEntry.ArgumentsParsed == nil {
-		t.Fatalf("expected arguments to be persisted")
-	}
-	resultMap, ok := logEntry.ResultParsed.(map[string]interface{})
-	if !ok || resultMap["answer"] != "done" {
-		t.Fatalf("expected parsed result to be persisted, got %#v", logEntry.ResultParsed)
-	}
-	if logEntry.Latency == nil || *logEntry.Latency != 42 {
-		t.Fatalf("expected latency 42, got %#v", logEntry.Latency)
-	}
-	assertMCPLogGovernanceFields(t, logEntry, "user-1", "team-1", "customer-1", "bu-1")
-}
-
-// TestPostMCPHookFallbackStampsGovernanceFields verifies fallback MCP logs
-// created without a pending pre-hook entry still carry DAC ownership fields.
-func TestPostMCPHookFallbackStampsGovernanceFields(t *testing.T) {
-	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-
-	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	ctx.SetValue(schemas.BifrostContextKeyRequestID, "req-mcp-fallback")
-	ctx.SetValue(schemas.BifrostContextKeyMCPLogID, "mcp-fallback-flow")
-	ctx.SetValue(schemas.BifrostContextKeyUserID, "user-fallback")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceTeamID, "team-fallback")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerID, "customer-fallback")
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceBusinessUnitID, "bu-fallback")
-
-	result := `{"answer":"fallback"}`
-	_, _, err = plugin.PostMCPHook(ctx, &schemas.BifrostMCPResponse{
-		ChatMessage: &schemas.ChatMessage{
-			Role:    schemas.ChatMessageRoleTool,
-			Content: &schemas.ChatMessageContent{ContentStr: &result},
-		},
-		ExtraFields: schemas.BifrostMCPResponseExtraFields{
-			MCPRequestType: schemas.MCPRequestTypeChatToolCall,
-			ClientName:     "docs",
-			ToolName:       "search",
-			Latency:        7,
-		},
-	}, nil)
-	if err != nil {
-		t.Fatalf("PostMCPHook() error = %v", err)
-	}
-
-	if err := plugin.Cleanup(); err != nil {
-		t.Fatalf("Cleanup() error = %v", err)
-	}
-
-	logEntry, err := store.FindMCPToolLog(context.Background(), "mcp-fallback-flow")
-	if err != nil {
-		t.Fatalf("FindMCPToolLog() error = %v", err)
-	}
-	assertMCPLogGovernanceFields(t, logEntry, "user-fallback", "team-fallback", "customer-fallback", "bu-fallback")
-}
-
-// TestCleanupStalePendingMCPLogsPersistsErrorFallback verifies stale pending
-// MCP logs are committed as terminal errors instead of being silently dropped.
-func TestCleanupStalePendingMCPLogsPersistsErrorFallback(t *testing.T) {
-	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-
-	staleCreatedAt := time.Now().Add(-pendingLogTTL - time.Minute)
-	plugin.pendingMCPLogsToInject.Store("mcp-stale", &logstore.MCPToolLog{
-		ID:          "mcp-stale",
-		RequestID:   "req-stale",
-		Timestamp:   staleCreatedAt,
-		ToolName:    "search",
-		ServerLabel: "docs",
-		Status:      "processing",
-		CreatedAt:   staleCreatedAt,
-		ArgumentsParsed: map[string]interface{}{
-			"query": "stale input",
-		},
-	})
-
-	plugin.cleanupStalePendingLogs()
-
-	if _, ok := plugin.pendingMCPLogsToInject.Load("mcp-stale"); ok {
-		t.Fatal("expected stale MCP pending log to be removed from memory")
-	}
-	if _, err := store.FindMCPToolLog(context.Background(), "mcp-stale"); !errors.Is(err, logstore.ErrNotFound) {
-		t.Fatalf("expected stale MCP log to be queued before batch flush, got err=%v", err)
-	}
-	if err := plugin.Cleanup(); err != nil {
-		t.Fatalf("Cleanup() error = %v", err)
-	}
-
-	logEntry, err := store.FindMCPToolLog(context.Background(), "mcp-stale")
-	if err != nil {
-		t.Fatalf("FindMCPToolLog() error = %v", err)
-	}
-	if logEntry.Status != "error" {
-		t.Fatalf("expected status error, got %q", logEntry.Status)
-	}
-	if logEntry.ArgumentsParsed == nil {
-		t.Fatal("expected stale MCP input arguments to be persisted")
-	}
-	if logEntry.ResultParsed != nil || logEntry.Result != "" {
-		t.Fatalf("expected stale MCP log to have no result, got parsed=%#v raw=%q", logEntry.ResultParsed, logEntry.Result)
-	}
-	if logEntry.ErrorDetailsParsed == nil || logEntry.ErrorDetailsParsed.Error == nil {
-		t.Fatalf("expected stale MCP error details, got %#v", logEntry.ErrorDetailsParsed)
-	}
-	if !strings.Contains(logEntry.ErrorDetailsParsed.Error.Message, "pending log TTL") {
-		t.Fatalf("expected stale MCP timeout message, got %q", logEntry.ErrorDetailsParsed.Error.Message)
-	}
-}
-
 // TestActiveStreamSurvivesCleanup is the regression test for the prod issue where
 // streaming requests running longer than the pending TTL had their in-memory
 // pending entry evicted mid-flight (causing the final log row to be lost and a
@@ -566,7 +385,7 @@ func TestCleanupStalePendingMCPLogsPersistsErrorFallback(t *testing.T) {
 // older than the TTL but whose LastActivity is recent must NOT be reaped.
 func TestActiveStreamSurvivesCleanup(t *testing.T) {
 	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -601,7 +420,7 @@ func TestActiveStreamSurvivesCleanup(t *testing.T) {
 // TTL (no chunk activity for the whole idle window) must be deleted.
 func TestIdlePendingEntryEvicted(t *testing.T) {
 	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
+	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil)
 	if err != nil {
 		t.Fatalf("Init() error = %v", err)
 	}
@@ -626,61 +445,6 @@ func TestIdlePendingEntryEvicted(t *testing.T) {
 
 	if _, ok := plugin.pendingLogsEntries.Load("req-idle"); ok {
 		t.Fatal("expected idle pending entry to be evicted by cleanup")
-	}
-}
-
-// TestPreMCPHookSkipsPrefixedCodemodeTool verifies that PreMCP skips codemode
-// meta-tools invoked with a client prefix (e.g. "myclient-executeToolCode"),
-// not just bare names. Otherwise PostMCP — which sees the stripped bare name —
-// would silently skip and leave the pending row to expire as a fake TTL error.
-func TestPreMCPHookSkipsPrefixedCodemodeTool(t *testing.T) {
-	store := newTestStore(t)
-	plugin, err := Init(context.Background(), &Config{}, testLogger{}, store, nil, nil)
-	if err != nil {
-		t.Fatalf("Init() error = %v", err)
-	}
-	t.Cleanup(func() {
-		if cleanupErr := plugin.Cleanup(); cleanupErr != nil {
-			t.Errorf("Cleanup() error = %v", cleanupErr)
-		}
-	})
-
-	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
-	ctx.SetValue(schemas.BifrostContextKeyRequestID, "req-prefixed-codemode")
-	ctx.SetValue(schemas.BifrostContextKeyMCPLogID, "mcp-prefixed-codemode")
-
-	toolName := "myclient-executeToolCode"
-	_, _, err = plugin.PreMCPHook(ctx, &schemas.BifrostMCPRequest{
-		RequestType: schemas.MCPRequestTypeChatToolCall,
-		ChatAssistantMessageToolCall: &schemas.ChatAssistantMessageToolCall{
-			Function: schemas.ChatAssistantMessageToolCallFunction{
-				Name:      &toolName,
-				Arguments: `{}`,
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("PreMCPHook() error = %v", err)
-	}
-
-	if _, ok := plugin.pendingMCPLogsToInject.Load("mcp-prefixed-codemode"); ok {
-		t.Fatal("expected PreMCPHook to skip prefixed codemode tool, but a pending row was created")
-	}
-}
-
-func assertMCPLogGovernanceFields(t *testing.T, logEntry *logstore.MCPToolLog, userID, teamID, customerID, businessUnitID string) {
-	t.Helper()
-	if logEntry.UserID == nil || *logEntry.UserID != userID {
-		t.Fatalf("expected user_id %q, got %#v", userID, logEntry.UserID)
-	}
-	if logEntry.TeamID == nil || *logEntry.TeamID != teamID {
-		t.Fatalf("expected team_id %q, got %#v", teamID, logEntry.TeamID)
-	}
-	if logEntry.CustomerID == nil || *logEntry.CustomerID != customerID {
-		t.Fatalf("expected customer_id %q, got %#v", customerID, logEntry.CustomerID)
-	}
-	if logEntry.BusinessUnitID == nil || *logEntry.BusinessUnitID != businessUnitID {
-		t.Fatalf("expected business_unit_id %q, got %#v", businessUnitID, logEntry.BusinessUnitID)
 	}
 }
 
@@ -892,400 +656,6 @@ func TestStoreOrEnqueueRetryPreservesAllEntries(t *testing.T) {
 	}
 }
 
-func TestConvertToProcessedStreamResponseUsesResponsesStreamTypeForWebSocketResponses(t *testing.T) {
-	result := &schemas.StreamAccumulatorResult{
-		RequestID:      "req-ws-3000",
-		RequestedModel: "gpt-4o-mini",
-		ResolvedModel:  "gpt-4o-mini",
-		Provider:       schemas.OpenAI,
-		Status:         "success",
-	}
-
-	processed := convertToProcessedStreamResponse(result, schemas.WebSocketResponsesRequest)
-	if processed == nil {
-		t.Fatal("expected processed stream response, got nil")
-	}
-	if processed.StreamType != "responses" {
-		t.Fatalf("expected stream type responses, got %s", processed.StreamType)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsUserTranscriptFromRawRequest(t *testing.T) {
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "Hello!"
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest:  `{"type":"conversation.item.input_audio_transcription.completed","transcript":"Hello."}`,
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 1 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 1", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Role != schemas.ChatMessageRoleUser {
-		t.Fatalf("InputHistoryParsed[0].Role = %q, want user", entry.InputHistoryParsed[0].Role)
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != "Hello." {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want transcript", entry.InputHistoryParsed[0])
-	}
-	if entry.OutputMessageParsed == nil || entry.OutputMessageParsed.Content == nil || entry.OutputMessageParsed.Content.ContentStr == nil || *entry.OutputMessageParsed.Content.ContentStr != assistantText {
-		t.Fatalf("OutputMessageParsed = %+v, want assistant text", entry.OutputMessageParsed)
-	}
-	if !strings.Contains(entry.ContentSummary, "Hello.") {
-		t.Fatalf("ContentSummary = %q, want user transcript", entry.ContentSummary)
-	}
-	if !strings.Contains(entry.ContentSummary, "Hello!") {
-		t.Fatalf("ContentSummary = %q, want assistant text", entry.ContentSummary)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsMissingTranscriptPlaceholder(t *testing.T) {
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "Hi there!"
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest:  `{"type":"conversation.item.input_audio_transcription.completed","transcript":""}`,
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 1 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 1", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != realtimeMissingTranscriptText {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want missing transcript placeholder", entry.InputHistoryParsed[0])
-	}
-	if !strings.Contains(entry.ContentSummary, realtimeMissingTranscriptText) {
-		t.Fatalf("ContentSummary = %q, want missing transcript placeholder", entry.ContentSummary)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsDoneMissingTranscriptPlaceholder(t *testing.T) {
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "Hi there!"
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest:  `{"type":"conversation.item.done","item":{"id":"item_user","type":"message","role":"user","status":"completed","content":[{"type":"input_audio","transcript":null}]}}`,
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 1 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 1", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != realtimeMissingTranscriptText {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want missing transcript placeholder", entry.InputHistoryParsed[0])
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsRetrievedUserAndToolHistory(t *testing.T) {
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "I checked that for you."
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest: strings.Join([]string{
-					`{"type":"conversation.item.retrieved","item":{"id":"item_user","type":"message","role":"user","status":"completed","content":[{"type":"input_text","text":"Where is my order?"}]}}`,
-					`{"type":"conversation.item.retrieved","item":{"id":"item_tool","type":"function_call_output","call_id":"call_123","status":"completed","output":"{\"status\":\"delivered\"}"}}`,
-				}, "\n\n"),
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 2 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 2", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Role != schemas.ChatMessageRoleUser {
-		t.Fatalf("InputHistoryParsed[0].Role = %q, want user", entry.InputHistoryParsed[0].Role)
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != "Where is my order?" {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want user content", entry.InputHistoryParsed[0])
-	}
-	if entry.InputHistoryParsed[1].Role != schemas.ChatMessageRoleTool {
-		t.Fatalf("InputHistoryParsed[1].Role = %q, want tool", entry.InputHistoryParsed[1].Role)
-	}
-	if entry.InputHistoryParsed[1].Content == nil || entry.InputHistoryParsed[1].Content.ContentStr == nil || *entry.InputHistoryParsed[1].Content.ContentStr != `{"status":"delivered"}` {
-		t.Fatalf("InputHistoryParsed[1] = %+v, want tool content", entry.InputHistoryParsed[1])
-	}
-	if entry.InputHistoryParsed[1].ChatToolMessage == nil || entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID == nil || *entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID != "call_123" {
-		t.Fatalf("InputHistoryParsed[1].ChatToolMessage = %+v, want tool call id", entry.InputHistoryParsed[1].ChatToolMessage)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsCreatedUserAndToolHistory(t *testing.T) {
-	t.Parallel()
-
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RawRequest: strings.Join([]string{
-					`{"type":"conversation.item.created","item":{"id":"item_user","type":"message","role":"user","status":"completed","content":[{"type":"input_text","text":"I need help"}]}}`,
-					`{"type":"conversation.item.created","item":{"id":"item_tool","type":"function_call_output","call_id":"call_456","status":"completed","output":"{\"status\":\"ok\"}"}}`,
-				}, "\n\n"),
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-
-	if len(entry.InputHistoryParsed) != 2 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 2", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Role != schemas.ChatMessageRoleUser {
-		t.Fatalf("InputHistoryParsed[0].Role = %q, want user", entry.InputHistoryParsed[0].Role)
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != "I need help" {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want user content", entry.InputHistoryParsed[0])
-	}
-	if entry.InputHistoryParsed[1].Role != schemas.ChatMessageRoleTool {
-		t.Fatalf("InputHistoryParsed[1].Role = %q, want tool", entry.InputHistoryParsed[1].Role)
-	}
-	if entry.InputHistoryParsed[1].Content == nil || entry.InputHistoryParsed[1].Content.ContentStr == nil || *entry.InputHistoryParsed[1].Content.ContentStr != `{"status":"ok"}` {
-		t.Fatalf("InputHistoryParsed[1] = %+v, want tool content", entry.InputHistoryParsed[1])
-	}
-	if entry.InputHistoryParsed[1].ChatToolMessage == nil || entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID == nil || *entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID != "call_456" {
-		t.Fatalf("InputHistoryParsed[1].ChatToolMessage = %+v, want tool call id", entry.InputHistoryParsed[1].ChatToolMessage)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryBackfillsAddedUserAndToolHistory(t *testing.T) {
-	t.Parallel()
-
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "Done."
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest: strings.Join([]string{
-					`{"type":"conversation.item.added","item":{"id":"item_user","type":"message","role":"user","status":"completed","content":[{"type":"input_text","text":"hello from added item"}]}}`,
-					`{"type":"conversation.item.added","item":{"id":"item_tool","type":"function_call_output","call_id":"call_added","status":"completed","output":"{\"status\":\"ok\"}"}}`,
-				}, "\n\n"),
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 2 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 2", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != "hello from added item" {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want added user content", entry.InputHistoryParsed[0])
-	}
-	if entry.InputHistoryParsed[1].ChatToolMessage == nil || entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID == nil || *entry.InputHistoryParsed[1].ChatToolMessage.ToolCallID != "call_added" {
-		t.Fatalf("InputHistoryParsed[1].ChatToolMessage = %+v, want added tool call id", entry.InputHistoryParsed[1].ChatToolMessage)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryMergesRawTranscriptIntoStructuredRealtimeHistory(t *testing.T) {
-	t.Parallel()
-
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{
-		InputHistoryParsed: []schemas.ChatMessage{
-			{
-				Role: schemas.ChatMessageRoleUser,
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr("Can you help with my ticket?"),
-				},
-			},
-			{
-				Role: schemas.ChatMessageRoleTool,
-				Content: &schemas.ChatMessageContent{
-					ContentStr: schemas.Ptr(`{"status":"open"}`),
-				},
-				ChatToolMessage: &schemas.ChatToolMessage{
-					ToolCallID: schemas.Ptr("call_789"),
-				},
-			},
-		},
-	}
-
-	assistantText := "Let me check."
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest: strings.Join([]string{
-					`{"type":"conversation.item.input_audio_transcription.completed","transcript":"Hello."}`,
-					`{"type":"conversation.item.retrieved","item":{"id":"item_tool","type":"function_call_output","call_id":"call_789","status":"completed","output":"{\"status\":\"open\"}"}}`,
-				}, "\n\n"),
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, true, true)
-	if err := entry.SerializeFields(); err != nil {
-		t.Fatalf("SerializeFields() error = %v", err)
-	}
-
-	if len(entry.InputHistoryParsed) != 3 {
-		t.Fatalf("len(InputHistoryParsed) = %d, want 3", len(entry.InputHistoryParsed))
-	}
-	if entry.InputHistoryParsed[0].Content == nil || entry.InputHistoryParsed[0].Content.ContentStr == nil || *entry.InputHistoryParsed[0].Content.ContentStr != "Can you help with my ticket?" {
-		t.Fatalf("InputHistoryParsed[0] = %+v, want structured user content", entry.InputHistoryParsed[0])
-	}
-	if entry.InputHistoryParsed[1].Role != schemas.ChatMessageRoleUser {
-		t.Fatalf("InputHistoryParsed[1].Role = %q, want user", entry.InputHistoryParsed[1].Role)
-	}
-	if entry.InputHistoryParsed[1].Content == nil || entry.InputHistoryParsed[1].Content.ContentStr == nil || *entry.InputHistoryParsed[1].Content.ContentStr != "Hello." {
-		t.Fatalf("InputHistoryParsed[1] = %+v, want raw transcript merge", entry.InputHistoryParsed[1])
-	}
-	if entry.InputHistoryParsed[2].Role != schemas.ChatMessageRoleTool {
-		t.Fatalf("InputHistoryParsed[2].Role = %q, want tool", entry.InputHistoryParsed[2].Role)
-	}
-	if entry.InputHistoryParsed[2].ChatToolMessage == nil || entry.InputHistoryParsed[2].ChatToolMessage.ToolCallID == nil || *entry.InputHistoryParsed[2].ChatToolMessage.ToolCallID != "call_789" {
-		t.Fatalf("InputHistoryParsed[2].ChatToolMessage = %+v, want original tool call id", entry.InputHistoryParsed[2].ChatToolMessage)
-	}
-	if strings.Count(entry.ContentSummary, "Hello.") != 1 {
-		t.Fatalf("ContentSummary = %q, want one merged transcript", entry.ContentSummary)
-	}
-}
-
-func TestApplyRealtimeOutputToEntryDoesNotPersistRawWhenShouldStoreRawFalse(t *testing.T) {
-	plugin := &LoggerPlugin{}
-	entry := &logstore.Log{}
-
-	assistantText := "Hello!"
-	messageType := schemas.ResponsesMessageTypeMessage
-	assistantRole := schemas.ResponsesInputMessageRoleAssistant
-	result := &schemas.BifrostResponse{
-		ResponsesResponse: &schemas.BifrostResponsesResponse{
-			Output: []schemas.ResponsesMessage{{
-				Type: &messageType,
-				Role: &assistantRole,
-				Content: &schemas.ResponsesMessageContent{
-					ContentStr: &assistantText,
-				},
-			}},
-			ExtraFields: schemas.BifrostResponseExtraFields{
-				RequestType: schemas.RealtimeRequest,
-				RawRequest:  `{"type":"conversation.item.input_audio_transcription.completed","transcript":"Hello."}`,
-				RawResponse: `{"type":"response.done"}`,
-			},
-		},
-	}
-
-	plugin.applyRealtimeOutputToEntry(entry, result, false, true)
-
-	if entry.RawRequest != "" {
-		t.Fatalf("expected RawRequest to remain empty when shouldStoreRaw=false, got %q", entry.RawRequest)
-	}
-	if entry.RawResponse != "" {
-		t.Fatalf("expected RawResponse to remain empty when shouldStoreRaw=false, got %q", entry.RawResponse)
-	}
-	if len(entry.InputHistoryParsed) == 0 {
-		t.Fatal("expected InputHistoryParsed to still be backfilled when shouldStoreRaw=false")
-	}
-	if entry.InputHistoryParsed[0].Role != schemas.ChatMessageRoleUser {
-		t.Fatalf("InputHistoryParsed[0].Role = %q, want user", entry.InputHistoryParsed[0].Role)
-	}
-}
-
 // TestContentLoggingEnabledHelper verifies precedence: ctx override > global config > default-enabled.
 func TestContentLoggingEnabledHelper(t *testing.T) {
 	boolPtr := func(b bool) *bool { return &b }
@@ -1449,6 +819,28 @@ func TestApplyNonStreamingOutputToEntryContentLoggingDisabled(t *testing.T) {
 
 	if entry.OutputMessageParsed != nil {
 		t.Error("expected OutputMessageParsed to be nil when contentLoggingEnabled=false")
+	}
+	if entry.TTFBMs != nil {
+		t.Fatalf("expected non-streaming response to leave TTFBMs nil, got %v", *entry.TTFBMs)
+	}
+}
+
+func TestApplyStreamingOutputToEntryStoresTTFB(t *testing.T) {
+	plugin := &LoggerPlugin{}
+	entry := &logstore.Log{}
+
+	plugin.applyStreamingOutputToEntry(entry, &streaming.ProcessedStreamResponse{
+		Data: &streaming.AccumulatedData{
+			Latency:          4200,
+			TimeToFirstToken: 1234,
+		},
+	}, false, true)
+
+	if entry.TTFBMs == nil {
+		t.Fatal("expected streaming response to set TTFBMs")
+	}
+	if *entry.TTFBMs != 1234 {
+		t.Fatalf("TTFBMs = %v, want 1234", *entry.TTFBMs)
 	}
 }
 

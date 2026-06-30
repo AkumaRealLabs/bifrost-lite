@@ -176,7 +176,6 @@ func (s *Store) GetPricingEntryForModel(model string, provider schemas.ModelProv
 		schemas.TranscriptionRequest,
 		schemas.ImageGenerationRequest,
 		schemas.ImageEditRequest,
-		schemas.ImageVariationRequest,
 		schemas.VideoGenerationRequest,
 		schemas.OCRRequest,
 	} {

@@ -15,7 +15,6 @@ import (
 
 	"github.com/fasthttp/router"
 	bifrost "github.com/maximhq/bifrost/core"
-	"github.com/maximhq/bifrost/core/network"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework"
 	"github.com/maximhq/bifrost/framework/configstore"
@@ -23,6 +22,7 @@ import (
 	"github.com/maximhq/bifrost/framework/encrypt"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/plugins/compat"
+	"github.com/maximhq/bifrost/plugins/governance"
 	"github.com/maximhq/bifrost/transports/bifrost-http/lib"
 	"github.com/valyala/fasthttp"
 )
@@ -88,12 +88,9 @@ type ConfigManager interface {
 	UpdateAuthConfig(ctx context.Context, authConfig *configstore.AuthConfig) error
 	ReloadClientConfigFromConfigStore(ctx context.Context) error
 	UpdateSyncConfig(ctx context.Context) error
-	ForceReloadPricing(ctx context.Context) error
 	UpdateDropExcessRequests(ctx context.Context, value bool)
-	UpdateMCPToolManagerConfig(ctx context.Context, maxAgentDepth int, toolExecutionTimeoutInSeconds int, codeModeBindingLevel string, disableAutoToolInject bool) error
 	ReloadPlugin(ctx context.Context, name string, path *string, pluginConfig any, placement *schemas.PluginPlacement, order *int) error
 	RemovePlugin(ctx context.Context, name string) error
-	ReloadProxyConfig(ctx context.Context, config *configstoreTables.GlobalProxyConfig) error
 	ReloadHeaderFilterConfig(ctx context.Context, config *configstoreTables.GlobalHeaderFilterConfig) error
 }
 
@@ -120,9 +117,6 @@ func (h *ConfigHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.
 	r.PUT("/api/config", lib.ChainMiddlewares(h.updateConfig, middlewares...))
 	r.POST("/api/config/metadata", lib.ChainMiddlewares(h.updateMetadata, middlewares...))
 	r.GET("/api/version", lib.ChainMiddlewares(h.getVersion, middlewares...))
-	r.GET("/api/proxy-config", lib.ChainMiddlewares(h.getProxyConfig, middlewares...))
-	r.PUT("/api/proxy-config", lib.ChainMiddlewares(h.updateProxyConfig, middlewares...))
-	r.POST("/api/pricing/force-sync", lib.ChainMiddlewares(h.forceSyncPricing, middlewares...))
 }
 
 // getVersion handles GET /api/version - Get the current version
@@ -207,21 +201,9 @@ func (h *ConfigHandler) getConfig(ctx *fasthttp.RequestCtx) {
 	if h.store.EnvLabel != "" {
 		mapConfig["env_label"] = h.store.EnvLabel
 	}
-	mapConfig["is_git_available"] = CheckGitAvailability()
 	mapConfig["is_cache_connected"] = h.store.VectorStore != nil
 	mapConfig["is_logs_connected"] = h.store.LogsStore != nil
-	// Fetching proxy config
 	if h.store.ConfigStore != nil {
-		proxyConfig, err := h.store.ConfigStore.GetProxyConfig(ctx)
-		if err != nil {
-			logger.Warn("failed to get proxy config from store: %v", err)
-		} else if proxyConfig != nil {
-			// Redact password if present
-			if proxyConfig.Password != "" {
-				proxyConfig.Password = "<redacted>"
-			}
-			mapConfig["proxy_config"] = proxyConfig
-		}
 		// Fetching restart required config
 		restartConfig, err := h.store.ConfigStore.GetRestartRequiredConfig(ctx)
 		if err != nil {
@@ -290,13 +272,9 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("Invalid request format: %v", err))
 		return
 	}
-
-	// Validate MCP external URL overrides up front — the rest of this handler
-	// applies live mutations (drop-excess flag, MCP tool-manager reload, compat
-	// plugin reload, in-memory MCP config) before persisting, so a late
-	// rejection would leave the process in a partially-updated state.
-	if err := lib.ValidateBaseURL(payload.ClientConfig.MCPExternalClientURL.GetValue()); err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("mcp_external_client_url %v", err))
+	if err := validateTTFBRoutingConfig(payload.ClientConfig.TTFBRouting); err != nil {
+		logger.Warn("invalid ttfb routing config: %v", err)
+		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -323,88 +301,16 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		return
 	}
 
-	// Validate MCP library catalog URL override (only when set and non-default)
-	if payload.FrameworkConfig.MCPLibraryURL != nil && *payload.FrameworkConfig.MCPLibraryURL != "" && *payload.FrameworkConfig.MCPLibraryURL != modelcatalog.DefaultMCPLibraryURL {
-		if err := checkURLAccessibility(*payload.FrameworkConfig.MCPLibraryURL); err != nil {
-			logger.Warn("failed to check the accessibility of the MCP library URL: %v", err)
-			SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("failed to check the accessibility of the MCP library URL: %v", err))
-			return
-		}
-	}
-	// Checking the MCP library sync interval
-	if payload.FrameworkConfig.MCPLibrarySyncInterval != nil && *payload.FrameworkConfig.MCPLibrarySyncInterval <= 0 {
-		logger.Warn("MCP library sync interval must be greater than 0")
-		SendError(ctx, fasthttp.StatusBadRequest, "MCP library sync interval must be greater than 0")
-		return
-	}
-
 	// Get current config with proper locking
 	currentConfig := h.store.ClientConfig
 	updatedConfig := currentConfig
+	ttfbRoutingChanged := !ttfbRoutingConfigEqual(payload.ClientConfig.TTFBRouting, currentConfig.TTFBRouting)
 
 	var restartReasons []string
 
 	if payload.ClientConfig.DropExcessRequests != currentConfig.DropExcessRequests {
 		h.configManager.UpdateDropExcessRequests(ctx, payload.ClientConfig.DropExcessRequests)
 		updatedConfig.DropExcessRequests = payload.ClientConfig.DropExcessRequests
-	}
-
-	if payload.ClientConfig.MCPCodeModeBindingLevel != "" {
-		if payload.ClientConfig.MCPCodeModeBindingLevel != string(schemas.CodeModeBindingLevelServer) && payload.ClientConfig.MCPCodeModeBindingLevel != string(schemas.CodeModeBindingLevelTool) {
-			logger.Warn("mcp_code_mode_binding_level must be 'server' or 'tool'")
-			SendError(ctx, fasthttp.StatusBadRequest, "mcp_code_mode_binding_level must be 'server' or 'tool'")
-			return
-		}
-	}
-
-	shouldReloadMCPToolManagerConfig := false
-
-	// Only process MCPAgentDepth if explicitly provided (> 0) and different from current
-	if payload.ClientConfig.MCPAgentDepth > 0 && payload.ClientConfig.MCPAgentDepth != currentConfig.MCPAgentDepth {
-		updatedConfig.MCPAgentDepth = payload.ClientConfig.MCPAgentDepth
-		shouldReloadMCPToolManagerConfig = true
-	}
-
-	// Only process MCPToolExecutionTimeout if explicitly provided (> 0) and different from current
-	if payload.ClientConfig.MCPToolExecutionTimeout > 0 && payload.ClientConfig.MCPToolExecutionTimeout != currentConfig.MCPToolExecutionTimeout {
-		updatedConfig.MCPToolExecutionTimeout = payload.ClientConfig.MCPToolExecutionTimeout
-		shouldReloadMCPToolManagerConfig = true
-	}
-
-	if payload.ClientConfig.MCPCodeModeBindingLevel != "" && payload.ClientConfig.MCPCodeModeBindingLevel != currentConfig.MCPCodeModeBindingLevel {
-		updatedConfig.MCPCodeModeBindingLevel = payload.ClientConfig.MCPCodeModeBindingLevel
-		shouldReloadMCPToolManagerConfig = true
-	}
-
-	if payload.ClientConfig.MCPDisableAutoToolInject != currentConfig.MCPDisableAutoToolInject {
-		updatedConfig.MCPDisableAutoToolInject = payload.ClientConfig.MCPDisableAutoToolInject
-		shouldReloadMCPToolManagerConfig = true
-	}
-	// MCPToolSyncInterval supports 0 (disabled), so compare against current value
-	// instead of a > 0 guard used by other numeric fields.
-	if payload.ClientConfig.MCPToolSyncInterval != currentConfig.MCPToolSyncInterval {
-		updatedConfig.MCPToolSyncInterval = payload.ClientConfig.MCPToolSyncInterval
-	}
-	updatedConfig.MCPEnableTempTokenAuth = payload.ClientConfig.MCPEnableTempTokenAuth
-
-	// Reload MCP tool manager config with all current values in one call
-	if shouldReloadMCPToolManagerConfig && h.store.MCPConfig != nil {
-		if err := h.configManager.UpdateMCPToolManagerConfig(ctx, updatedConfig.MCPAgentDepth, updatedConfig.MCPToolExecutionTimeout, updatedConfig.MCPCodeModeBindingLevel, updatedConfig.MCPDisableAutoToolInject); err != nil {
-			logger.Warn(fmt.Sprintf("failed to update mcp tool manager config: %v", err))
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to update mcp tool manager config: %v", err))
-			return
-		}
-	}
-	// Keep in-memory MCP config aligned with client-config-backed MCP settings.
-	if h.store.MCPConfig != nil {
-		if h.store.MCPConfig.ToolManagerConfig == nil {
-			h.store.MCPConfig.ToolManagerConfig = &schemas.MCPToolManagerConfig{}
-		}
-		h.store.MCPConfig.ToolSyncInterval = time.Duration(updatedConfig.MCPToolSyncInterval) * time.Second
-		h.store.MCPConfig.ToolManagerConfig.MaxAgentDepth = updatedConfig.MCPAgentDepth
-		h.store.MCPConfig.ToolManagerConfig.ToolExecutionTimeout = schemas.Duration(time.Duration(updatedConfig.MCPToolExecutionTimeout) * time.Second)
-		h.store.MCPConfig.ToolManagerConfig.CodeModeBindingLevel = schemas.CodeModeBindingLevel(updatedConfig.MCPCodeModeBindingLevel)
-		h.store.MCPConfig.ToolManagerConfig.DisableAutoToolInject = updatedConfig.MCPDisableAutoToolInject
 	}
 
 	if !slices.Equal(payload.ClientConfig.PrometheusLabels, currentConfig.PrometheusLabels) {
@@ -487,26 +393,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		}
 	}
 	updatedConfig.Compat = newCompat
-	// Only update MCP fields if explicitly provided (non-zero) to avoid clearing stored values
-	if payload.ClientConfig.MCPAgentDepth > 0 {
-		updatedConfig.MCPAgentDepth = payload.ClientConfig.MCPAgentDepth
-	}
-	if payload.ClientConfig.MCPToolExecutionTimeout > 0 {
-		updatedConfig.MCPToolExecutionTimeout = payload.ClientConfig.MCPToolExecutionTimeout
-	}
-	// 0 is a valid value (disabled), so persist it when changed.
-	if payload.ClientConfig.MCPToolSyncInterval != currentConfig.MCPToolSyncInterval {
-		updatedConfig.MCPToolSyncInterval = payload.ClientConfig.MCPToolSyncInterval
-	}
-	// Only update MCPCodeModeBindingLevel if payload is non-empty to avoid clearing stored value
-	if payload.ClientConfig.MCPCodeModeBindingLevel != "" {
-		updatedConfig.MCPCodeModeBindingLevel = payload.ClientConfig.MCPCodeModeBindingLevel
-	}
-
-	// Only update AsyncJobResultTTL if explicitly provided (> 0) to avoid clearing stored value
-	if payload.ClientConfig.AsyncJobResultTTL > 0 {
-		updatedConfig.AsyncJobResultTTL = payload.ClientConfig.AsyncJobResultTTL
-	}
 
 	// Handle RequiredHeaders changes (no restart needed - governance plugin reads via pointer)
 	updatedConfig.RequiredHeaders = payload.ClientConfig.RequiredHeaders
@@ -533,10 +419,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	if payload.ClientConfig.RoutingChainMaxDepth > 0 {
 		updatedConfig.RoutingChainMaxDepth = payload.ClientConfig.RoutingChainMaxDepth
 	}
-
-	// Update external base URLs for OAuth server metadata and client redirect_uri (nil clears each override).
-	// Validation is performed up front in this handler so a failure here cannot leave the process in a partial state.
-	updatedConfig.MCPExternalClientURL = payload.ClientConfig.MCPExternalClientURL
+	updatedConfig.TTFBRouting = payload.ClientConfig.TTFBRouting
 
 	// Handle HeaderFilterConfig changes
 	if !headerFilterConfigEqual(payload.ClientConfig.HeaderFilterConfig, currentConfig.HeaderFilterConfig) {
@@ -576,6 +459,21 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload client config from config store: %v", err))
 		return
 	}
+	if ttfbRoutingChanged {
+		builtinPlacement := schemas.PluginPlacementBuiltin
+		builtinOrder := 2
+		governanceCfg := &governance.Config{
+			IsVkMandatory:        &h.store.ClientConfig.EnforceAuthOnInference,
+			RequiredHeaders:      &h.store.ClientConfig.RequiredHeaders,
+			RoutingChainMaxDepth: &h.store.ClientConfig.RoutingChainMaxDepth,
+			TTFBRouting:          h.store.ClientConfig.TTFBRouting,
+		}
+		if err := h.configManager.ReloadPlugin(ctx, governance.PluginName, nil, governanceCfg, &builtinPlacement, &builtinOrder); err != nil {
+			logger.Warn("failed to reload governance plugin: %v", err)
+			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload governance plugin: %v", err))
+			return
+		}
+	}
 	// Fetching existing framework config
 	frameworkConfig, err := h.store.ConfigStore.GetFrameworkConfig(ctx)
 	if err != nil {
@@ -586,12 +484,10 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	// if framework config is nil, we will use the default pricing config
 	if frameworkConfig == nil {
 		frameworkConfig = &configstoreTables.TableFrameworkConfig{
-			ID:                     0,
-			PricingURL:             bifrost.Ptr(modelcatalog.DefaultPricingURL),
-			PricingSyncInterval:    bifrost.Ptr(int64(modelcatalog.DefaultSyncInterval.Seconds())),
-			ModelParametersURL:     bifrost.Ptr(modelcatalog.DefaultModelParametersURL),
-			MCPLibraryURL:          bifrost.Ptr(modelcatalog.DefaultMCPLibraryURL),
-			MCPLibrarySyncInterval: bifrost.Ptr(int64(modelcatalog.DefaultSyncInterval.Seconds())),
+			ID:                  0,
+			PricingURL:          bifrost.Ptr(modelcatalog.DefaultPricingURL),
+			PricingSyncInterval: bifrost.Ptr(int64(modelcatalog.DefaultSyncInterval.Seconds())),
+			ModelParametersURL:  bifrost.Ptr(modelcatalog.DefaultModelParametersURL),
 		}
 	}
 	// Handling individual nil cases
@@ -603,12 +499,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	}
 	if frameworkConfig.ModelParametersURL == nil {
 		frameworkConfig.ModelParametersURL = bifrost.Ptr(modelcatalog.DefaultModelParametersURL)
-	}
-	if frameworkConfig.MCPLibraryURL == nil {
-		frameworkConfig.MCPLibraryURL = bifrost.Ptr(modelcatalog.DefaultMCPLibraryURL)
-	}
-	if frameworkConfig.MCPLibrarySyncInterval == nil {
-		frameworkConfig.MCPLibrarySyncInterval = bifrost.Ptr(int64(modelcatalog.DefaultSyncInterval.Seconds()))
 	}
 	// Updating framework config
 	shouldReloadFrameworkConfig := false
@@ -645,23 +535,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 			shouldReloadFrameworkConfig = true
 		}
 	}
-	if payload.FrameworkConfig.MCPLibraryURL != nil {
-		effectiveMCPLibraryURL := *payload.FrameworkConfig.MCPLibraryURL
-		if effectiveMCPLibraryURL == "" {
-			effectiveMCPLibraryURL = modelcatalog.DefaultMCPLibraryURL
-		}
-		if frameworkConfig.MCPLibraryURL == nil || effectiveMCPLibraryURL != *frameworkConfig.MCPLibraryURL {
-			frameworkConfig.MCPLibraryURL = &effectiveMCPLibraryURL
-			shouldReloadFrameworkConfig = true
-		}
-	}
-	if payload.FrameworkConfig.MCPLibrarySyncInterval != nil {
-		syncInterval := *payload.FrameworkConfig.MCPLibrarySyncInterval
-		if frameworkConfig.MCPLibrarySyncInterval == nil || syncInterval != *frameworkConfig.MCPLibrarySyncInterval {
-			frameworkConfig.MCPLibrarySyncInterval = &syncInterval
-			shouldReloadFrameworkConfig = true
-		}
-	}
 	// Reload config if required
 	if shouldReloadFrameworkConfig {
 		var syncSeconds int64
@@ -672,11 +545,9 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		}
 		h.store.FrameworkConfig = &framework.FrameworkConfig{
 			Pricing: &modelcatalog.Config{
-				PricingURL:             frameworkConfig.PricingURL,
-				PricingSyncInterval:    &syncSeconds,
-				ModelParametersURL:     frameworkConfig.ModelParametersURL,
-				MCPLibraryURL:          frameworkConfig.MCPLibraryURL,
-				MCPLibrarySyncInterval: frameworkConfig.MCPLibrarySyncInterval,
+				PricingURL:          frameworkConfig.PricingURL,
+				PricingSyncInterval: &syncSeconds,
+				ModelParametersURL:  frameworkConfig.ModelParametersURL,
 			},
 		}
 		// Saving framework config
@@ -830,165 +701,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	})
 }
 
-// forceSyncPricing triggers an immediate pricing sync and resets the pricing sync timer
-func (h *ConfigHandler) forceSyncPricing(ctx *fasthttp.RequestCtx) {
-	if h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
-		return
-	}
-
-	if err := h.configManager.ForceReloadPricing(ctx); err != nil {
-		logger.Warn("failed to force pricing sync: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to force pricing sync: %v", err))
-		return
-	}
-
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	SendJSON(ctx, map[string]any{
-		"status":  "success",
-		"message": "pricing sync triggered",
-	})
-}
-
-// getProxyConfig handles GET /api/proxy-config - Get the current proxy configuration
-func (h *ConfigHandler) getProxyConfig(ctx *fasthttp.RequestCtx) {
-	if h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "config store not available")
-		return
-	}
-	proxyConfig, err := h.store.ConfigStore.GetProxyConfig(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to get proxy config: %v", err))
-		return
-	}
-	if proxyConfig == nil {
-		// Return default empty config
-		SendJSON(ctx, configstoreTables.GlobalProxyConfig{
-			Enabled: false,
-			Type:    network.GlobalProxyTypeHTTP,
-		})
-		return
-	}
-	// Redact password if present
-	if proxyConfig.Password != "" {
-		proxyConfig.Password = "<redacted>"
-	}
-	SendJSON(ctx, proxyConfig)
-}
-
-// updateProxyConfig handles PUT /api/proxy-config - Update the proxy configuration
-func (h *ConfigHandler) updateProxyConfig(ctx *fasthttp.RequestCtx) {
-	if h.store.ConfigStore == nil {
-		SendError(ctx, fasthttp.StatusInternalServerError, "config store not initialized")
-		return
-	}
-
-	var payload configstoreTables.GlobalProxyConfig
-	if err := json.Unmarshal(ctx.PostBody(), &payload); err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("invalid request format: %v", err))
-		return
-	}
-
-	// Validate proxy config
-	if payload.Enabled {
-		// Validate proxy type
-		switch payload.Type {
-		case network.GlobalProxyTypeHTTP:
-			// HTTP proxy is supported
-			// Make sure the URL is provided
-			if payload.URL == "" {
-				SendError(ctx, fasthttp.StatusBadRequest, "proxy URL is required when proxy is enabled")
-				return
-			}
-			// Validate timeout if provided
-			if payload.Timeout < 0 {
-				SendError(ctx, fasthttp.StatusBadRequest, "proxy timeout must be non-negative")
-				return
-			}
-		case network.GlobalProxyTypeSOCKS5, network.GlobalProxyTypeTCP:
-			SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("proxy type %s is not yet supported", payload.Type))
-			return
-		default:
-			SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("invalid proxy type: %s", payload.Type))
-			return
-		}
-
-		// Validate URL is provided when enabled
-		if payload.URL == "" {
-			SendError(ctx, fasthttp.StatusBadRequest, "proxy URL is required when proxy is enabled")
-			return
-		}
-
-		// Validate timeout if provided
-		if payload.Timeout < 0 {
-			SendError(ctx, fasthttp.StatusBadRequest, "proxy timeout must be non-negative")
-			return
-		}
-	}
-
-	// Handle password - if it's "<redacted>", keep the existing password
-	if payload.Password == "<redacted>" {
-		existingConfig, err := h.store.ConfigStore.GetProxyConfig(ctx)
-		if err != nil && !errors.Is(err, configstore.ErrNotFound) {
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to get existing proxy config: %v", err))
-			return
-		}
-		if existingConfig != nil {
-			payload.Password = existingConfig.Password
-		} else {
-			payload.Password = ""
-		}
-	}
-
-	// Save proxy config
-	if err := h.store.ConfigStore.UpdateProxyConfig(ctx, &payload); err != nil {
-		logger.Warn("failed to save proxy configuration: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to save proxy configuration: %v", err))
-		return
-	}
-
-	// Pulling the proxy config from the config store
-	newProxyConfig, err := h.store.ConfigStore.GetProxyConfig(ctx)
-	if err != nil {
-		logger.Warn("failed to get proxy config from store: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to get proxy config from store: %v", err))
-		return
-	}
-	if newProxyConfig == nil {
-		newProxyConfig = &configstoreTables.GlobalProxyConfig{
-			Enabled:       false,
-			Type:          network.GlobalProxyTypeHTTP,
-			URL:           "",
-			Username:      "",
-			Password:      "",
-			NoProxy:       "",
-			Timeout:       0,
-			SkipTLSVerify: false,
-		}
-	}
-
-	// Reload proxy config in the server
-	if err := h.configManager.ReloadProxyConfig(ctx, newProxyConfig); err != nil {
-		logger.Warn("failed to reload proxy config: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload proxy config: %v", err))
-		return
-	}
-
-	// Set restart required flag for proxy config changes
-	if err := h.store.ConfigStore.SetRestartRequiredConfig(ctx, &configstoreTables.RestartRequiredConfig{
-		Required: true,
-		Reason:   "Proxy configuration has been updated. A restart is required for all changes to take full effect.",
-	}); err != nil {
-		logger.Warn("failed to set restart required config: %v", err)
-	}
-
-	ctx.SetStatusCode(fasthttp.StatusOK)
-	SendJSON(ctx, map[string]any{
-		"status":  "success",
-		"message": "proxy configuration updated successfully",
-	})
-}
-
 // headerFilterConfigEqual compares two GlobalHeaderFilterConfig for equality
 func headerFilterConfigEqual(a, b *configstoreTables.GlobalHeaderFilterConfig) bool {
 	if a == nil && b == nil {
@@ -998,6 +710,59 @@ func headerFilterConfigEqual(a, b *configstoreTables.GlobalHeaderFilterConfig) b
 		return false
 	}
 	return slices.Equal(a.Allowlist, b.Allowlist) && slices.Equal(a.Denylist, b.Denylist)
+}
+
+func ttfbRoutingConfigEqual(a, b *configstore.TTFBRoutingConfig) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Enabled == b.Enabled &&
+		intPtrEqual(a.WindowSeconds, b.WindowSeconds) &&
+		intPtrEqual(a.MinSamples, b.MinSamples) &&
+		float64PtrEqual(a.ThresholdMs, b.ThresholdMs) &&
+		float64PtrEqual(a.MinPenaltyFactor, b.MinPenaltyFactor)
+}
+
+func intPtrEqual(a, b *int) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func float64PtrEqual(a, b *float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
+}
+
+func validateTTFBRoutingConfig(config *configstore.TTFBRoutingConfig) error {
+	if config == nil {
+		return nil
+	}
+	if config.WindowSeconds != nil && *config.WindowSeconds <= 0 {
+		return fmt.Errorf("ttfb_routing.window_seconds must be greater than 0")
+	}
+	if config.MinSamples != nil && *config.MinSamples <= 0 {
+		return fmt.Errorf("ttfb_routing.min_samples must be greater than 0")
+	}
+	if config.ThresholdMs != nil && *config.ThresholdMs <= 0 {
+		return fmt.Errorf("ttfb_routing.threshold_ms must be greater than 0")
+	}
+	if config.MinPenaltyFactor != nil && (*config.MinPenaltyFactor <= 0 || *config.MinPenaltyFactor > 1) {
+		return fmt.Errorf("ttfb_routing.min_penalty_factor must be greater than 0 and less than or equal to 1")
+	}
+	return nil
 }
 
 // validateHeaderFilterConfig validates that no exact security header names are in the allowlist or denylist

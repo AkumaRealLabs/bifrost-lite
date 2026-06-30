@@ -374,8 +374,8 @@ type AnthropicMessageRequest struct {
 	ServiceTier       *string                `json:"service_tier,omitempty"`  // "auto" or "standard_only"
 	InferenceGeo      *string                `json:"inference_geo,omitempty"` // the geographic region for inference processing. If not specified, the workspace's default_inference_geo is used.
 	ContextManagement *ContextManagement     `json:"context_management,omitempty"`
-	Container         *AnthropicContainer    `json:"container,omitempty"` // string id OR object with skills[]; skills require skills-2025-10-02 beta
-	Diagnostics       *AnthropicDiagnostics  `json:"diagnostics,omitempty"`   // cache diagnostics opt-in; requires cache-diagnosis-2026-04-07 beta (Anthropic API only)
+	Container         *AnthropicContainer    `json:"container,omitempty"`   // string id OR object with skills[]; skills require skills-2025-10-02 beta
+	Diagnostics       *AnthropicDiagnostics  `json:"diagnostics,omitempty"` // cache diagnostics opt-in; requires cache-diagnosis-2026-04-07 beta (Anthropic API only)
 
 	// Extra params for advanced use cases
 	ExtraParams map[string]interface{} `json:"-"`

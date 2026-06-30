@@ -178,12 +178,6 @@
           },
           "additionalProperties": false
         },
-        "async_job_result_ttl": {
-          "type": "integer",
-          "description": "Default TTL for async job results in seconds (default: 3600 = 1 hour)",
-          "default": 3600,
-          "minimum": 1
-        },
         "required_headers": {
           "type": "array",
           "items": {
@@ -207,7 +201,7 @@
         },
         "hide_deleted_virtual_keys_in_filters": {
           "type": "boolean",
-          "description": "When true, deleted virtual keys are omitted from logs and MCP logs filter data.",
+          "description": "When true, deleted virtual keys are omitted from logs filter data.",
           "default": false
         },
         "allowed_headers": {
@@ -215,44 +209,11 @@
           "items": {
             "type": "string"
           },
-          "description": "Additional allowed headers for CORS and WebSocket"
+          "description": "Additional allowed headers for CORS"
         },
         "allow_direct_keys": {
           "type": "boolean",
           "description": "Allow callers to bypass the registered key pool by supplying x-bf-direct-key: true and the provider's raw API key in an Authorization (Bearer), x-api-key, or x-goog-api-key header.",
-          "default": false
-        },
-        "mcp_agent_depth": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "DEPRECATED: Maximum depth for MCP agent mode tool execution. Use mcp.tool_manager_config.max_agent_depth.",
-          "default": 10
-        },
-        "mcp_tool_execution_timeout": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "DEPRECATED: Timeout for individual MCP tool execution in seconds. Use mcp.tool_manager_config.tool_execution_timeout.",
-          "default": 30
-        },
-        "mcp_code_mode_binding_level": {
-          "type": "string",
-          "enum": ["server", "tool"],
-          "description": "DEPRECATED: Code mode binding level for MCP tools. Use mcp.tool_manager_config.code_mode_binding_level."
-        },
-        "mcp_tool_sync_interval": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "DEPRECATED: Global tool sync interval in minutes (0 = disabled). Use mcp.tool_sync_interval.",
-          "default": 10
-        },
-        "mcp_disable_auto_tool_inject": {
-          "type": "boolean",
-          "description": "DEPRECATED: When true, MCP tools are not automatically injected into requests. Use mcp.tool_manager_config.disable_auto_tool_inject.",
-          "default": false
-        },
-        "mcp_enable_temp_token_auth": {
-          "type": "boolean",
-          "description": "When true, Bifrost mints and accepts scoped temp tokens for MCP per-user OAuth and per-user-headers auth pages so anonymous browser visitors can complete the flow without a dashboard session. User-mode flows are never minted regardless of this setting — they always require SSO login.",
           "default": false
         },
         "routing_chain_max_depth": {
@@ -261,24 +222,42 @@
           "description": "Maximum depth for routing rule chain evaluation",
           "default": 10
         },
-        "mcp_external_client_url": {
-          "anyOf": [
-            {
-              "type": "string"
+        "ttfb_routing": {
+          "type": "object",
+          "description": "Optional TTFB-aware virtual-key provider weighting. Disabled by default; when enabled, only slow providers are penalized.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable TTFB-aware provider weight penalties",
+              "default": false
             },
-            {
-              "type": "object",
-              "properties": {
-                "value": { "type": "string" },
-                "ref": { "type": "string" },
-                "type": { "type": "string", "enum": ["plain_text", "env", "vault"] },
-                "env_var": { "type": "string" },
-                "from_env": { "type": "boolean" }
-              },
-              "additionalProperties": false
+            "window_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Recent log window, in seconds, used for TTFB statistics",
+              "default": 900
+            },
+            "min_samples": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Minimum samples required before applying a provider penalty",
+              "default": 20
+            },
+            "threshold_ms": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "description": "Provider/model p95 TTFB threshold in milliseconds before penalties apply",
+              "default": 2500
+            },
+            "min_penalty_factor": {
+              "type": "number",
+              "exclusiveMinimum": 0,
+              "maximum": 1,
+              "description": "Lowest multiplier applied to the original provider weight",
+              "default": 0.2
             }
-          ],
-          "description": "Public base URL Bifrost uses as the redirect_uri when acting as an OAuth client to upstream MCP servers (Notion, Jira, etc.). Set when Bifrost's callback endpoint is reached via a different URL than its server-side metadata. Supports env var syntax: \"env.MY_VAR\"."
+          },
+          "additionalProperties": false
         }
       },
       "additionalProperties": false
@@ -294,88 +273,42 @@
     },
     "providers": {
       "type": "object",
-      "description": "AI provider configurations",
-      "properties": {
-        "openai": {
-          "$ref": "#/$defs/provider"
-        },
-        "anthropic": {
-          "$ref": "#/$defs/provider"
-        },
-        "bedrock": {
-          "$ref": "#/$defs/provider_with_bedrock_config"
-        },
-        "cohere": {
-          "$ref": "#/$defs/provider"
-        },
-        "azure": {
-          "$ref": "#/$defs/provider_with_azure_config"
-        },
-        "vertex": {
-          "$ref": "#/$defs/provider_with_vertex_config"
-        },
-        "mistral": {
-          "$ref": "#/$defs/provider"
-        },
-        "ollama": {
-          "$ref": "#/$defs/provider_with_ollama_config"
-        },
-        "groq": {
-          "$ref": "#/$defs/provider"
-        },
-        "gemini": {
-          "$ref": "#/$defs/provider"
-        },
-        "opencode-go": {
-          "$ref": "#/$defs/provider"
-        },
-        "opencode-zen": {
-          "$ref": "#/$defs/provider"
-        },
-        "openrouter": {
-          "$ref": "#/$defs/provider"
-        },
-        "sgl": {
-          "$ref": "#/$defs/provider_with_sgl_config"
-        },
-        "parasail": {
-          "$ref": "#/$defs/provider"
-        },
-        "perplexity": {
-          "$ref": "#/$defs/provider"
-        },
-        "replicate": {
-          "$ref": "#/$defs/provider_with_replicate_config"
-        },
-        "elevenlabs": {
-          "$ref": "#/$defs/provider"
-        },
-        "cerebras": {
-          "$ref": "#/$defs/provider"
-        },
-        "vllm": {
-          "$ref": "#/$defs/provider_with_vllm_config"
-        },
-        "huggingface": {
-          "$ref": "#/$defs/provider"
-        },
-        "fireworks": {
-          "$ref": "#/$defs/provider"
-        },
-        "nebius": {
-          "$ref": "#/$defs/provider"
-        },
-        "xai": {
-          "$ref": "#/$defs/provider"
-        },
-        "runway": {
-          "$ref": "#/$defs/provider"
-        },
-        "runware": {
-          "$ref": "#/$defs/provider"
+      "description": "Lite only accepts custom provider configurations",
+      "propertyNames": {
+        "not": {
+          "enum": [
+            "openai",
+            "azure",
+            "anthropic",
+            "bedrock",
+            "cohere",
+            "vertex",
+            "mistral",
+            "ollama",
+            "groq",
+            "gemini",
+            "opencode-go",
+            "opencode-zen",
+            "openrouter",
+            "sgl",
+            "parasail",
+            "perplexity",
+            "replicate",
+            "elevenlabs",
+            "cerebras",
+            "vllm",
+            "huggingface",
+            "fireworks",
+            "nebius",
+            "xai",
+            "runway",
+            "runware"
+          ]
         }
       },
-      "additionalProperties": true
+      "additionalProperties": {
+        "$ref": "#/$defs/provider"
+      }
     },
     "governance": {
       "type": "object",
@@ -677,7 +610,7 @@
                   "properties": {
                     "resource": {
                       "type": "string",
-                      "description": "Permission resource (e.g. Logs, VirtualKeys, Users, ModelProvider, Metrics, Guardrails, AccessProfiles, MCPToolGroups, Roles, BusinessUnits, AuditLogs, Billing)"
+                      "description": "Permission resource (e.g. Logs, VirtualKeys, Users, ModelProvider, Metrics, Guardrails, AccessProfiles, Roles, BusinessUnits, AuditLogs, Billing)"
                     },
                     "operation": {
                       "type": "string",
@@ -747,13 +680,6 @@
                 "description": "Provider configurations for this virtual key (empty means no providers allowed, deny-by-default)",
                 "items": {
                   "$ref": "#/$defs/virtual_key_provider_config"
-                }
-              },
-              "mcp_configs": {
-                "type": "array",
-                "description": "MCP configurations for this virtual key (empty array means no MCP tools allowed, deny-by-default)",
-                "items": {
-                  "$ref": "#/$defs/virtual_key_mcp_config"
                 }
               }
             },
@@ -872,9 +798,6 @@
               "network_config": {
                 "$ref": "#/$defs/network_config"
               },
-              "proxy_config": {
-                "$ref": "#/$defs/proxy_config"
-              },
               "custom_provider_config": {
                 "$ref": "#/$defs/custom_provider_config"
               },
@@ -889,112 +812,23 @@
           }
         }
       },
-      "additionalProperties": false
-    },
-    "mcp": {
-      "type": "object",
-      "description": "Model Context Protocol configuration",
-      "properties": {
-        "client_configs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/mcp_client_config"
-          },
-          "description": "MCP client configurations"
-        },
-        "tool_manager_config": {
-          "$ref": "#/$defs/mcp_tool_manager_config"
-        },
-        "tool_sync_interval": {
-          "description": "Global default interval for syncing tools from MCP servers (Go duration string, e.g. '10m', '1h', '0s' to use runtime default). Legacy numeric nanoseconds are also supported for backward compatibility.",
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^-?(?:\\d+(?:\\.\\d+)?(?:ns|us|µs|ms|s|m|h))+$"
-            },
-            {
-              "type": "integer"
-            }
-          ]
-        },
-        "tool_groups": {
-          "type": "array",
-          "description": "Enterprise MCP tool groups with optional governance associations",
-          "items": {
-            "$ref": "#/$defs/mcp_tool_group_config"
-          }
-        }
+      "not": {
+        "anyOf": [
+          { "required": ["budgets"] },
+          { "required": ["rate_limits"] },
+          { "required": ["customers"] },
+          { "required": ["teams"] },
+          { "required": ["business_units"] },
+          { "required": ["roles"] },
+          { "required": ["routing_rules"] },
+          { "required": ["complexity_analyzer_config"] },
+          { "required": ["model_configs"] },
+          { "required": ["providers"] }
+        ]
       },
       "additionalProperties": false
     },
-    "vector_store": {
-      "type": "object",
-      "description": "Vector store configuration for caching",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Enable vector store"
-        },
-        "type": {
-          "type": "string",
-          "enum": ["weaviate", "redis", "qdrant", "pinecone"],
-          "description": "Vector store type (use \"redis\" for Redis or Valkey-compatible endpoints)"
-        },
-        "config": {
-          "anyOf": [
-            {
-              "if": {
-                "properties": {
-                  "type": {
-                    "const": "weaviate"
-                  }
-                }
-              },
-              "then": {
-                "$ref": "#/$defs/weaviate_config"
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "type": {
-                    "const": "redis"
-                  }
-                }
-              },
-              "then": {
-                "$ref": "#/$defs/redis_config"
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "type": {
-                    "const": "qdrant"
-                  }
-                }
-              },
-              "then": {
-                "$ref": "#/$defs/qdrant_config"
-              }
-            },
-            {
-              "if": {
-                "properties": {
-                  "type": {
-                    "const": "pinecone"
-                  }
-                }
-              },
-              "then": {
-                "$ref": "#/$defs/pinecone_config"
-              }
-            }
-          ]
-        }
-      },
-      "additionalProperties": false
-    },
+    "vector_store": false,
     "config_store": {
       "type": "object",
       "description": "Configuration store settings",
@@ -1374,7 +1208,7 @@
         },
         "object_storage": {
           "type": "object",
-          "description": "Optional object storage for offloading LLM and MCP log payloads. When configured, full payloads are stored in S3/GCS while the DB keeps lightweight index data. MCP log rows keep dashboard/table fields plus a 200-character input preview.",
+          "description": "Optional object storage for offloading LLM log payloads. When configured, full payloads are stored in S3/GCS while the DB keeps lightweight index data.",
           "properties": {
             "type": {
               "type": "string",
@@ -1472,7 +1306,7 @@
         },
         "object_storage_exclude_fields": {
           "type": "array",
-          "description": "LLM log payload field DB column names that should NOT be offloaded to object storage and must remain in the database (e.g. output_message, input_history, raw_request, raw_response). Unknown names are ignored. MCP logs always offload the full log and keep dashboard/table fields plus a 200-character input preview in the database.",
+          "description": "LLM log payload field DB column names that should NOT be offloaded to object storage and must remain in the database (e.g. output_message, input_history, raw_request, raw_response). Unknown names are ignored.",
           "items": {
             "type": "string"
           }
@@ -1481,75 +1315,6 @@
           "type": "integer",
           "minimum": 0,
           "description": "Days to retain log entries. 0 disables retention-based cleanup."
-        }
-      },
-      "additionalProperties": false
-    },
-    "skills_registry": {
-      "type": "object",
-      "description": "Declarative Skills Repository definitions reconciled from config.json",
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "description": "Whether config-defined skills should be reconciled at startup"
-        },
-        "skills": {
-          "type": "array",
-          "description": "Skills to create or update from config.json",
-          "items": {
-            "type": "object",
-            "required": ["name", "description", "skill_md_body", "version"],
-            "properties": {
-              "name": { "type": "string" },
-              "description": { "type": "string" },
-              "license": { "type": "string" },
-              "compatibility": { "type": "string" },
-              "allowed_tools": { "type": "string" },
-              "extra_frontmatter": {
-                "type": "object",
-                "additionalProperties": true
-              },
-              "metadata": {
-                "type": "object",
-                "additionalProperties": { "type": "string" }
-              },
-              "skill_md_body": { "type": "string" },
-              "version": { "type": "string" },
-              "files": {
-                "type": "array",
-                "items": {
-                  "type": "object",
-                  "required": ["path", "source_type"],
-                  "properties": {
-                    "path": { "type": "string" },
-                    "source_type": {
-                      "type": "string",
-                      "enum": ["text", "url", "dataurl"]
-                    },
-                    "url": { "type": "string" },
-                    "content": { "type": "string" },
-                    "dataurl": { "type": "string" }
-                  },
-                  "additionalProperties": false,
-                  "oneOf": [
-                    {
-                      "properties": { "source_type": { "const": "url" } },
-                      "required": ["url"]
-                    },
-                    {
-                      "properties": { "source_type": { "const": "text" } },
-                      "required": ["content"]
-                    },
-                    {
-                      "properties": { "source_type": { "const": "dataurl" } },
-                      "required": ["dataurl"]
-                    }
-                  ]
-                }
-              }
-            },
-            "additionalProperties": false
-          }
         }
       },
       "additionalProperties": false
@@ -1567,7 +1332,8 @@
           },
           "name": {
             "type": "string",
-            "description": "Name of the plugin (built-in: telemetry, prompts, logging, governance, maxim, semantic_cache, otel, or custom plugin name)"
+            "description": "Lite plugin name",
+            "enum": ["logging", "governance", "compat", "modelcatalogresolver", "model-catalog-resolver"]
           },
           "config": {
             "type": "object",
@@ -1743,6 +1509,43 @@
                     "is_enterprise": {
                       "type": "boolean",
                       "description": "Enable enterprise mode features"
+                    },
+                    "ttfb_routing": {
+                      "type": "object",
+                      "description": "Optional TTFB-aware virtual-key provider weighting. Disabled by default; when enabled, only slow providers are penalized.",
+                      "properties": {
+                        "enabled": {
+                          "type": "boolean",
+                          "description": "Enable TTFB-aware provider weight penalties",
+                          "default": false
+                        },
+                        "window_seconds": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Recent log window, in seconds, used for TTFB statistics",
+                          "default": 900
+                        },
+                        "min_samples": {
+                          "type": "integer",
+                          "minimum": 1,
+                          "description": "Minimum samples required before applying a provider penalty",
+                          "default": 20
+                        },
+                        "threshold_ms": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "description": "Provider/model p95 TTFB threshold in milliseconds before penalties apply",
+                          "default": 2500
+                        },
+                        "min_penalty_factor": {
+                          "type": "number",
+                          "exclusiveMinimum": 0,
+                          "maximum": 1,
+                          "description": "Lowest multiplier applied to the original provider weight",
+                          "default": 0.2
+                        }
+                      },
+                      "additionalProperties": false
                     }
                   },
                   "additionalProperties": false
@@ -2378,36 +2181,14 @@
         "additionalProperties": false
       }
     },
-    "websocket": {
-      "$ref": "#/$defs/websocket_config"
-    },
-    "guardrails_config": {
-      "$ref": "#/$defs/guardrails_config"
-    },
-    "audit_logs": {
-      "$ref": "#/$defs/audit_logs_config"
-    },
-    "cluster_config": {
-      "$ref": "#/$defs/cluster_config"
-    },
-    "load_balancer_config": {
-      "$ref": "#/$defs/load_balancer_config"
-    },
-    "large_payload_optimization": {
-      "$ref": "#/$defs/large_payload_optimization"
-    },
-    "scim_config": {
-      "$ref": "#/$defs/scim_config"
-    },
-    "access_profiles": {
-      "$ref": "#/$defs/access_profiles"
-    },
-    "feature_flags": {
-      "$ref": "#/$defs/feature_flags_config"
-    },
-    "circuit_breaker_config": {
-      "$ref": "#/$defs/circuit_breaker_config"
-    }
+    "guardrails_config": false,
+    "audit_logs": false,
+    "cluster_config": false,
+    "load_balancer_config": false,
+    "large_payload_optimization": false,
+    "scim_config": false,
+    "access_profiles": false,
+    "circuit_breaker_config": false
   },
   "additionalProperties": false,
   "$defs": {
@@ -2578,33 +2359,6 @@
         }
       },
       "required": ["profiles"],
-      "additionalProperties": false
-    },
-    "feature_flags_config": {
-      "type": "object",
-      "description": "Boot-time overrides for feature flags. Flags themselves are declared in code via featureflags.Register; this block only sets initial values. Anything set here is rendered as locked in the UI - operators must edit the config (or Helm values) to change it.",
-      "properties": {
-        "flags": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "object",
-            "properties": {
-              "enabled": {
-                "description": "Boolean value or a string: either 'env.NAME' for env-var indirection, or a literal boolean (true / false / 1 / 0 / yes / no / on / off, case-insensitive).",
-                "oneOf": [
-                  { "type": "boolean" },
-                  {
-                    "type": "string",
-                    "pattern": "^(env\\.[A-Za-z_][A-Za-z0-9_]*|[Tt][Rr][Uu][Ee]|[Ff][Aa][Ll][Ss][Ee]|[01]|[Yy][Ee][Ss]|[Nn][Oo]|[Oo][Nn]|[Oo][Ff][Ff])$"
-                  }
-                ]
-              }
-            },
-            "required": ["enabled"],
-            "additionalProperties": false
-          }
-        }
-      },
       "additionalProperties": false
     },
     "routing_target": {
@@ -2795,36 +2549,6 @@
       "required": ["provider"],
       "additionalProperties": false
     },
-    "virtual_key_mcp_config": {
-      "type": "object",
-      "description": "MCP configuration for a virtual key",
-      "properties": {
-        "id": {
-          "type": "integer",
-          "description": "MCP config ID"
-        },
-        "virtual_key_id": {
-          "type": "string",
-          "description": "Associated virtual key ID"
-        },
-        "mcp_client_id": {
-          "type": "integer",
-          "description": "Associated MCP client ID (database format)"
-        },
-        "mcp_client_name": {
-          "type": "string",
-          "description": "MCP client name (config file format \u2014 resolved to mcp_client_id at startup)"
-        },
-        "tools_to_execute": {
-          "type": "array",
-          "description": "Include-only list of tools this Virtual Key is permitted to execute from this MCP client. ['*'] means all tools allowed, [] means no tools allowed (deny-by-default).",
-          "items": {
-            "type": "string"
-          }
-        }
-      },
-      "additionalProperties": false
-    },
     "complexity_tier_boundaries": {
       "type": "object",
       "description": "Score thresholds used to classify complexity_tier values",
@@ -2955,19 +2679,6 @@
           "description": "Model parameters URL",
           "optional": true,
           "format": "uri"
-        },
-        "mcp_library_url": {
-          "type": "string",
-          "description": "URL to a custom MCP server catalog. Leave empty to use the default Bifrost catalog.",
-          "optional": true,
-          "format": "uri"
-        },
-        "mcp_library_sync_interval": {
-          "type": "integer",
-          "description": "MCP library sync interval in seconds. Default is 24 hours. Minimum is 3600 seconds (1 hour).",
-          "default": 86400,
-          "optional": true,
-          "minimum": 3600
         }
       },
       "additionalProperties": false
@@ -3547,9 +3258,6 @@
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
         },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
-        },
         "send_back_raw_request": {
           "type": "boolean",
           "description": "Include raw request in BifrostResponse (default: false)"
@@ -3566,7 +3274,7 @@
           "$ref": "#/$defs/custom_provider_config"
         }
       },
-      "required": ["keys"],
+      "required": ["keys", "custom_provider_config"],
       "additionalProperties": false
     },
     "provider_with_bedrock_config": {
@@ -3585,9 +3293,6 @@
         },
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
-        },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
         },
         "send_back_raw_request": {
           "type": "boolean",
@@ -3625,9 +3330,6 @@
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
         },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
-        },
         "send_back_raw_request": {
           "type": "boolean",
           "description": "Include raw request in BifrostResponse (default: false)"
@@ -3663,9 +3365,6 @@
         },
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
-        },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
         },
         "send_back_raw_request": {
           "type": "boolean",
@@ -3703,9 +3402,6 @@
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
         },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
-        },
         "send_back_raw_request": {
           "type": "boolean",
           "description": "Include raw request in BifrostResponse (default: false)"
@@ -3741,9 +3437,6 @@
         },
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
-        },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
         },
         "send_back_raw_request": {
           "type": "boolean",
@@ -3781,9 +3474,6 @@
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
         },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
-        },
         "send_back_raw_request": {
           "type": "boolean",
           "description": "Include raw request in BifrostResponse (default: false)"
@@ -3819,9 +3509,6 @@
         "concurrency_and_buffer_size": {
           "$ref": "#/$defs/concurrency_and_buffer_size"
         },
-        "proxy_config": {
-          "$ref": "#/$defs/proxy_config"
-        },
         "send_back_raw_request": {
           "type": "boolean",
           "description": "Include raw request in BifrostResponse (default: false)"
@@ -3838,328 +3525,6 @@
           "$ref": "#/$defs/custom_provider_config"
         }
       },
-      "additionalProperties": false
-    },
-    "mcp_client_config": {
-      "type": "object",
-      "properties": {
-        "client_id": {
-          "type": "string",
-          "description": "MCP client identifier"
-        },
-        "name": {
-          "type": "string",
-          "description": "Name of the MCP client"
-        },
-        "is_code_mode_client": {
-          "type": "boolean",
-          "description": "Whether this client is a code mode client"
-        },
-        "connection_type": {
-          "type": "string",
-          "enum": ["stdio", "http", "sse", "inprocess"],
-          "description": "Connection type for MCP client"
-        },
-        "connection_string": {
-          "type": "string",
-          "description": "HTTP or SSE URL (alternative to http_config sub-object, required for HTTP or SSE connections)"
-        },
-        "auth_type": {
-          "type": "string",
-          "enum": [
-            "none",
-            "headers",
-            "oauth",
-            "per_user_oauth",
-            "per_user_headers"
-          ],
-          "description": "Authentication type for MCP connection"
-        },
-        "oauth_config_id": {
-          "type": "string",
-          "description": "OAuth config ID reference (required when auth_type is 'oauth' or 'per_user_oauth')"
-        },
-        "headers": {
-          "type": "object",
-          "description": "Headers to send with the request (for headers auth type)",
-          "additionalProperties": {
-            "type": "string"
-          }
-        },
-        "per_user_header_keys": {
-          "type": "array",
-          "description": "Header names each caller must supply when auth_type is 'per_user_headers'. Required (non-empty) for that auth type.",
-          "items": {
-            "type": "string"
-          }
-        },
-        "stdio_config": {
-          "type": "object",
-          "properties": {
-            "command": {
-              "type": "string",
-              "description": "Command to execute"
-            },
-            "args": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Command arguments"
-            },
-            "envs": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              },
-              "description": "Environment variables"
-            }
-          },
-          "required": ["command"],
-          "additionalProperties": false
-        },
-        "tools_to_execute": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Include-only list of tools to execute. ['*'] means all, [] means none."
-        },
-        "tools_to_auto_execute": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Auto-execute list of tools. ['*'] means all, [] means none."
-        },
-        "tool_sync_interval": {
-          "description": "Per-client override for tool sync interval. Prefer Go duration strings (e.g. '10m', '-1s', '0s' = use global). Legacy integer nanoseconds are also supported for backward compatibility.",
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^-?(?:\\d+(?:\\.\\d+)?(?:ns|us|µs|ms|s|m|h))+$"
-            },
-            {
-              "type": "integer"
-            }
-          ]
-        },
-        "allowed_extra_headers": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "Allowlist of request-level headers that callers may forward to this MCP server at execution time. Use ['*'] to allow all headers."
-        },
-        "is_ping_available": {
-          "type": "boolean",
-          "description": "Whether the MCP server supports ping for health checks (default: true)",
-          "default": true
-        },
-        "tool_pricing": {
-          "type": "object",
-          "description": "Tool pricing map (tool name to cost per execution)",
-          "additionalProperties": {
-            "type": "number",
-            "minimum": 0
-          }
-        },
-        "allow_on_all_virtual_keys": {
-          "type": "boolean",
-          "description": "When true, this MCP server is accessible to all virtual keys without requiring explicit per-key assignment. All tools are allowed by default. If a virtual key has an explicit MCP config for this server, that config takes precedence and overrides this behaviour.",
-          "default": false
-        },
-        "disabled": {
-          "type": "boolean",
-          "description": "When true, this MCP client is disabled (connection and workers are stopped while preserving configuration).",
-          "default": false
-        },
-        "tls_config": {
-          "type": "object",
-          "description": "TLS configuration for HTTP and SSE connections. Not applicable to stdio or inprocess connection types.",
-          "properties": {
-            "insecure_skip_verify": {
-              "type": "boolean",
-              "description": "Disable TLS certificate verification. Takes priority over ca_cert_pem when both are set. Use only in development or trusted isolated environments. Not recommended for production."
-            },
-            "ca_cert_pem": {
-              "type": "string",
-              "description": "PEM-encoded CA certificate to trust for MCP server connections. Use when the MCP server uses a self-signed or private CA certificate. Supports env.VAR_NAME syntax to read the certificate from an environment variable."
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "required": ["name", "connection_type"],
-      "additionalProperties": false,
-      "if": {
-        "properties": {
-          "auth_type": {
-            "enum": ["oauth", "per_user_oauth"]
-          }
-        },
-        "required": ["auth_type"]
-      },
-      "then": {
-        "required": ["oauth_config_id"]
-      },
-      "oneOf": [
-        {
-          "properties": {
-            "connection_type": {
-              "const": "stdio"
-            }
-          },
-          "required": ["stdio_config"]
-        },
-        {
-          "properties": {
-            "connection_type": {
-              "const": "websocket"
-            }
-          },
-          "required": ["websocket_config"]
-        },
-        {
-          "properties": {
-            "connection_type": {
-              "const": "http"
-            }
-          },
-          "anyOf": [
-            {
-              "required": ["http_config"]
-            },
-            {
-              "required": ["connection_string"]
-            }
-          ]
-        },
-        {
-          "properties": {
-            "connection_type": {
-              "const": "sse"
-            }
-          },
-          "required": ["connection_string"]
-        }
-      ]
-    },
-    "mcp_tool_manager_config": {
-      "type": "object",
-      "properties": {
-        "tool_execution_timeout": {
-          "type": ["integer", "string"],
-          "description": "Tool execution timeout. Accepts a duration string (e.g. \"30s\", \"2m\") or an integer number of seconds (e.g. 30 means 30 seconds).",
-          "minimum": 1,
-          "default": 30
-        },
-        "max_agent_depth": {
-          "type": "integer",
-          "description": "Max agent depth",
-          "minimum": 1,
-          "default": 10
-        },
-        "code_mode_binding_level": {
-          "type": "string",
-          "enum": ["server", "tool"],
-          "description": "How tools are exposed in VFS for code execution"
-        },
-        "disable_auto_tool_inject": {
-          "type": "boolean",
-          "description": "When true, MCP tools are not automatically injected into requests. Tools are only included when explicitly specified via request context filters or headers, such as x-bf-mcp-include-tools or x-bf-mcp-include-clients.",
-          "default": false
-        }
-      }
-    },
-    "mcp_tool_group_config": {
-      "type": "object",
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Tool group name"
-        },
-        "description": {
-          "type": "string",
-          "description": "Tool group description"
-        },
-        "enabled": {
-          "type": "boolean",
-          "description": "Whether tool group is enabled",
-          "default": true
-        },
-        "tools": {
-          "type": "array",
-          "minItems": 1,
-          "description": "MCP tools included in this group",
-          "items": {
-            "type": "object",
-            "properties": {
-              "mcp_client_id": {
-                "type": "string",
-                "description": "MCP client ID"
-              },
-              "mcp_client_name": {
-                "type": "string",
-                "description": "MCP client name (resolved to client_id at startup)"
-              },
-              "tool_names": {
-                "type": "array",
-                "description": "Tool names to allow. Empty means all tools from this MCP client.",
-                "items": {
-                  "type": "string"
-                }
-              }
-            },
-            "oneOf": [
-              {
-                "required": ["mcp_client_id"]
-              },
-              {
-                "required": ["mcp_client_name"]
-              }
-            ],
-            "additionalProperties": false
-          }
-        },
-        "virtual_key_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "team_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "customer_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "user_ids": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "provider_names": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        },
-        "api_key_ids": {
-          "type": "array",
-          "items": {
-            "type": "integer"
-          }
-        }
-      },
-      "required": ["name", "tools"],
       "additionalProperties": false
     },
     "weaviate_config": {
@@ -4351,44 +3716,6 @@
         }
       },
       "required": ["api_key", "index_host"],
-      "additionalProperties": false
-    },
-    "proxy_config": {
-      "type": "object",
-      "description": "Proxy configuration for provider connections",
-      "properties": {
-        "type": {
-          "type": "string",
-          "enum": ["none", "http", "socks5", "environment"],
-          "description": "Type of proxy to use"
-        },
-        "url": {
-          "oneOf": [
-            {
-              "type": "string",
-              "pattern": "^env\\.[A-Za-z_][A-Za-z0-9_]*$"
-            },
-            {
-              "type": "string",
-              "format": "uri"
-            }
-          ],
-          "description": "URL of the proxy server (supports env.VAR_NAME or a literal URI)"
-        },
-        "username": {
-          "type": "string",
-          "description": "Username for proxy authentication (supports env.VAR_NAME)"
-        },
-        "password": {
-          "type": "string",
-          "description": "Password for proxy authentication (supports env.VAR_NAME)"
-        },
-        "ca_cert_pem": {
-          "type": "string",
-          "description": "PEM-encoded CA certificate to trust for TLS connections through the proxy (for SSL-intercepting proxies, supports env.VAR_NAME)"
-        }
-      },
-      "required": ["type"],
       "additionalProperties": false
     },
     "cluster_config": {
@@ -5108,27 +4435,6 @@
           "items": {
             "$ref": "#/$defs/access_profile_provider_config"
           }
-        },
-        "mcp_tool_groups": {
-          "type": "array",
-          "description": "MCP tool group associations",
-          "items": {
-            "$ref": "#/$defs/access_profile_mcp_tool_group"
-          }
-        },
-        "mcp_servers": {
-          "type": "array",
-          "description": "MCP server associations",
-          "items": {
-            "$ref": "#/$defs/access_profile_mcp_server"
-          }
-        },
-        "mcp_tool_overrides": {
-          "type": "array",
-          "description": "Per-tool include/exclude MCP overrides",
-          "items": {
-            "$ref": "#/$defs/access_profile_mcp_tool_override"
-          }
         }
       },
       "required": ["name"],
@@ -5171,49 +4477,6 @@
         }
       },
       "required": ["provider_name"],
-      "additionalProperties": false
-    },
-    "access_profile_mcp_tool_group": {
-      "type": "object",
-      "properties": {
-        "tool_group_id": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "MCP tool group ID"
-        }
-      },
-      "required": ["tool_group_id"],
-      "additionalProperties": false
-    },
-    "access_profile_mcp_server": {
-      "type": "object",
-      "properties": {
-        "mcp_server_id": {
-          "type": "string",
-          "description": "MCP server identifier"
-        }
-      },
-      "required": ["mcp_server_id"],
-      "additionalProperties": false
-    },
-    "access_profile_mcp_tool_override": {
-      "type": "object",
-      "properties": {
-        "mcp_client_id": {
-          "type": "string",
-          "description": "MCP client identifier"
-        },
-        "tool_name": {
-          "type": "string",
-          "description": "Tool name"
-        },
-        "action": {
-          "type": "string",
-          "enum": ["include", "exclude"],
-          "description": "Override action"
-        }
-      },
-      "required": ["mcp_client_id", "tool_name", "action"],
       "additionalProperties": false
     },
     "audit_logs_config": {
@@ -5279,56 +4542,6 @@
       },
       "additionalProperties": false
     },
-    "websocket_config": {
-      "type": "object",
-      "description": "Optional tuning for the WebSocket gateway (Responses API WebSocket Mode, Realtime API). WebSocket is always enabled; these fields override the high defaults.",
-      "properties": {
-        "max_connections_per_user": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Maximum concurrent WebSocket connections per user",
-          "default": 100
-        },
-        "transcript_buffer_size": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Number of transcript entries to buffer for Realtime API mid-session fallback",
-          "default": 100
-        },
-        "pool": {
-          "type": "object",
-          "description": "Upstream WebSocket connection pool configuration",
-          "properties": {
-            "max_idle_per_key": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Maximum idle connections per provider/key combination",
-              "default": 50
-            },
-            "max_total_connections": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Maximum total idle connections across all providers",
-              "default": 1000
-            },
-            "idle_timeout_seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Seconds before an idle connection is evicted",
-              "default": 600
-            },
-            "max_connection_lifetime_seconds": {
-              "type": "integer",
-              "minimum": 1,
-              "description": "Maximum lifetime of a connection in seconds",
-              "default": 7200
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
-    },
     "provider_pricing_override": {
       "type": "object",
       "description": "Scoped pricing override applied at runtime by the model catalog",
@@ -5379,7 +4592,7 @@
           "description": "Request types this override applies to. At least one value is required.",
           "minItems": 1,
           "items": {
-            "type": "string"
+            "$ref": "#/$defs/pricing_override_request_type"
           }
         },
         "pricing_patch": {
@@ -5409,18 +4622,9 @@
       "type": "string",
       "enum": [
         "chat_completion",
-        "text_completion",
         "responses",
-        "embedding",
-        "rerank",
-        "speech",
-        "transcription",
         "image_generation",
-        "image_variation",
-        "image_edit",
-        "video_generation",
-        "video_remix",
-        "compaction"
+        "image_edit"
       ]
     },
     "custom_provider_config": {
@@ -5435,37 +4639,31 @@
           "type": "string",
           "enum": [
             "openai",
-            "azure",
             "anthropic",
             "bedrock",
             "cohere",
-            "vertex",
-            "mistral",
-            "ollama",
-            "groq",
-            "opencode-go",
-            "opencode-zen",
-            "sgl",
-            "parasail",
-            "perplexity",
-            "cerebras",
             "gemini",
-            "openrouter",
-            "elevenlabs",
             "huggingface",
-            "nebius",
-            "xai",
-            "replicate",
-            "vllm",
-            "runway",
-            "runware",
-            "fireworks"
+            "replicate"
           ],
           "description": "Base provider type to extend"
         },
         "request_path_overrides": {
           "type": "object",
           "description": "Mapping of request type to custom path overriding the default provider path",
+          "propertyNames": {
+            "enum": [
+              "list_models",
+              "chat_completion",
+              "chat_completion_stream",
+              "responses",
+              "responses_stream",
+              "image_generation",
+              "image_generation_stream",
+              "image_edit",
+              "image_edit_stream"
+            ]
+          },
           "additionalProperties": {
             "type": "string"
           }
@@ -5473,14 +4671,21 @@
         "allowed_requests": {
           "type": "object",
           "description": "Allowed request types for the custom provider",
+          "propertyNames": {
+            "enum": [
+              "list_models",
+              "chat_completion",
+              "chat_completion_stream",
+              "responses",
+              "responses_stream",
+              "image_generation",
+              "image_generation_stream",
+              "image_edit",
+              "image_edit_stream"
+            ]
+          },
           "properties": {
             "list_models": {
-              "type": "boolean"
-            },
-            "text_completion": {
-              "type": "boolean"
-            },
-            "text_completion_stream": {
               "type": "boolean"
             },
             "chat_completion": {
@@ -5495,33 +4700,6 @@
             "responses_stream": {
               "type": "boolean"
             },
-            "count_tokens": {
-              "type": "boolean"
-            },
-            "compaction": {
-              "type": "boolean"
-            },
-            "embedding": {
-              "type": "boolean"
-            },
-            "rerank": {
-              "type": "boolean"
-            },
-            "ocr": {
-              "type": "boolean"
-            },
-            "speech": {
-              "type": "boolean"
-            },
-            "speech_stream": {
-              "type": "boolean"
-            },
-            "transcription": {
-              "type": "boolean"
-            },
-            "transcription_stream": {
-              "type": "boolean"
-            },
             "image_generation": {
               "type": "boolean"
             },
@@ -5533,120 +4711,12 @@
             },
             "image_edit_stream": {
               "type": "boolean"
-            },
-            "image_variation": {
-              "type": "boolean"
-            },
-            "video_generation": {
-              "type": "boolean"
-            },
-            "video_retrieve": {
-              "type": "boolean"
-            },
-            "video_download": {
-              "type": "boolean"
-            },
-            "video_delete": {
-              "type": "boolean"
-            },
-            "video_list": {
-              "type": "boolean"
-            },
-            "video_remix": {
-              "type": "boolean"
-            },
-            "batch_create": {
-              "type": "boolean"
-            },
-            "batch_list": {
-              "type": "boolean"
-            },
-            "batch_retrieve": {
-              "type": "boolean"
-            },
-            "batch_cancel": {
-              "type": "boolean"
-            },
-            "batch_delete": {
-              "type": "boolean"
-            },
-            "batch_results": {
-              "type": "boolean"
-            },
-            "file_upload": {
-              "type": "boolean"
-            },
-            "file_list": {
-              "type": "boolean"
-            },
-            "file_retrieve": {
-              "type": "boolean"
-            },
-            "file_delete": {
-              "type": "boolean"
-            },
-            "file_content": {
-              "type": "boolean"
-            },
-            "container_create": {
-              "type": "boolean"
-            },
-            "container_list": {
-              "type": "boolean"
-            },
-            "container_retrieve": {
-              "type": "boolean"
-            },
-            "container_delete": {
-              "type": "boolean"
-            },
-            "container_file_create": {
-              "type": "boolean"
-            },
-            "container_file_list": {
-              "type": "boolean"
-            },
-            "container_file_retrieve": {
-              "type": "boolean"
-            },
-            "container_file_content": {
-              "type": "boolean"
-            },
-            "container_file_delete": {
-              "type": "boolean"
-            },
-            "passthrough": {
-              "type": "boolean"
-            },
-            "passthrough_stream": {
-              "type": "boolean"
-            },
-            "websocket_responses": {
-              "type": "boolean"
-            },
-            "realtime": {
-              "type": "boolean"
-            },
-            "cached_content_create": {
-              "type": "boolean"
-            },
-            "cached_content_list": {
-              "type": "boolean"
-            },
-            "cached_content_retrieve": {
-              "type": "boolean"
-            },
-            "cached_content_update": {
-              "type": "boolean"
-            },
-            "cached_content_delete": {
-              "type": "boolean"
             }
           },
           "additionalProperties": false
         }
       },
-      "required": ["base_provider_type"],
+      "required": ["base_provider_type", "allowed_requests"],
       "additionalProperties": false
     },
     "circuit_breaker_config": {

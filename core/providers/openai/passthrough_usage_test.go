@@ -142,18 +142,6 @@ func TestExtractOpenAIPassthroughUsage(t *testing.T) {
 			},
 		},
 		{
-			name:    "image variation count from request n",
-			path:    "/v1/images/variations",
-			reqBody: `{"n":2}`,
-			body:    `{"data":[{"b64_json":"x"},{"b64_json":"y"}]}`,
-			check: func(t *testing.T, u *schemas.BifrostPassthroughUsage) {
-				if u == nil || u.ImageUsage == nil || u.ImageUsage.OutputTokensDetails == nil ||
-					u.ImageUsage.OutputTokensDetails.NImages != 2 {
-					t.Fatalf("image NImages = %+v", u)
-				}
-			},
-		},
-		{
 			name: "video seconds default (no body)",
 			path: "/v1/videos",
 			check: func(t *testing.T, u *schemas.BifrostPassthroughUsage) {
@@ -232,10 +220,9 @@ func TestExtractOpenAIPassthroughUsage_VideoJSONSeconds(t *testing.T) {
 	}
 }
 
-// /v1/images/variations is multipart/form-data; size/quality/n ride as form fields.
 func TestExtractOpenAIPassthroughUsage_ImageMultipartParams(t *testing.T) {
 	reqBody := multipartBody(t, map[string]string{"size": "1024x1024", "quality": "high", "n": "3"})
-	u := openai.ExtractOpenAIPassthroughUsage("POST", "/v1/images/variations", reqBody, nil)
+	u := openai.ExtractOpenAIPassthroughUsage("POST", "/v1/images/edits", reqBody, nil)
 	if u == nil {
 		t.Fatal("expected usage, got nil")
 	}

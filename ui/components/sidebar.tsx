@@ -1,47 +1,24 @@
 import {
 	ArrowUpRight,
-	BookOpenText,
-	BookUser,
 	Boxes,
 	BoxIcon,
 	BugIcon,
-	Building,
-	Building2,
 	ChartColumnBig,
-	ChevronsLeftRightEllipsis,
-	Construction,
-	DatabaseZap,
-	Flag,
-	ShieldHalf,
-	FlaskConical,
-	FolderGit,
-	Globe,
 	KeyRound,
 	Landmark,
 	LayoutGrid,
 	LogOut,
 	Logs,
-	Network,
 	PanelLeftClose,
 	PanelLeftOpen,
 	Plug,
-	Puzzle,
-	ScrollText,
 	Search,
-	SearchCheck,
 	Settings,
 	Settings2Icon,
 	ShieldCheck,
-	Shuffle,
-	SlidersHorizontal,
 	Telescope,
-	ToolCase,
 	TrendingUp,
 	User,
-	UserRoundCheck,
-	Users,
-	Wallet,
-	WalletCards,
 } from "lucide-react";
 
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -61,7 +38,6 @@ import {
 	SidebarMenuSubItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { useWebSocket } from "@/hooks/useWebSocket";
 import { IS_ENTERPRISE } from "@/lib/constants/config";
 import { useGetCoreConfigQuery, useGetLatestReleaseQuery, useGetVersionQuery, useLogoutMutation } from "@/lib/store";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -84,47 +60,28 @@ const PRODUCTION_SETUP_DISMISSED_COOKIE = "bifrost_production_setup_dismissed";
 const newBadgeClassName =
 	"relative overflow-hidden after:pointer-events-none after:absolute after:inset-y-0 after:-left-full after:w-full after:skew-x-[-18deg] after:bg-gradient-to-r after:from-transparent after:via-primary/25 after:to-transparent after:opacity-0 after:content-[''] after:animate-[sidebar-new-badge-shine_1200ms_cubic-bezier(0.22,1,0.36,1)_260ms_both]";
 
-// Custom MCP Icon Component
-const MCPIcon = ({ className }: { className?: string }) => (
-	<svg
-		className={className}
-		fill="currentColor"
-		fillRule="evenodd"
-		height="1em"
-		style={{ flex: "none", lineHeight: 1 }}
-		viewBox="0 0 24 24"
-		width="1em"
-		xmlns="http://www.w3.org/2000/svg"
-		aria-label="MCP clients icon"
-	>
-		<title>MCP clients icon</title>
-		<path d="M15.688 2.343a2.588 2.588 0 00-3.61 0l-9.626 9.44a.863.863 0 01-1.203 0 .823.823 0 010-1.18l9.626-9.44a4.313 4.313 0 016.016 0 4.116 4.116 0 011.204 3.54 4.3 4.3 0 013.609 1.18l.05.05a4.115 4.115 0 010 5.9l-8.706 8.537a.274.274 0 000 .393l1.788 1.754a.823.823 0 010 1.18.863.863 0 01-1.203 0l-1.788-1.753a1.92 1.92 0 010-2.754l8.706-8.538a2.47 2.47 0 000-3.54l-.05-.049a2.588 2.588 0 00-3.607-.003l-7.172 7.034-.002.002-.098.097a.863.863 0 01-1.204 0 .823.823 0 010-1.18l7.273-7.133a2.47 2.47 0 00-.003-3.537z" />
-		<path d="M14.485 4.703a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a4.115 4.115 0 000 5.9 4.314 4.314 0 006.016 0l7.12-6.982a.823.823 0 000-1.18.863.863 0 00-1.204 0l-7.119 6.982a2.588 2.588 0 01-3.61 0 2.47 2.47 0 010-3.54l7.12-6.982z" />
-	</svg>
-);
-
 // Main navigation items
 
 // External links
 const externalLinks = [
 	{
-		title: "Discord Server",
+		title: "Discord 社区",
 		url: "https://discord.gg/exN5KAydbU",
 		icon: DiscordLogoIcon,
 	},
 	{
-		title: "GitHub Repository",
+		title: "GitHub 仓库",
 		url: "https://github.com/maximhq/bifrost",
 		icon: GithubLogoIcon,
 	},
 	{
-		title: "Report a bug",
+		title: "反馈问题",
 		url: "https://github.com/maximhq/bifrost/issues/new?title=[Bug Report]&labels=bug&type=bug&projects=maximhq/1",
 		icon: BugIcon,
 		strokeWidth: 1.5,
 	},
 	{
-		title: "Full Documentation",
+		title: "完整文档",
 		url: "https://docs.getbifrost.ai",
 		icon: BooksIcon,
 		strokeWidth: 1,
@@ -134,13 +91,13 @@ const externalLinks = [
 // Base promotional card (memoized outside component to prevent recreation)
 const productionSetupHelpCard = {
 	id: "production-setup",
-	title: "Need help with production setup?",
+	title: "需要生产部署协助？",
 	description: (
 		<>
-			We offer help with production setup including custom integrations and dedicated support.
+			我们可以协助生产部署，包括自定义集成和专属支持。
 			<br />
 			<br />
-			Book a demo with our team{" "}
+			预约一次演示{" "}
 			<a
 				href="https://calendly.com/maximai/bifrost-demo?utm_source=bfd_sdbr"
 				target="_blank"
@@ -176,7 +133,7 @@ const getSidebarItemHref = (item: Pick<SidebarItem, "url" | "queryParam">) => {
 
 const slug = (s: string) => s.toLowerCase().replace(/\s+/g, "-");
 
-const TimeFilterPages = new Set(["/workspace/dashboard", "/workspace/logs", "/workspace/mcp-logs"]);
+const TimeFilterPages = new Set(["/workspace/dashboard", "/workspace/logs"]);
 
 const preserveTimeFilters = (baseHref: string, subItemUrl: string, pathname: string, search: string): string => {
 	if (TimeFilterPages.has(subItemUrl) && TimeFilterPages.has(pathname)) {
@@ -200,7 +157,6 @@ const SidebarItemView = ({
 	item,
 	isActive,
 	isExternal,
-	isWebSocketConnected,
 	isExpanded,
 	onToggle,
 	pathname,
@@ -212,7 +168,6 @@ const SidebarItemView = ({
 	item: SidebarItem;
 	isActive: boolean;
 	isExternal?: boolean;
-	isWebSocketConnected: boolean;
 	isExpanded?: boolean;
 	onToggle?: () => void;
 	pathname: string;
@@ -243,9 +198,7 @@ const SidebarItemView = ({
 	const isRouteMatch = (url: string) => {
 		// Exact-match base paths that have sibling tab routes nested under them, so the base
 		// tab isn't also highlighted when a child tab (e.g. /settings) is active.
-		if (url === "/workspace/custom-pricing" || url === "/workspace/adaptive-routing") return pathname === url;
-		// Avoid double-highlighting with "/workspace/mcp-registry/library"
-		if (url === "/workspace/mcp-registry") return !pathname.startsWith("/workspace/mcp-registry/library") && pathname.startsWith(url);
+		if (url === "/workspace/custom-pricing") return pathname === url;
 		return pathname.startsWith(url);
 	};
 	const isAnySubItemActive =
@@ -304,9 +257,6 @@ const SidebarItemView = ({
 				<ChevronRight
 					className={`h-4 w-4 transition-transform duration-200 group-data-[collapsible=icon]:hidden ${isExpanded ? "rotate-90" : ""}`}
 				/>
-			)}
-			{!hasSubItems && item.url === "/logs" && isWebSocketConnected && (
-				<div className="h-2 w-2 animate-pulse rounded-full bg-green-800 dark:bg-green-200" />
 			)}
 			{isExternal && <ArrowUpRight className="text-muted-foreground h-4 w-4 group-data-[collapsible=icon]:hidden" size={16} />}
 		</div>
@@ -542,43 +492,12 @@ export default function AppSidebar() {
 		skip: !mounted, // Only fetch after component is mounted
 	});
 	const hasLogsAccess = useRbac(RbacResource.Logs, RbacOperation.View);
-	const hasObservabilityAccess = useRbac(RbacResource.Observability, RbacOperation.View);
 	const hasDashboardAccess = useRbac(RbacResource.Dashboard, RbacOperation.View);
 	const hasModelProvidersAccess = useRbac(RbacResource.ModelProvider, RbacOperation.View);
-	const hasMCPGatewayAccess = useRbac(RbacResource.MCPGateway, RbacOperation.View);
-	const hasMCPToolGroupsAccess = useRbac(RbacResource.MCPToolGroups, RbacOperation.View);
-	const hasMCPLogsAccess = useRbac(RbacResource.MCPLogs, RbacOperation.View);
-	const hasPluginsAccess = useRbac(RbacResource.Plugins, RbacOperation.View);
-	const hasUsersAccess = useRbac(RbacResource.Users, RbacOperation.View);
-	const hasUserProvisioningAccess = useRbac(RbacResource.UserProvisioning, RbacOperation.View);
-	const hasAuditLogsAccess = useRbac(RbacResource.AuditLogs, RbacOperation.View);
-	const hasCustomersAccess = useRbac(RbacResource.Customers, RbacOperation.View);
-	const hasTeamsAccess = useRbac(RbacResource.Teams, RbacOperation.View);
-	const hasBusinessUnitsAccess = useRbac(RbacResource.UserProvisioning, RbacOperation.View);
-	const hasRbacAccess = useRbac(RbacResource.RBAC, RbacOperation.View);
 	const hasVirtualKeysAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.View);
-	const hasGovernanceLegacyAccess = useRbac(RbacResource.Governance, RbacOperation.View);
-	const hasRoutingRulesAccess = useRbac(RbacResource.RoutingRules, RbacOperation.View);
-	const hasGuardrailsProvidersAccess = useRbac(RbacResource.GuardrailsProviders, RbacOperation.View);
-	const hasGuardrailsConfigAccess = useRbac(RbacResource.GuardrailsConfig, RbacOperation.View);
-	const hasCircuitBreakerAccess = useRbac(RbacResource.CircuitBreaker, RbacOperation.View);
-	const hasClusterConfigAccess = useRbac(RbacResource.Cluster, RbacOperation.View);
-	const isAdaptiveRoutingAllowed = useRbac(RbacResource.AdaptiveRouter, RbacOperation.View);
 	const hasSettingsAccess = useRbac(RbacResource.Settings, RbacOperation.View);
-	const hasFeatureFlagsAccess = useRbac(RbacResource.FeatureFlags, RbacOperation.View);
 	const hasAPIKeyAccess = useRbac(RbacResource.APIKeys, RbacOperation.View);
-	const hasPromptRepositoryAccess = useRbac(RbacResource.PromptRepository, RbacOperation.View);
-	const hasSkillsRepositoryAccess = useRbac(RbacResource.SkillsRepository, RbacOperation.View);
-	const hasAccessProfilesAccess = useRbac(RbacResource.AccessProfiles, RbacOperation.View);
-	const hasAnyGovernanceAccess =
-		hasVirtualKeysAccess ||
-		hasTeamsAccess ||
-		hasUsersAccess ||
-		hasCustomersAccess ||
-		hasBusinessUnitsAccess ||
-		hasRbacAccess ||
-		hasAccessProfilesAccess ||
-		hasGovernanceLegacyAccess;
+	const hasAnyAccessKeysAccess = hasVirtualKeysAccess;
 	const { data: coreConfig } = useGetCoreConfigQuery({});
 	const isDbConnected = coreConfig?.is_db_connected ?? false;
 	const envLabel = coreConfig?.env_label ?? null;
@@ -586,382 +505,129 @@ export default function AppSidebar() {
 	const items = useMemo(
 		() => [
 			{
-				title: "Observability",
+				title: "观测",
 				url: "/workspace/logs",
 				icon: Telescope,
-				description: "Request logs & monitoring",
+				description: "请求日志和监控",
 				hasAccess: hasLogsAccess,
 				subItems: [
 					{
-						title: "Dashboard",
+						title: "仪表盘",
 						url: "/workspace/dashboard",
 						icon: ChartColumnBig,
-						description: "Dashboard",
+						description: "仪表盘",
 						hasAccess: hasDashboardAccess,
 					},
 					{
-						title: "LLM Logs",
+						title: "LLM 日志",
 						url: "/workspace/logs",
 						icon: Logs,
-						description: "LLM request logs & monitoring",
+						description: "LLM 请求日志和监控",
 						hasAccess: hasLogsAccess,
 					},
 					{
-						title: "MCP Logs",
-						url: "/workspace/mcp-logs",
-						icon: MCPIcon,
-						description: "MCP tool execution logs",
-						hasAccess: hasMCPLogsAccess,
-					},
-					{
-						title: "Connectors",
-						url: "/workspace/observability",
-						icon: ChevronsLeftRightEllipsis,
-						description: "Log connectors",
-						hasAccess: hasObservabilityAccess,
-					},
-					{
-						title: "Logs Settings",
+						title: "日志设置",
 						url: "/workspace/config/logging",
 						icon: Settings,
-						description: "Logs configuration",
+						description: "日志配置",
 						hasAccess: hasSettingsAccess,
 					},
 				],
 			},
 			{
-				title: "Models",
+				title: "模型",
 				url: "/workspace/providers",
 				icon: BoxIcon,
-				description: "Configure models",
+				description: "配置模型",
 				hasAccess: true,
 				subItems: [
 					{
-						title: "Model Catalog",
+						title: "模型目录",
 						url: "/workspace/model-catalog",
 						icon: LayoutGrid,
-						description: "Overview of providers, keys, and usage",
+						description: "查看 provider、key 和使用情况",
 						hasAccess: hasModelProvidersAccess,
 					},
 					{
-						title: "Model Providers",
+						title: "模型 Provider",
 						url: "/workspace/providers",
 						icon: Boxes,
-						description: "Configure models",
+						description: "配置模型",
 						hasAccess: hasModelProvidersAccess,
 					},
 					{
-						title: "Budgets & Limits",
-						url: "/workspace/model-limits",
-						icon: Wallet,
-						description: "Model limits",
-						hasAccess: hasGovernanceLegacyAccess,
-					},
-					{
-						title: "Routing Rules",
-						url: "/workspace/routing-rules",
-						icon: Network,
-						description: "Intelligent routing rules",
-						hasAccess: hasRoutingRulesAccess,
-					},
-					{
-						title: "Complexity Router",
-						url: "/workspace/complexity-router",
-						icon: Settings2Icon,
-						description: "Complexity tier routing",
-						hasAccess: hasRoutingRulesAccess,
-					},
-					{
-						title: "Pricing Overrides",
+						title: "模型价格/成本覆盖",
 						url: "/workspace/custom-pricing/overrides",
-						icon: SlidersHorizontal,
-						description: "Scoped pricing overrides",
+						icon: Settings2Icon,
+						description: "配置模型计费单价覆盖",
 						hasAccess: hasSettingsAccess,
 					},
 					{
-						title: "Model Settings",
+						title: "模型设置",
 						url: "/workspace/custom-pricing",
 						icon: Settings,
-						description: "Model and routing configuration",
+						description: "价格同步和路由配置",
 						hasAccess: hasSettingsAccess,
 					},
-					{
-						title: "Circuit Breaker",
-						url: "/workspace/circuit-breaker",
-						icon: ShieldHalf,
-						description: "Automatic fallback when primary endpoints fail",
-						hasAccess: hasCircuitBreakerAccess,
-					},
 				],
 			},
 			{
-				title: "MCP Gateway",
-				icon: MCPIcon,
-				description: "MCP configuration",
-				url: "/workspace/mcp-gateway",
-				hasAccess: hasMCPGatewayAccess || hasMCPToolGroupsAccess,
-				subItems: [
-					{
-						title: "MCP Catalog",
-						url: "/workspace/mcp-registry",
-						icon: LayoutGrid,
-						description: "MCP tool catalog",
-						hasAccess: hasMCPGatewayAccess,
-					},
-					{
-						title: "MCP Library",
-						url: "/workspace/mcp-registry/library",
-						icon: Boxes,
-						description: "Install curated MCP servers",
-						hasAccess: hasMCPGatewayAccess,
-					},
-					{
-						title: "Tool Groups",
-						url: "/workspace/mcp-tool-groups",
-						icon: ToolCase,
-						description: "Tool Groups",
-						hasAccess: hasMCPToolGroupsAccess,
-					},
-					{
-						title: "Auth Sessions",
-						url: "/workspace/mcp-sessions",
-						icon: KeyRound,
-						description: "Per-user OAuth sessions",
-						hasAccess: hasMCPGatewayAccess,
-					},
-					{
-						title: "MCP Settings",
-						url: "/workspace/mcp-settings",
-						icon: Settings,
-						description: "MCP configuration",
-						hasAccess: hasMCPGatewayAccess,
-					},
-				],
-			},
-			{
-				title: "Plugins",
-				url: "/workspace/plugins",
-				icon: Puzzle,
-				description: "Manage custom plugins",
-				hasAccess: hasPluginsAccess,
-			},
-			{
-				title: "Governance",
+				title: "访问控制",
 				url: "/workspace/governance",
 				icon: Landmark,
-				description: "Virtual keys, users, teams, customers & roles",
-				hasAccess: hasAnyGovernanceAccess,
+				description: "虚拟 Key",
+				hasAccess: hasAnyAccessKeysAccess,
 				subItems: [
 					{
-						title: "Virtual Keys",
+						title: "虚拟 Key",
 						url: "/workspace/governance/virtual-keys",
 						icon: KeyRound,
-						description: "Manage virtual keys & access",
+						description: "管理虚拟 Key 和访问权限",
 						hasAccess: hasVirtualKeysAccess,
 					},
-					{
-						title: "Users",
-						url: "/workspace/governance/users",
-						icon: Users,
-						description: "Manage users",
-						hasAccess: hasUsersAccess,
-					},
-					{
-						title: "Teams",
-						url: "/workspace/governance/teams",
-						icon: Building,
-						description: "Manage teams",
-						hasAccess: hasTeamsAccess,
-					},
-					{
-						title: "Business Units",
-						url: "/workspace/governance/business-units",
-						icon: Building2,
-						description: "Manage business units",
-						hasAccess: hasBusinessUnitsAccess,
-					},
-					{
-						title: "Customers",
-						url: "/workspace/governance/customers",
-						icon: WalletCards,
-						description: "Manage customers",
-						hasAccess: hasCustomersAccess,
-					},
-					{
-						title: "User Provisioning",
-						url: "/workspace/scim",
-						icon: BookUser,
-						description: "User management and provisioning",
-						hasAccess: hasUserProvisioningAccess,
-					},
-					{
-						title: "Roles & Permissions",
-						url: "/workspace/governance/rbac",
-						icon: UserRoundCheck,
-						description: "User roles and permissions",
-						hasAccess: hasRbacAccess,
-					},
-					{
-						title: "Access Profiles",
-						url: "/workspace/governance/access-profiles",
-						icon: ShieldCheck,
-						description: "Manage access profiles for roles",
-						hasAccess: hasAccessProfilesAccess,
-					},
-					{
-						title: "Audit Logs",
-						url: "/workspace/audit-logs",
-						icon: ScrollText,
-						description: "Audit logs and compliance",
-						hasAccess: hasAuditLogsAccess,
-					},
 				],
 			},
 			{
-				title: "Guardrails",
-				url: "/workspace/guardrails",
-				icon: Construction,
-				description: "Guardrails configuration",
-				hasAccess: hasGuardrailsConfigAccess || hasGuardrailsProvidersAccess,
-				subItems: [
-					{
-						title: "Rules",
-						url: "/workspace/guardrails/configuration",
-						icon: SearchCheck,
-						description: "Guardrail rules",
-						hasAccess: hasGuardrailsConfigAccess,
-					},
-					{
-						title: "Providers",
-						url: "/workspace/guardrails/providers",
-						icon: Boxes,
-						description: "Guardrail providers configuration",
-						hasAccess: hasGuardrailsProvidersAccess,
-					},
-				],
-			},
-			{
-				title: "Cluster Config",
-				url: "/workspace/cluster",
-				icon: Network,
-				description: "Manage Bifrost cluster",
-				hasAccess: hasClusterConfigAccess,
-			},
-			{
-				title: "Adaptive Routing",
-				url: "/workspace/adaptive-routing",
-				icon: Shuffle,
-				description: "Manage adaptive routing",
-				hasAccess: isAdaptiveRoutingAllowed,
-				subItems: [
-					{
-						title: "Dashboard",
-						url: "/workspace/adaptive-routing",
-						icon: ChartColumnBig,
-						description: "Adaptive routing metrics",
-						hasAccess: isAdaptiveRoutingAllowed,
-					},
-					{
-						title: "Settings",
-						url: "/workspace/adaptive-routing/settings",
-						icon: Settings,
-						description: "Adaptive routing settings",
-						hasAccess: isAdaptiveRoutingAllowed,
-					},
-				],
-			},
-			...(isDbConnected
-				? [
-						{
-							title: "Prompt Repository",
-							url: "/workspace/prompt-repo",
-							icon: FolderGit,
-							description: "Prompt repository",
-							hasAccess: hasPromptRepositoryAccess,
-						},
-						{
-							title: "Skills Repository",
-							url: "/workspace/skills-repo",
-							icon: BookOpenText,
-							description: "Skills repository",
-							hasAccess: hasSkillsRepositoryAccess,
-						},
-					]
-				: []),
-			{
-				title: "Evals",
-				url: "https://www.getmaxim.ai",
-				icon: FlaskConical,
-				isExternal: true,
-				description: "Evaluations",
-				hasAccess: true,
-			},
-			{
-				title: "Settings",
+				title: "设置",
 				url: "/workspace/config",
 				icon: Settings2Icon,
-				description: "Bifrost settings",
-				hasAccess: hasSettingsAccess || hasAuditLogsAccess || hasUserProvisioningAccess,
+				description: "Bifrost 设置",
+				hasAccess: hasSettingsAccess || hasAPIKeyAccess,
 				subItems: [
 					{
-						title: "Client Settings",
+						title: "客户端设置",
 						url: "/workspace/config/client-settings",
 						icon: Settings,
-						description: "Client configuration settings",
+						description: "客户端配置",
 						hasAccess: hasSettingsAccess,
 					},
 					{
-						title: "Compatibility",
+						title: "兼容性",
 						url: "/workspace/config/compatibility",
 						icon: Plug,
-						description: "Compatibility conversion settings",
+						description: "兼容转换设置",
 						hasAccess: hasSettingsAccess,
 					},
 					{
-						title: "Caching",
-						url: "/workspace/config/caching",
-						icon: DatabaseZap,
-						description: "Caching configuration",
-						hasAccess: hasSettingsAccess,
-					},
-					{
-						title: "Security",
+						title: "安全",
 						url: "/workspace/config/security",
 						icon: ShieldCheck,
-						description: "Security settings",
+						description: "安全设置",
 						hasAccess: hasSettingsAccess,
 					},
-					...(IS_ENTERPRISE
-						? [
-								{
-									title: "Proxy",
-									url: "/workspace/config/proxy",
-									icon: Globe,
-									description: "Proxy configuration",
-									hasAccess: hasSettingsAccess,
-								},
-							]
-						: []),
 					{
-						title: "API Keys",
+						title: "API Key",
 						url: "/workspace/config/api-keys",
 						icon: KeyRound,
-						description: "API keys management",
+						description: "API Key 管理",
 						hasAccess: hasAPIKeyAccess,
 					},
 					{
-						title: "Performance Tuning",
+						title: "性能调优",
 						url: "/workspace/config/performance-tuning",
 						icon: TrendingUp,
-						description: "Performance tuning settings",
+						description: "性能调优设置",
 						hasAccess: hasSettingsAccess,
-					},
-					{
-						title: "Feature Flags",
-						url: "/workspace/config/feature-flags",
-						icon: Flag,
-						description: "Toggle feature flags",
-						hasAccess: hasFeatureFlagsAccess,
 					},
 				],
 			},
@@ -969,34 +635,11 @@ export default function AppSidebar() {
 		[
 			hasLogsAccess,
 			hasAPIKeyAccess,
-			hasObservabilityAccess,
 			hasDashboardAccess,
 			hasModelProvidersAccess,
-			hasMCPGatewayAccess,
-			hasMCPToolGroupsAccess,
-			hasMCPLogsAccess,
-			hasPluginsAccess,
-			hasUsersAccess,
-			hasUserProvisioningAccess,
-			hasAuditLogsAccess,
-			hasCustomersAccess,
-			hasTeamsAccess,
-			hasBusinessUnitsAccess,
-			hasRbacAccess,
 			hasVirtualKeysAccess,
-			hasGovernanceLegacyAccess,
-			hasAnyGovernanceAccess,
-			hasRoutingRulesAccess,
-			hasGuardrailsProvidersAccess,
-			hasGuardrailsConfigAccess,
-			hasCircuitBreakerAccess,
-			hasClusterConfigAccess,
-			isAdaptiveRoutingAllowed,
+			hasAnyAccessKeysAccess,
 			hasSettingsAccess,
-			hasPromptRepositoryAccess,
-			hasSkillsRepositoryAccess,
-			hasAccessProfilesAccess,
-			isDbConnected,
 		],
 	);
 
@@ -1066,7 +709,7 @@ export default function AppSidebar() {
 	useEffect(() => {
 		const newExpandedItems = new Set<string>();
 		const isRouteMatch = (url: string) => {
-			if (url === "/workspace/custom-pricing" || url === "/workspace/adaptive-routing") return pathname === url;
+			if (url === "/workspace/custom-pricing") return pathname === url;
 			return pathname.startsWith(url);
 		};
 		items.forEach((item) => {
@@ -1206,7 +849,6 @@ export default function AppSidebar() {
 
 	const isActiveRoute = (url: string) => {
 		if (url === "/" && pathname === "/") return true;
-		// Avoid double-highlighting with "/workspace/custom-pricing/overrides"
 		if (url === "/workspace/custom-pricing") return pathname === url;
 		if (url !== "/" && pathname.startsWith(url)) {
 			if (url === "/workspace/config" && configExceptions.some((e) => pathname.startsWith(e))) {
@@ -1221,8 +863,6 @@ export default function AppSidebar() {
 	const logoSrc = mounted && resolvedTheme === "dark" ? "/bifrost-logo-dark.webp" : "/bifrost-logo.webp";
 	const iconSrc = mounted && resolvedTheme === "dark" ? "/bifrost-icon-dark.webp" : "/bifrost-icon.webp";
 
-	const { isConnected: isWebSocketConnected } = useWebSocket();
-
 	// New release image - based on theme
 	const newReleaseImage = mounted && resolvedTheme === "dark" ? "/images/new-release-image-dark.webp" : "/images/new-release-image.webp";
 
@@ -1233,10 +873,10 @@ export default function AppSidebar() {
 		if (coreConfig?.restart_required?.required) {
 			cards.push({
 				id: "restart-required",
-				title: "Restart Required",
+				title: "需要重启",
 				description: (
 					<div className="text-xs text-amber-700 dark:text-amber-300/80">
-						{coreConfig.restart_required.reason || "Configuration changes require a server restart to take effect."}
+						{coreConfig.restart_required.reason || "配置变更需要重启服务后生效。"}
 					</div>
 				),
 				dismissible: false,
@@ -1246,7 +886,7 @@ export default function AppSidebar() {
 		if (showNewReleaseBanner && latestRelease) {
 			cards.push({
 				id: "new-release",
-				title: `${latestRelease.name} is now available.`,
+				title: `${latestRelease.name} 已发布。`,
 				description: (
 					<div className="flex h-full flex-col gap-2">
 						<img src={newReleaseImage} alt="Bifrost" className="h-[95px] rounded-md object-cover" />
@@ -1256,7 +896,7 @@ export default function AppSidebar() {
 							rel="noopener noreferrer"
 							className="text-primary mt-auto pb-1 font-medium underline"
 						>
-							View release notes
+							查看发布说明
 						</a>
 					</div>
 				),
@@ -1326,7 +966,7 @@ export default function AppSidebar() {
 						type="button"
 						data-testid="sidebar-collapse-btn"
 						className="text-muted-foreground hover:text-foreground hover:bg-sidebar-accent flex h-7 w-7 items-center justify-center rounded-md transition-colors"
-						aria-label="Collapse sidebar"
+						aria-label="收起侧边栏"
 					>
 						<PanelLeftClose className="h-4 w-4" />
 					</button>
@@ -1362,8 +1002,8 @@ export default function AppSidebar() {
 					<input
 						ref={searchInputRef}
 						type="text"
-						aria-label="Search sidebar navigation"
-						placeholder="Search..."
+						aria-label="搜索侧边栏导航"
+						placeholder="搜索..."
 						value={searchQuery}
 						onChange={(e) => {
 							setSearchQuery(e.target.value);
@@ -1392,7 +1032,6 @@ export default function AppSidebar() {
 										item={item}
 										isActive={isActive}
 										isExternal={item.isExternal ?? false}
-										isWebSocketConnected={isWebSocketConnected}
 										isExpanded={expandedItems.has(item.title)}
 										onToggle={() => toggleItem(item.title)}
 										pathname={pathname}
@@ -1439,7 +1078,7 @@ export default function AppSidebar() {
 										<button
 											className="hover:text-primary text-muted-foreground flex cursor-pointer items-center space-x-3 p-0.5"
 											type="button"
-											aria-label="User menu"
+											aria-label="用户菜单"
 										>
 											<User className="hover:text-primary text-muted-foreground h-4 w-4" size={20} strokeWidth={2} />
 										</button>
@@ -1447,7 +1086,7 @@ export default function AppSidebar() {
 									<PopoverContent side="top" align="start" className="w-56 p-0">
 										<div className="flex flex-col">
 											<div className="px-4 py-3">
-												<p className="text-sm font-medium">{userInfo.name || userInfo.email || "User"}</p>
+												<p className="text-sm font-medium">{userInfo.name || userInfo.email || "用户"}</p>
 											</div>
 											<Separator />
 											<button
@@ -1456,7 +1095,7 @@ export default function AppSidebar() {
 												type="button"
 											>
 												<LogOut className="h-4 w-4" strokeWidth={2} />
-												<span>Logout</span>
+												<span>退出登录</span>
 											</button>
 										</div>
 									</PopoverContent>
@@ -1467,7 +1106,7 @@ export default function AppSidebar() {
 										className="hover:text-primary text-muted-foreground flex cursor-pointer items-center space-x-3 p-0.5"
 										onClick={handleLogout}
 										type="button"
-										aria-label="Logout"
+										aria-label="退出登录"
 									>
 										<LogOut className="hover:text-primary text-muted-foreground h-4 w-4" size={20} strokeWidth={2} />
 									</button>
@@ -1479,7 +1118,7 @@ export default function AppSidebar() {
 									type="button"
 									data-testid="sidebar-expand-btn"
 									className="text-muted-foreground hover:text-foreground hover:bg-sidebar-accent flex cursor-pointer items-center justify-center rounded-md transition-colors"
-									aria-label="Expand sidebar"
+									aria-label="展开侧边栏"
 								>
 									<PanelLeftOpen className="h-4 w-4" />
 								</button>

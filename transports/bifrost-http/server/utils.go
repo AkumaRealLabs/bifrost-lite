@@ -92,13 +92,6 @@ func (s *BifrostHTTPServer) CollectObservabilityPlugins() []schemas.Observabilit
 		}
 	}
 
-	// Check MCP plugins
-	for _, plugin := range s.Config.GetLoadedMCPPlugins() {
-		if observabilityPlugin, ok := plugin.(schemas.ObservabilityPlugin); ok {
-			observabilityPlugins = append(observabilityPlugins, observabilityPlugin)
-		}
-	}
-
 	return observabilityPlugins
 }
 

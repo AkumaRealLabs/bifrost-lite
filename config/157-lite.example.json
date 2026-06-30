@@ -1,0 +1,272 @@
+{
+  "$schema": "https://www.getbifrost.ai/schema",
+  "version": 2,
+  "env_label": "157-lite",
+  "source_of_truth": "config.json",
+  "client": {
+    "allowed_origins": ["*"],
+    "disable_content_logging": false,
+    "drop_excess_requests": false,
+    "enable_logging": true,
+    "enforce_auth_on_inference": true,
+    "initial_pool_size": 300,
+    "log_retention_days": 30,
+    "max_request_body_size_mb": 100,
+    "routing_chain_max_depth": 10,
+    "ttfb_routing": {
+      "enabled": false,
+      "window_seconds": 900,
+      "min_samples": 20,
+      "threshold_ms": 2500,
+      "min_penalty_factor": 0.2
+    }
+  },
+  "config_store": {
+    "enabled": true,
+    "type": "postgres",
+    "config": {
+      "host": "env.BIFROST_CONFIG_DB_HOST",
+      "port": "env.BIFROST_CONFIG_DB_PORT",
+      "user": "env.BIFROST_CONFIG_DB_USER",
+      "password": "env.BIFROST_CONFIG_DB_PASSWORD",
+      "dbname": "env.BIFROST_CONFIG_DB_NAME",
+      "sslmode": "disable"
+    }
+  },
+  "logs_store": {
+    "enabled": true,
+    "type": "postgres",
+    "retention_days": 30,
+    "config": {
+      "host": "env.BIFROST_LOGS_DB_HOST",
+      "port": "env.BIFROST_LOGS_DB_PORT",
+      "user": "env.BIFROST_LOGS_DB_USER",
+      "password": "env.BIFROST_LOGS_DB_PASSWORD",
+      "dbname": "env.BIFROST_LOGS_DB_NAME",
+      "sslmode": "disable"
+    },
+    "writer": {
+      "max_batch_size": 1000,
+      "batch_interval": "5s",
+      "write_queue_capacity": 10000,
+      "deferred_usage_concurrency": 5
+    }
+  },
+  "framework": {
+    "pricing": {
+      "pricing_sync_interval": 86400
+    }
+  },
+  "plugins": [
+    {
+      "enabled": true,
+      "name": "governance",
+      "config": {
+        "is_vk_mandatory": true
+      }
+    },
+    {
+      "enabled": true,
+      "name": "logging"
+    },
+    {
+      "enabled": true,
+      "name": "compat"
+    },
+    {
+      "enabled": true,
+      "name": "modelcatalogresolver"
+    }
+  ],
+  "providers": {
+    "low_text_a": {
+      "description": "{\"price_rmb_per_dao\":0.045,\"pool\":\"gpt_low\"}",
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "allowed_requests": {
+          "list_models": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true
+        }
+      },
+      "network_config": {
+        "base_url": "https://low-text-a.example.com/v1"
+      },
+      "keys": [
+        {
+          "id": "key-low-text-a-1",
+          "name": "low-text-a-main",
+          "value": "env.BIFROST_LOW_TEXT_A_API_KEY",
+          "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+          "weight": 1
+        }
+      ]
+    },
+    "low_text_b": {
+      "description": "{\"price_rmb_per_dao\":0.055,\"pool\":\"gpt_low\"}",
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "allowed_requests": {
+          "list_models": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true
+        }
+      },
+      "network_config": {
+        "base_url": "https://low-text-b.example.com/v1"
+      },
+      "keys": [
+        {
+          "id": "key-low-text-b-1",
+          "name": "low-text-b-main",
+          "value": "env.BIFROST_LOW_TEXT_B_API_KEY",
+          "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+          "weight": 1
+        }
+      ]
+    },
+    "stable_text_a": {
+      "description": "{\"price_rmb_per_dao\":0.075,\"pool\":\"gpt_stable\"}",
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "allowed_requests": {
+          "list_models": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true
+        }
+      },
+      "network_config": {
+        "base_url": "https://stable-text-a.example.com/v1"
+      },
+      "keys": [
+        {
+          "id": "key-stable-text-a-1",
+          "name": "stable-text-a-main",
+          "value": "env.BIFROST_STABLE_TEXT_A_API_KEY",
+          "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"],
+          "weight": 1
+        }
+      ]
+    },
+    "stable_text_b": {
+      "description": "{\"price_rmb_per_dao\":0.15,\"pool\":\"gpt_stable\"}",
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "allowed_requests": {
+          "list_models": true,
+          "chat_completion": true,
+          "chat_completion_stream": true,
+          "responses": true,
+          "responses_stream": true
+        }
+      },
+      "network_config": {
+        "base_url": "https://stable-text-b.example.com/v1"
+      },
+      "keys": [
+        {
+          "id": "key-stable-text-b-1",
+          "name": "stable-text-b-main",
+          "value": "env.BIFROST_STABLE_TEXT_B_API_KEY",
+          "models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"],
+          "weight": 1
+        }
+      ]
+    },
+    "image_a": {
+      "description": "{\"price_rmb_per_dao\":0.20,\"pool\":\"gpt_image\"}",
+      "custom_provider_config": {
+        "base_provider_type": "openai",
+        "allowed_requests": {
+          "list_models": true,
+          "responses": true,
+          "responses_stream": true,
+          "image_generation": true,
+          "image_generation_stream": true
+        }
+      },
+      "network_config": {
+        "base_url": "https://image-a.example.com/v1"
+      },
+      "keys": [
+        {
+          "id": "key-image-a-1",
+          "name": "image-a-main",
+          "value": "env.BIFROST_IMAGE_A_API_KEY",
+          "models": ["gpt-image-2", "gpt-5.5", "gpt-5.4"],
+          "weight": 1
+        }
+      ]
+    }
+  },
+  "governance": {
+    "auth_config": {
+      "is_enabled": false,
+      "disable_auth_on_inference": true,
+      "admin_username": "env.BIFROST_ADMIN_USERNAME",
+      "admin_password": "env.BIFROST_ADMIN_PASSWORD"
+    },
+    "virtual_keys": [
+      {
+        "id": "vk-gpt-low",
+        "name": "gpt_low",
+        "value": "env.BIFROST_VK_GPT_LOW",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "low_text_a",
+            "key_ids": ["key-low-text-a-1"],
+            "allowed_models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+            "weight": 1
+          },
+          {
+            "provider": "low_text_b",
+            "key_ids": ["key-low-text-b-1"],
+            "allowed_models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"],
+            "weight": 0.8182
+          }
+        ]
+      },
+      {
+        "id": "vk-gpt-stable",
+        "name": "gpt_stable",
+        "value": "env.BIFROST_VK_GPT_STABLE",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "stable_text_a",
+            "key_ids": ["key-stable-text-a-1"],
+            "allowed_models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"],
+            "weight": 1
+          },
+          {
+            "provider": "stable_text_b",
+            "key_ids": ["key-stable-text-b-1"],
+            "allowed_models": ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini", "codex-auto-review"],
+            "weight": 0.5
+          }
+        ]
+      },
+      {
+        "id": "vk-gpt-image",
+        "name": "gpt_image",
+        "value": "env.BIFROST_VK_GPT_IMAGE",
+        "is_active": true,
+        "provider_configs": [
+          {
+            "provider": "image_a",
+            "key_ids": ["key-image-a-1"],
+            "allowed_models": ["gpt-image-2", "gpt-5.5", "gpt-5.4"],
+            "weight": 1
+          }
+        ]
+      }
+    ]
+  }
+}

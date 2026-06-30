@@ -50,7 +50,6 @@ func NewReplicateProvider(config *schemas.ProviderConfig, logger schemas.Logger)
 	}
 
 	// Configure proxy and retry policy
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -2518,11 +2517,6 @@ func (provider *ReplicateProvider) ImageEditStream(ctx *schemas.BifrostContext, 
 	}()
 
 	return responseChan, nil
-}
-
-// ImageVariation is not supported by the Replicate provider.
-func (provider *ReplicateProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration performs a video generation request to Replicate's API.

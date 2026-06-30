@@ -93,29 +93,3 @@ func TestParseImageEditFormDataBodyFromRequest_OrdersMetadataBeforeFiles(t *test
 		order,
 	)
 }
-
-func TestParseImageVariationFormDataBodyFromRequest_OrdersMetadataBeforeFile(t *testing.T) {
-	req := &OpenAIImageVariationRequest{
-		Model: "gpt-image-1",
-		Input: &schemas.ImageVariationInput{
-			Image: schemas.ImageInput{Image: []byte("image-variation")},
-		},
-		ImageVariationParameters: schemas.ImageVariationParameters{
-			N:              schemas.Ptr(3),
-			ResponseFormat: schemas.Ptr("url"),
-			Size:           schemas.Ptr("512x512"),
-			User:           schemas.Ptr("user-456"),
-		},
-	}
-
-	var body bytes.Buffer
-	writer := multipart.NewWriter(&body)
-	require.Nil(t, parseImageVariationFormDataBodyFromRequest(writer, req, schemas.OpenAI))
-
-	order := multipartPartOrder(t, writer.FormDataContentType(), body.Bytes())
-	assert.Equal(t,
-		[]string{"model", "n", "response_format", "size", "user", "image"},
-		order,
-	)
-}
-

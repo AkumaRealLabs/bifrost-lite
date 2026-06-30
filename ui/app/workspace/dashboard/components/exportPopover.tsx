@@ -5,7 +5,7 @@ import { Download, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { useCallback, useState } from "react";
 import { type DashboardData, getCSVSections } from "../utils/exportUtils";
 
-const PDF_TAB_LABELS = ["Overview", "Provider Usage", "Model Rankings", "MCP Usage"];
+const PDF_TAB_LABELS = ["总览", "Provider 用量", "模型排行", "虚拟 Key 排行"];
 
 interface ExportPopoverProps {
 	getData: () => DashboardData;
@@ -70,7 +70,7 @@ export function ExportPopover({ getData, onPreloadData, onPdfExport, onPdfExport
 			<DropdownMenuTrigger asChild>
 				<Button variant="outline" size="default" disabled={exporting} data-testid="dashboard-export-trigger">
 					{exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-					{exporting ? "Exporting..." : "Export"}
+					{exporting ? "正在导出..." : "导出"}
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end">

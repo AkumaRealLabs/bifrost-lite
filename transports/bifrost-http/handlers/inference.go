@@ -294,19 +294,6 @@ var imageEditParamsKnownFields = map[string]bool{
 	"stream":              true,
 }
 
-// imageVariationParamsKnownFields contains known fields for image variation requests
-// Based on ImageVariationInput and ImageVariationParameters structs
-var imageVariationParamsKnownFields = map[string]bool{
-	"model":           true,
-	"fallbacks":       true,
-	"image":           true,
-	"image[]":         true,
-	"n":               true,
-	"response_format": true,
-	"size":            true,
-	"user":            true,
-}
-
 // videoGenerationParamsKnownFields contains known fields for video generation requests
 // Based on VideoGenerationInput and VideoGenerationParameters structs
 var videoGenerationParamsKnownFields = map[string]bool{
@@ -443,12 +430,6 @@ type ImageGenerationHTTPRequest struct {
 type ImageEditHTTPRequest struct {
 	*schemas.ImageEditInput
 	*schemas.ImageEditParameters
-	BifrostParams
-}
-
-type ImageVariationHTTPRequest struct {
-	*schemas.ImageVariationInput
-	*schemas.ImageVariationParameters
 	BifrostParams
 }
 
@@ -688,7 +669,6 @@ var PathToTypeMapping = map[string]schemas.RequestType{
 	"/v1/responses/input_tokens": schemas.CountTokensRequest,
 	"/v1/responses/compact":      schemas.CompactionRequest,
 	"/v1/images/edits":           schemas.ImageEditRequest,
-	"/v1/images/variations":      schemas.ImageVariationRequest,
 	"/v1/models":                 schemas.ListModelsRequest,
 }
 
@@ -718,86 +698,11 @@ func (h *CompletionHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	// Base middlewares for all routes
 	baseMiddlewares := append([]schemas.BifrostHTTPMiddleware{RegisterRequestTypeMiddleware}, middlewares...)
 
-	// Model endpoints
 	r.GET("/v1/models", lib.ChainMiddlewares(h.listModels, baseMiddlewares...))
-
-	// Completion endpoints (non-parameterized)
-	r.POST("/v1/completions", lib.ChainMiddlewares(h.textCompletion, baseMiddlewares...))
 	r.POST("/v1/chat/completions", lib.ChainMiddlewares(h.chatCompletion, baseMiddlewares...))
 	r.POST("/v1/responses", lib.ChainMiddlewares(h.responses, baseMiddlewares...))
-	r.POST("/v1/embeddings", lib.ChainMiddlewares(h.embeddings, baseMiddlewares...))
-	r.POST("/v1/rerank", lib.ChainMiddlewares(h.rerank, baseMiddlewares...))
-	r.POST("/v1/ocr", lib.ChainMiddlewares(h.ocr, baseMiddlewares...))
-	r.POST("/v1/audio/speech", lib.ChainMiddlewares(h.speech, baseMiddlewares...))
-	r.POST("/v1/audio/transcriptions", lib.ChainMiddlewares(h.transcription, baseMiddlewares...))
 	r.POST("/v1/images/generations", lib.ChainMiddlewares(h.imageGeneration, baseMiddlewares...))
-	r.POST("/v1/responses/input_tokens", lib.ChainMiddlewares(h.countTokens, baseMiddlewares...))
-	r.POST("/v1/responses/compact", lib.ChainMiddlewares(h.compaction, baseMiddlewares...))
 	r.POST("/v1/images/edits", lib.ChainMiddlewares(h.imageEdit, baseMiddlewares...))
-	r.POST("/v1/images/variations", lib.ChainMiddlewares(h.imageVariation, baseMiddlewares...))
-	r.POST("/v1/videos", lib.ChainMiddlewares(h.videoGeneration, baseMiddlewares...))
-
-	// Video API endpoints (parameterized routes need explicit request type middleware)
-	videoListMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.VideoListRequest)}, middlewares...)
-	videoRetrieveMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.VideoRetrieveRequest)}, middlewares...)
-	videoDownloadMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.VideoDownloadRequest)}, middlewares...)
-	videoDeleteMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.VideoDeleteRequest)}, middlewares...)
-	videoRemixMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.VideoRemixRequest)}, middlewares...)
-	r.GET("/v1/videos", lib.ChainMiddlewares(h.videoList, videoListMW...))
-	r.GET("/v1/videos/{video_id}", lib.ChainMiddlewares(h.videoRetrieve, videoRetrieveMW...))
-	r.GET("/v1/videos/{video_id}/content", lib.ChainMiddlewares(h.videoDownload, videoDownloadMW...))
-	r.DELETE("/v1/videos/{video_id}", lib.ChainMiddlewares(h.videoDelete, videoDeleteMW...))
-	r.POST("/v1/videos/{video_id}/remix", lib.ChainMiddlewares(h.videoRemix, videoRemixMW...))
-
-	// Batch API endpoints (parameterized routes need explicit request type middleware)
-	batchCreateMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.BatchCreateRequest)}, middlewares...)
-	batchListMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.BatchListRequest)}, middlewares...)
-	batchRetrieveMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.BatchRetrieveRequest)}, middlewares...)
-	batchCancelMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.BatchCancelRequest)}, middlewares...)
-	batchResultsMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.BatchResultsRequest)}, middlewares...)
-
-	r.POST("/v1/batches", lib.ChainMiddlewares(h.batchCreate, batchCreateMW...))
-	r.GET("/v1/batches", lib.ChainMiddlewares(h.batchList, batchListMW...))
-	r.GET("/v1/batches/{batch_id}", lib.ChainMiddlewares(h.batchRetrieve, batchRetrieveMW...))
-	r.POST("/v1/batches/{batch_id}/cancel", lib.ChainMiddlewares(h.batchCancel, batchCancelMW...))
-	r.GET("/v1/batches/{batch_id}/results", lib.ChainMiddlewares(h.batchResults, batchResultsMW...))
-
-	// File API endpoints (parameterized routes need explicit request type middleware)
-	fileUploadMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.FileUploadRequest)}, middlewares...)
-	fileListMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.FileListRequest)}, middlewares...)
-	fileRetrieveMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.FileRetrieveRequest)}, middlewares...)
-	fileDeleteMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.FileDeleteRequest)}, middlewares...)
-	fileContentMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.FileContentRequest)}, middlewares...)
-
-	r.POST("/v1/files", lib.ChainMiddlewares(h.fileUpload, fileUploadMW...))
-	r.GET("/v1/files", lib.ChainMiddlewares(h.fileList, fileListMW...))
-	r.GET("/v1/files/{file_id}", lib.ChainMiddlewares(h.fileRetrieve, fileRetrieveMW...))
-	r.DELETE("/v1/files/{file_id}", lib.ChainMiddlewares(h.fileDelete, fileDeleteMW...))
-	r.GET("/v1/files/{file_id}/content", lib.ChainMiddlewares(h.fileContent, fileContentMW...))
-
-	// Container API endpoints (parameterized routes need explicit request type middleware)
-	containerCreateMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerCreateRequest)}, middlewares...)
-	containerListMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerListRequest)}, middlewares...)
-	containerRetrieveMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerRetrieveRequest)}, middlewares...)
-	containerDeleteMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerDeleteRequest)}, middlewares...)
-
-	r.POST("/v1/containers", lib.ChainMiddlewares(h.containerCreate, containerCreateMW...))
-	r.GET("/v1/containers", lib.ChainMiddlewares(h.containerList, containerListMW...))
-	r.GET("/v1/containers/{container_id}", lib.ChainMiddlewares(h.containerRetrieve, containerRetrieveMW...))
-	r.DELETE("/v1/containers/{container_id}", lib.ChainMiddlewares(h.containerDelete, containerDeleteMW...))
-
-	// Container Files API endpoints (parameterized routes need explicit request type middleware)
-	containerFileCreateMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerFileCreateRequest)}, middlewares...)
-	containerFileListMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerFileListRequest)}, middlewares...)
-	containerFileRetrieveMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerFileRetrieveRequest)}, middlewares...)
-	containerFileContentMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerFileContentRequest)}, middlewares...)
-	containerFileDeleteMW := append([]schemas.BifrostHTTPMiddleware{createRequestTypeMiddleware(schemas.ContainerFileDeleteRequest)}, middlewares...)
-
-	r.POST("/v1/containers/{container_id}/files", lib.ChainMiddlewares(h.containerFileCreate, containerFileCreateMW...))
-	r.GET("/v1/containers/{container_id}/files", lib.ChainMiddlewares(h.containerFileList, containerFileListMW...))
-	r.GET("/v1/containers/{container_id}/files/{file_id}", lib.ChainMiddlewares(h.containerFileRetrieve, containerFileRetrieveMW...))
-	r.GET("/v1/containers/{container_id}/files/{file_id}/content", lib.ChainMiddlewares(h.containerFileContent, containerFileContentMW...))
-	r.DELETE("/v1/containers/{container_id}/files/{file_id}", lib.ChainMiddlewares(h.containerFileDelete, containerFileDeleteMW...))
 }
 
 // listModels handles GET /v1/models - Process list models requests
@@ -2248,131 +2153,6 @@ func (h *CompletionHandler) handleStreamingImageEditRequest(ctx *fasthttp.Reques
 	}
 
 	h.handleStreamingResponse(ctx, bifrostCtx, getStream, cancel)
-}
-
-// prepareImageVariationRequest prepares a BifrostImageVariationRequest from a multipart form
-func prepareImageVariationRequest(ctx *fasthttp.RequestCtx, config *lib.Config) (*schemas.BifrostImageVariationRequest, error) {
-	rawBody := ctx.Request.Body()
-	form, err := ctx.MultipartForm()
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse multipart form: %v", err)
-	}
-	modelValues := form.Value["model"]
-	if len(modelValues) == 0 || modelValues[0] == "" {
-		return nil, fmt.Errorf("model is required")
-	}
-	provider, modelName, err := resolveModelAndProvider(ctx, config, modelValues[0])
-	if err != nil {
-		return nil, err
-	}
-	var imageFiles []*multipart.FileHeader
-	if imageFilesArray := form.File["image[]"]; len(imageFilesArray) > 0 {
-		imageFiles = imageFilesArray
-	} else if imageFilesSingle := form.File["image"]; len(imageFilesSingle) > 0 {
-		imageFiles = imageFilesSingle
-	}
-	if len(imageFiles) == 0 {
-		return nil, fmt.Errorf("at least one image is required")
-	}
-	images := make([][]byte, 0, len(imageFiles))
-	for _, fileHeader := range imageFiles {
-		file, err := fileHeader.Open()
-		if err != nil {
-			return nil, fmt.Errorf("failed to open uploaded file: %v", err)
-		}
-		fileData, err := io.ReadAll(file)
-		file.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read uploaded file: %v", err)
-		}
-		images = append(images, fileData)
-	}
-	variationInput := &schemas.ImageVariationInput{
-		Image: schemas.ImageInput{
-			Image: images[0],
-		},
-	}
-	variationParams := &schemas.ImageVariationParameters{}
-	if nValues := form.Value["n"]; len(nValues) > 0 && nValues[0] != "" {
-		n, err := strconv.Atoi(nValues[0])
-		if err != nil {
-			return nil, fmt.Errorf("invalid n value: %v", err)
-		}
-		variationParams.N = &n
-	}
-	if responseFormatValues := form.Value["response_format"]; len(responseFormatValues) > 0 && responseFormatValues[0] != "" {
-		variationParams.ResponseFormat = &responseFormatValues[0]
-	}
-	if sizeValues := form.Value["size"]; len(sizeValues) > 0 && sizeValues[0] != "" {
-		variationParams.Size = &sizeValues[0]
-	}
-	if userValues := form.Value["user"]; len(userValues) > 0 && userValues[0] != "" {
-		variationParams.User = &userValues[0]
-	}
-	if variationParams.ExtraParams == nil {
-		variationParams.ExtraParams = make(map[string]interface{})
-	}
-	if len(images) > 1 {
-		variationParams.ExtraParams["images"] = images[1:]
-	}
-	for key, value := range form.Value {
-		if len(value) > 0 && value[0] != "" && !imageVariationParamsKnownFields[key] {
-			variationParams.ExtraParams[key] = value[0]
-		}
-	}
-	if fallbackValues := form.Value["fallbacks"]; len(fallbackValues) > 0 {
-		fallbacks, err := parseFallbacks(fallbackValues)
-		if err != nil {
-			return nil, err
-		}
-		return &schemas.BifrostImageVariationRequest{
-			Provider:       schemas.ModelProvider(provider),
-			Model:          modelName,
-			Input:          variationInput,
-			Params:         variationParams,
-			Fallbacks:      fallbacks,
-			RawRequestBody: rawBody,
-		}, nil
-	}
-	return &schemas.BifrostImageVariationRequest{
-		Provider:       schemas.ModelProvider(provider),
-		Model:          modelName,
-		Input:          variationInput,
-		Params:         variationParams,
-		RawRequestBody: rawBody,
-	}, nil
-}
-
-// imageVariation handles POST /v1/images/variations - Processes image variation requests
-func (h *CompletionHandler) imageVariation(ctx *fasthttp.RequestCtx) {
-	bifrostReq, err := prepareImageVariationRequest(ctx, h.config)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-
-	bifrostCtx, cancel := lib.ConvertToBifrostContext(ctx, h.config)
-	if bifrostCtx == nil {
-		SendError(ctx, fasthttp.StatusBadRequest, "Failed to convert context")
-		return
-	}
-	defer cancel()
-
-	// Execute request (no streaming for variations)
-	resp, bifrostErr := h.client.ImageVariationRequest(bifrostCtx, bifrostReq)
-	if bifrostErr != nil {
-		forwardProviderHeadersFromContext(ctx, bifrostCtx)
-		SendBifrostError(ctx, bifrostErr)
-		return
-	}
-
-	if resp != nil && resp.ExtraFields.ProviderResponseHeaders != nil {
-		forwardProviderHeaders(ctx, resp.ExtraFields.ProviderResponseHeaders)
-	}
-	if streamLargeResponseIfActive(ctx, bifrostCtx) {
-		return
-	}
-	SendJSON(ctx, resp)
 }
 
 // videoGeneration handles POST /v1/videos - Processes video generation requests

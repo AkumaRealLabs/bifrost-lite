@@ -47,15 +47,14 @@ func SanitizePluginSpanName(name string) string {
 }
 
 // PluginNameFromSpan extracts "<name>" from a plugin span whose name follows the
-// core tracer contract "plugin.<name>.<stage>", where <stage> is one of prehook,
-// posthook, prerequesthook, mcp_prehook, mcp_posthook, mcp_connect_prehook, or mcp_connect_posthook
-// (see core/bifrost.go). It returns "" for non-plugin spans or names that don't match
+// core tracer contract "plugin.<name>.<stage>", where <stage> is emitted by
+// core/bifrost.go. It returns "" for non-plugin spans or names that don't match
 // the contract (wrong prefix, or fewer than three segments), so malformed names pass
 // through ShouldExportSpan as exported rather than being silently filtered.
 //
 // The <stage> segment is intentionally not constrained to a fixed list: the tracer
-// emits several hook stages (including the mcp_* variants above), so pinning it to
-// just prehook/posthook would make every MCP-hook span unfilterable.
+// emits several hook stages, so pinning it to just prehook/posthook would make
+// future plugin stages unfilterable.
 func PluginNameFromSpan(span *Span) string {
 	if span == nil || span.Kind != SpanKindPlugin {
 		return ""

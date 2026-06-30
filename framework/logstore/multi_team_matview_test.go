@@ -50,7 +50,7 @@ func keyPairsByID(pairs []KeyPairResult) map[string]string {
 // scalar team_id/team_name. Teams that exist only in the JSON-array team_ids
 // (enterprise user/AP path) were missing. The recreated view must surface both.
 func TestFilterTeamMatView_CollectsScalarAndArray(t *testing.T) {
-	store, db := setupPerfTestDB(t)
+	store, db := setupPostgresTestDB(t)
 	store.matViewsReady.Store(true) // force the matview read path
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -74,7 +74,7 @@ func TestFilterTeamMatView_CollectsScalarAndArray(t *testing.T) {
 // the business-unit dropdown (mv_filter_business_units), which had the identical
 // scalar-only bug.
 func TestFilterBusinessUnitMatView_CollectsScalarAndArray(t *testing.T) {
-	store, db := setupPerfTestDB(t)
+	store, db := setupPostgresTestDB(t)
 	store.matViewsReady.Store(true)
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -97,7 +97,7 @@ func TestFilterBusinessUnitMatView_CollectsScalarAndArray(t *testing.T) {
 // TotalAttributedRequests (COUNT(*) over the fan-out), while the per-team
 // rows stay accurate per team.
 func TestDimensionRankings_ActualVsAttributedTotals(t *testing.T) {
-	store, db := setupPerfTestDB(t)
+	store, db := setupPostgresTestDB(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 
@@ -127,7 +127,7 @@ func TestDimensionRankings_ActualVsAttributedTotals(t *testing.T) {
 // log's user_id, so a QueryScope still both resolves (no "column does not exist")
 // and filters — an array team owned by another user must not leak.
 func TestFilterTeamMatView_DACScopeAppliesAfterFanout(t *testing.T) {
-	store, db := setupPerfTestDB(t)
+	store, db := setupPostgresTestDB(t)
 	store.matViewsReady.Store(true)
 	now := time.Now().UTC()
 

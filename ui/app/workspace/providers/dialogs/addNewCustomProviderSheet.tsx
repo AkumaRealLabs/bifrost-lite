@@ -5,10 +5,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Switch } from "@/components/ui/switch";
 import { DefaultNetworkConfig } from "@/lib/constants/config";
+import { cleanLitePathOverrides, DefaultLiteAllowedRequests, LiteBaseProviders } from "@/lib/constants/lite";
 import { getErrorMessage, useCreateProviderMutation } from "@/lib/store";
 import { BaseProvider, ModelProviderName } from "@/lib/types/config";
 import { allowedRequestsSchema } from "@/lib/types/schemas";
-import { cleanPathOverrides } from "@/lib/utils/validation";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useEffect } from "react";
@@ -17,10 +17,12 @@ import { toast } from "sonner";
 import { z } from "zod";
 import { AllowedRequestsFields } from "../fragments/allowedRequestsFields";
 
+const liteBaseProviderSet = new Set<string>(LiteBaseProviders);
+
 const formSchema = z.object({
-	name: z.string().min(1),
-	baseFormat: z.string().min(1),
-	base_url: z.string().min(1, "Base URL is required").url("Must be a valid URL"),
+	name: z.string().min(1, "Provider 名称必填"),
+	baseFormat: z.string().min(1, "请选择基础格式").refine((value) => liteBaseProviderSet.has(value), "请选择 Lite 支持的基础格式"),
+	base_url: z.string().min(1, "Base URL 必填").url("请输入有效的 URL"),
 	allowed_requests: allowedRequestsSchema,
 	request_path_overrides: z.record(z.string(), z.string().optional()).optional(),
 	is_key_less: z.boolean().optional(),
@@ -48,37 +50,7 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 			name: "",
 			baseFormat: "",
 			base_url: "",
-			allowed_requests: {
-				text_completion: true,
-				text_completion_stream: true,
-				chat_completion: true,
-				chat_completion_stream: true,
-				responses: true,
-				responses_stream: true,
-				embedding: true,
-				speech: true,
-				speech_stream: true,
-				transcription: true,
-				transcription_stream: true,
-				image_generation: true,
-				image_generation_stream: true,
-				image_edit: true,
-				image_edit_stream: true,
-				image_variation: true,
-				rerank: true,
-				ocr: true,
-				ocr_stream: true,
-				video_generation: true,
-				video_retrieve: true,
-				video_download: true,
-				video_delete: true,
-				video_list: true,
-				video_remix: true,
-				count_tokens: true,
-				list_models: true,
-				websocket_responses: true,
-				realtime: false,
-			},
+			allowed_requests: { ...DefaultLiteAllowedRequests },
 			request_path_overrides: undefined,
 			is_key_less: false,
 			allow_private_network: false,
@@ -97,7 +69,7 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 			custom_provider_config: {
 				base_provider_type: data.baseFormat as BaseProvider,
 				allowed_requests: data.allowed_requests,
-				request_path_overrides: cleanPathOverrides(data.request_path_overrides),
+				request_path_overrides: cleanLitePathOverrides(data.request_path_overrides),
 				is_key_less: data.is_key_less ?? false,
 			},
 			network_config: {
@@ -117,7 +89,7 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 				form.reset();
 			})
 			.catch((err) => {
-				toast.error("Failed to add provider", {
+				toast.error("添加 Provider 失败", {
 					description: getErrorMessage(err),
 				});
 			});
@@ -129,8 +101,8 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 	return (
 		<>
 			<SheetHeader className="flex shrink-0 flex-col items-start px-8 py-4" headerClassName="mb-0 sticky -top-4 bg-card z-10">
-				<SheetTitle>Add Custom Provider</SheetTitle>
-				<SheetDescription>Enter the details of your custom provider.</SheetDescription>
+				<SheetTitle>添加自定义 Provider</SheetTitle>
+				<SheetDescription>填写自定义 Provider 的连接信息。</SheetDescription>
 			</SheetHeader>
 			<Form {...form}>
 				<form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col">
@@ -140,10 +112,10 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 							name="name"
 							render={({ field }) => (
 								<FormItem className="flex flex-col gap-3">
-									<FormLabel className="text-right">Name</FormLabel>
+									<FormLabel className="text-right">名称</FormLabel>
 									<div className="col-span-3">
 										<FormControl>
-											<Input placeholder="Name" data-testid="custom-provider-name" disabled={!hasProviderCreateAccess} {...field} />
+											<Input placeholder="Provider 名称" data-testid="custom-provider-name" disabled={!hasProviderCreateAccess} {...field} />
 										</FormControl>
 										<FormMessage />
 									</div>
@@ -155,12 +127,12 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 							name="baseFormat"
 							render={({ field }) => (
 								<FormItem className="flex flex-col gap-3">
-									<FormLabel>Base Format</FormLabel>
+									<FormLabel>基础格式</FormLabel>
 									<div>
 										<FormControl>
 											<Select onValueChange={field.onChange} value={field.value} disabled={!hasProviderCreateAccess}>
 												<SelectTrigger className="w-full" data-testid="base-provider-select">
-													<SelectValue placeholder="Select base format" />
+													<SelectValue placeholder="选择基础格式" />
 												</SelectTrigger>
 												<SelectContent>
 													<SelectItem value="openai">OpenAI</SelectItem>
@@ -168,6 +140,7 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 													<SelectItem value="gemini">Gemini</SelectItem>
 													<SelectItem value="cohere">Cohere</SelectItem>
 													<SelectItem value="bedrock">AWS Bedrock</SelectItem>
+													<SelectItem value="huggingface">HuggingFace</SelectItem>
 													<SelectItem value="replicate">Replicate</SelectItem>
 												</SelectContent>
 											</Select>
@@ -206,10 +179,10 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 									<div className="flex items-center justify-between space-x-2 rounded-lg border p-3">
 										<div className="space-y-0.5">
 											<label htmlFor="allow-private-network" className="text-sm font-medium">
-												Allow Private Network
+												允许私有网络
 											</label>
 											<p className="text-muted-foreground text-sm">
-												Allow connecting to private network IPs (e.g. 192.168.x.x, 10.x.x.x). Link-local addresses remain blocked.
+												允许连接私有网络 IP（例如 192.168.x.x、10.x.x.x）。链路本地地址仍会被阻止。
 											</p>
 										</div>
 										<Switch
@@ -233,9 +206,9 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 										<div className="flex items-center justify-between space-x-2 rounded-lg border p-3">
 											<div className="space-y-0.5">
 												<label htmlFor="drop-excess-requests" className="text-sm font-medium">
-													Is Keyless?
+													无需 Key？
 												</label>
-												<p className="text-muted-foreground text-sm">Whether the custom provider requires a key</p>
+												<p className="text-muted-foreground text-sm">此自定义 Provider 是否无需配置 Key。</p>
 											</div>
 											<Switch
 												id="drop-excess-requests"
@@ -259,10 +232,10 @@ export function AddCustomProviderSheetContent({ show = true, onClose, onSave }: 
 					</div>
 					<div className="bg-card sticky bottom-0 ml-auto flex w-full flex-row gap-2 border-t px-8 py-4">
 						<Button type="button" variant="outline" onClick={onClose} className="ml-auto" data-testid="custom-provider-cancel-btn">
-							Cancel
+							取消
 						</Button>
 						<Button type="submit" isLoading={isAddingProvider} disabled={!hasProviderCreateAccess} data-testid="custom-provider-save-btn">
-							Add
+							添加
 						</Button>
 					</div>
 				</form>

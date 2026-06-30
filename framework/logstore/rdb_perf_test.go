@@ -341,38 +341,6 @@ func TestGetNodeUsageAfterIncludesSameTimestampGreaterLogIDs(t *testing.T) {
 	}
 }
 
-func TestMCPToolLogCreateSerializesFields(t *testing.T) {
-	store := newTestSQLiteStore(t)
-
-	entry := &MCPToolLog{
-		ID:        "mcp-1",
-		Timestamp: time.Now().UTC(),
-		ToolName:  "echo",
-		Status:    "success",
-		ArgumentsParsed: map[string]any{
-			"message": "hello",
-		},
-		ResultParsed: map[string]any{
-			"ok": true,
-		},
-	}
-
-	if err := store.CreateMCPToolLog(context.Background(), entry); err != nil {
-		t.Fatalf("CreateMCPToolLog() error = %v", err)
-	}
-
-	logEntry, err := store.FindMCPToolLog(context.Background(), entry.ID)
-	if err != nil {
-		t.Fatalf("FindMCPToolLog() error = %v", err)
-	}
-	if logEntry.Arguments == "" {
-		t.Fatalf("expected Arguments to be serialized")
-	}
-	if logEntry.Result == "" {
-		t.Fatalf("expected Result to be serialized")
-	}
-}
-
 func TestBuildBulkUpdateCostPostgresSQL(t *testing.T) {
 	updates := map[string]float64{
 		"log-a": 1.25,
@@ -437,38 +405,6 @@ func TestUpdateSerializesStructEntry(t *testing.T) {
 	}
 	if logEntry.TotalTokens != 10 {
 		t.Fatalf("expected TotalTokens to be updated, got %d", logEntry.TotalTokens)
-	}
-}
-
-func TestUpdateMCPToolLogSerializesStructEntry(t *testing.T) {
-	store := newTestSQLiteStore(t)
-	now := time.Now().UTC()
-	entry := &MCPToolLog{
-		ID:        "mcp-update",
-		Timestamp: now,
-		ToolName:  "echo",
-		Status:    "processing",
-	}
-
-	if err := store.CreateMCPToolLog(context.Background(), entry); err != nil {
-		t.Fatalf("CreateMCPToolLog() error = %v", err)
-	}
-
-	if err := store.UpdateMCPToolLog(context.Background(), entry.ID, MCPToolLog{
-		Status: "success",
-		ResultParsed: map[string]any{
-			"message": "done",
-		},
-	}); err != nil {
-		t.Fatalf("UpdateMCPToolLog() error = %v", err)
-	}
-
-	logEntry, err := store.FindMCPToolLog(context.Background(), entry.ID)
-	if err != nil {
-		t.Fatalf("FindMCPToolLog() error = %v", err)
-	}
-	if logEntry.Result == "" {
-		t.Fatalf("expected Result to be serialized on UpdateMCPToolLog")
 	}
 }
 

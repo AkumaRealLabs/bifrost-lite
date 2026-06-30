@@ -17,7 +17,7 @@ import (
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/configstore"
 	configstoreTables "github.com/maximhq/bifrost/framework/configstore/tables"
-	"github.com/maximhq/bifrost/framework/mcpcatalog"
+	"github.com/maximhq/bifrost/framework/logstore"
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 	"github.com/maximhq/bifrost/plugins/governance/complexity"
 )
@@ -33,16 +33,59 @@ const (
 
 // Config is the configuration for the governance plugin
 type Config struct {
-	IsVkMandatory         *bool     `json:"is_vk_mandatory"`
-	RequiredHeaders       *[]string `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
-	IsEnterprise          bool      `json:"is_enterprise"`
-	DisableAutoToolInject *bool     `json:"disable_auto_tool_inject"`
-	RoutingChainMaxDepth  *int      `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
+	IsVkMandatory         *bool              `json:"is_vk_mandatory"`
+	RequiredHeaders       *[]string          `json:"required_headers"` // Pointer to live config slice; changes are reflected immediately without restart
+	IsEnterprise          bool               `json:"is_enterprise"`
+	DisableAutoToolInject *bool              `json:"disable_auto_tool_inject"`
+	RoutingChainMaxDepth  *int               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
+	TTFBRouting           *TTFBRoutingConfig `json:"ttfb_routing"`
+}
+
+type TTFBRoutingConfig = configstore.TTFBRoutingConfig
+
+type TTFBStatsProvider interface {
+	GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error)
+}
+
+type weightedProviderConfig struct {
+	config          configstoreTables.TableVirtualKeyProviderConfig
+	originalWeight  float64
+	effectiveWeight float64
+	penaltyFactor   float64
+}
+
+func normalizeTTFBRoutingConfig(config *TTFBRoutingConfig) TTFBRoutingConfig {
+	resolved := TTFBRoutingConfig{
+		Enabled: false,
+	}
+	windowSeconds := 900
+	minSamples := 20
+	thresholdMs := 2500.0
+	minPenaltyFactor := 0.2
+	if config != nil {
+		resolved.Enabled = config.Enabled
+		if config.WindowSeconds != nil && *config.WindowSeconds > 0 {
+			windowSeconds = *config.WindowSeconds
+		}
+		if config.MinSamples != nil && *config.MinSamples > 0 {
+			minSamples = *config.MinSamples
+		}
+		if config.ThresholdMs != nil && *config.ThresholdMs > 0 {
+			thresholdMs = *config.ThresholdMs
+		}
+		if config.MinPenaltyFactor != nil && *config.MinPenaltyFactor > 0 && *config.MinPenaltyFactor <= 1 {
+			minPenaltyFactor = *config.MinPenaltyFactor
+		}
+	}
+	resolved.WindowSeconds = &windowSeconds
+	resolved.MinSamples = &minSamples
+	resolved.ThresholdMs = &thresholdMs
+	resolved.MinPenaltyFactor = &minPenaltyFactor
+	return resolved
 }
 
 type InMemoryStore interface {
 	GetConfiguredProviders() map[schemas.ModelProvider]configstore.ProviderConfig
-	GetMCPClientsAllowingAllVirtualKeys() map[string]string // clientID → clientName
 }
 
 type BaseGovernancePlugin interface {
@@ -52,8 +95,6 @@ type BaseGovernancePlugin interface {
 	HTTPTransportPostHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest, resp *schemas.HTTPResponse) error
 	PreLLMHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) (*schemas.BifrostRequest, *schemas.LLMPluginShortCircuit, error)
 	PostLLMHook(ctx *schemas.BifrostContext, result *schemas.BifrostResponse, err *schemas.BifrostError) (*schemas.BifrostResponse, *schemas.BifrostError, error)
-	PreMCPHook(ctx *schemas.BifrostContext, req *schemas.BifrostMCPRequest) (*schemas.BifrostMCPRequest, *schemas.MCPPluginShortCircuit, error)
-	PostMCPHook(ctx *schemas.BifrostContext, resp *schemas.BifrostMCPResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostMCPResponse, *schemas.BifrostError, error)
 	Cleanup() error
 	GetGovernanceStore() GovernanceStore
 }
@@ -74,11 +115,11 @@ type GovernancePlugin struct {
 	// Dependencies
 	configStore  configstore.ConfigStore
 	modelCatalog *modelcatalog.ModelCatalog
-	mcpCatalog   *mcpcatalog.MCPCatalog
 	logger       schemas.Logger
 
 	// Transport dependencies
 	inMemoryStore InMemoryStore
+	ttfbStats     TTFBStatsProvider
 
 	cfgMutex sync.RWMutex
 
@@ -86,6 +127,7 @@ type GovernancePlugin struct {
 	requiredHeaders       *[]string // pointer to live config slice; lowercased at check time
 	isEnterprise          bool
 	disableAutoToolInject *bool
+	ttfbRouting           TTFBRoutingConfig
 
 	complexityAnalyzer atomic.Pointer[complexity.ComplexityAnalyzer]
 }
@@ -136,8 +178,8 @@ func Init(
 	configStore configstore.ConfigStore,
 	governanceConfig *configstore.GovernanceConfig,
 	modelCatalog *modelcatalog.ModelCatalog,
-	mcpCatalog *mcpcatalog.MCPCatalog,
 	inMemoryStore InMemoryStore,
+	ttfbStatsProviders ...TTFBStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
@@ -145,8 +187,9 @@ func Init(
 	if modelCatalog == nil {
 		logger.Warn("governance plugin requires model catalog to calculate cost, all LLM cost calculations will be skipped.")
 	}
-	if mcpCatalog == nil {
-		logger.Warn("governance plugin requires MCP catalog to calculate cost, all MCP cost calculations will be skipped.")
+	var ttfbStats TTFBStatsProvider
+	if len(ttfbStatsProviders) > 0 {
+		ttfbStats = ttfbStatsProviders[0]
 	}
 
 	// Handle nil config - use safe defaults
@@ -159,6 +202,10 @@ func Init(
 		requiredHeaders = config.RequiredHeaders
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
+	}
+	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	if config != nil {
+		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -227,7 +274,6 @@ func Init(
 		engine:                engine,
 		configStore:           configStore,
 		modelCatalog:          modelCatalog,
-		mcpCatalog:            mcpCatalog,
 		logger:                logger,
 		isVkMandatory:         isVkMandatory,
 		cfgMutex:              sync.RWMutex{},
@@ -235,6 +281,8 @@ func Init(
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
 		inMemoryStore:         inMemoryStore,
+		ttfbStats:             ttfbStats,
+		ttfbRouting:           ttfbRouting,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, governanceConfig))
 	return plugin, nil
@@ -259,8 +307,8 @@ func InitFromStore(
 	governanceStore GovernanceStore,
 	configStore configstore.ConfigStore,
 	modelCatalog *modelcatalog.ModelCatalog,
-	mcpCatalog *mcpcatalog.MCPCatalog,
 	inMemoryStore InMemoryStore,
+	ttfbStatsProviders ...TTFBStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
@@ -268,11 +316,12 @@ func InitFromStore(
 	if modelCatalog == nil {
 		logger.Warn("governance plugin requires model catalog to calculate cost, all cost calculations will be skipped.")
 	}
-	if mcpCatalog == nil {
-		logger.Warn("governance plugin requires MCP catalog to calculate cost, all MCP cost calculations will be skipped.")
-	}
 	if governanceStore == nil {
 		return nil, fmt.Errorf("governance store is nil")
+	}
+	var ttfbStats TTFBStatsProvider
+	if len(ttfbStatsProviders) > 0 {
+		ttfbStats = ttfbStatsProviders[0]
 	}
 	// Handle nil config - use safe defaults
 	var isVkMandatory *bool
@@ -284,6 +333,10 @@ func InitFromStore(
 		requiredHeaders = config.RequiredHeaders
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
+	}
+	ttfbRouting := normalizeTTFBRoutingConfig(nil)
+	if config != nil {
+		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 	}
 	if routingChainMaxDepth == nil {
 		defaultDepth := DefaultRoutingChainMaxDepth
@@ -322,7 +375,6 @@ func InitFromStore(
 		engine:                engine,
 		configStore:           configStore,
 		modelCatalog:          modelCatalog,
-		mcpCatalog:            mcpCatalog,
 		logger:                logger,
 		inMemoryStore:         inMemoryStore,
 		isVkMandatory:         isVkMandatory,
@@ -330,6 +382,8 @@ func InitFromStore(
 		requiredHeaders:       requiredHeaders,
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
+		ttfbStats:             ttfbStats,
+		ttfbRouting:           ttfbRouting,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, nil))
 	return plugin, nil
@@ -396,8 +450,7 @@ func (p *GovernancePlugin) UpdateEnforceAuthOnInference(enforceAuthOnInference b
 // HTTPTransportPreHook is retained as a no-op so governance still satisfies the
 // HTTPTransportPlugin interface (used by the enterprise wrapper's 503 gate delegation).
 // All routing now flows through PreRequestHook: body-having requests via handleRequest,
-// large-payload requests via PreRequestHook reading LargePayloadMetadata, and realtime WS
-// upgrades via the realtime handler's explicit RunPreRequestHooks call.
+// large-payload requests via PreRequestHook reading LargePayloadMetadata.
 func (p *GovernancePlugin) HTTPTransportPreHook(ctx *schemas.BifrostContext, req *schemas.HTTPRequest) (*schemas.HTTPResponse, error) {
 	return nil, nil
 }
@@ -426,23 +479,6 @@ func (p *GovernancePlugin) runPreRequestRouting(ctx *schemas.BifrostContext, vir
 	if virtualKey != nil {
 		if err := p.loadBalanceProvider(ctx, synthetic, virtualKey); err != nil {
 			return modelIn, err
-		}
-
-		// A caller-provided include-tools list can only narrow the virtual key's
-		// tool grant, never expand it — prune entries the key does not allow.
-		includeToolsProvided := p.pruneMCPIncludeToolsFromContext(ctx, virtualKey)
-
-		p.cfgMutex.RLock()
-		autoInjectDisabled := p.disableAutoToolInject != nil && *p.disableAutoToolInject
-		p.cfgMutex.RUnlock()
-		// An include-clients filter opts the request into tool injection even when
-		// auto-injection is disabled (see ParseAndAddToolsToRequest in core/mcp), so
-		// the key's allowlist must be stamped on every path where injection can run.
-		includeClientsPresent := ctx.Value(schemas.MCPContextKeyIncludeClients) != nil
-		if !includeToolsProvided && (!autoInjectDisabled || includeClientsPresent) {
-			if tools := p.computeMCPIncludeTools(virtualKey); tools != nil {
-				ctx.SetValue(schemas.MCPContextKeyIncludeTools, tools)
-			}
 		}
 	}
 
@@ -559,12 +595,7 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 		return nil
 	}
 
-	weightedConfigs := make([]configstoreTables.TableVirtualKeyProviderConfig, 0, len(allowedProviderConfigs))
-	for _, config := range allowedProviderConfigs {
-		if config.Weight != nil {
-			weightedConfigs = append(weightedConfigs, config)
-		}
-	}
+	weightedConfigs := p.buildEffectiveProviderWeights(ctx, allowedProviderConfigs, virtualKey, modelStr)
 
 	if len(weightedConfigs) == 0 {
 		// All allowed configs survived the model-allowance / budget / rate-limit filters,
@@ -578,22 +609,30 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	var selectedProvider schemas.ModelProvider
 	totalWeight := 0.0
 	for _, config := range weightedConfigs {
-		totalWeight += getWeight(config.Weight)
+		totalWeight += config.effectiveWeight
+	}
+	if totalWeight <= 0 {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("All weighted provider configs for model %s have zero effective weight; selecting first configured provider", modelStr))
+		totalWeight = weightedConfigs[0].effectiveWeight
+		if totalWeight <= 0 {
+			totalWeight = 1
+			weightedConfigs[0].effectiveWeight = 1
+		}
 	}
 	// Generate random number between 0 and totalWeight
 	randomValue := rand.Float64() * totalWeight
 	// Select provider based on weighted random selection
 	currentWeight := 0.0
 	for _, config := range weightedConfigs {
-		currentWeight += getWeight(config.Weight)
+		currentWeight += config.effectiveWeight
 		if randomValue <= currentWeight {
-			selectedProvider = schemas.ModelProvider(config.Provider)
+			selectedProvider = schemas.ModelProvider(config.config.Provider)
 			break
 		}
 	}
 	// Fallback: if no provider was selected (shouldn't happen but guard against FP issues)
 	if selectedProvider == "" {
-		selectedProvider = schemas.ModelProvider(weightedConfigs[0].Provider)
+		selectedProvider = schemas.ModelProvider(weightedConfigs[0].config.Provider)
 	}
 
 	p.logger.Debug("[governance] Selected provider: %s", selectedProvider)
@@ -615,14 +654,15 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	schemas.AppendToContextList(ctx, schemas.BifrostContextKeyRoutingEnginesUsed, schemas.RoutingEngineGovernance)
 
 	if len(existingFallbacks) == 0 && len(weightedConfigs) > 1 {
-		fallbackConfigs := append([]configstoreTables.TableVirtualKeyProviderConfig(nil), weightedConfigs...)
+		fallbackConfigs := append([]weightedProviderConfig(nil), weightedConfigs...)
 		sort.Slice(fallbackConfigs, func(i, j int) bool {
-			return getWeight(fallbackConfigs[i].Weight) > getWeight(fallbackConfigs[j].Weight)
+			return fallbackConfigs[i].effectiveWeight > fallbackConfigs[j].effectiveWeight
 		})
 
 		// Filter out the selected provider and create fallbacks array
 		fallbacks := make([]schemas.Fallback, 0, len(fallbackConfigs)-1)
-		for _, config := range fallbackConfigs {
+		for _, weightedConfig := range fallbackConfigs {
+			config := weightedConfig.config
 			if config.Provider == string(selectedProvider) {
 				continue
 			}
@@ -644,6 +684,96 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	}
 
 	return nil
+}
+
+func (p *GovernancePlugin) buildEffectiveProviderWeights(ctx *schemas.BifrostContext, configs []configstoreTables.TableVirtualKeyProviderConfig, virtualKey *configstoreTables.TableVirtualKey, model string) []weightedProviderConfig {
+	weighted := make([]weightedProviderConfig, 0, len(configs))
+	for _, config := range configs {
+		if config.Weight == nil {
+			continue
+		}
+		original := getWeight(config.Weight)
+		weighted = append(weighted, weightedProviderConfig{
+			config:          config,
+			originalWeight:  original,
+			effectiveWeight: original,
+			penaltyFactor:   1,
+		})
+	}
+
+	if len(weighted) == 0 || !p.ttfbRouting.Enabled {
+		return weighted
+	}
+	if p.ttfbStats == nil {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, "TTFB routing enabled but logstore stats provider is unavailable; using original provider weights")
+		return weighted
+	}
+
+	windowSeconds := 900
+	if p.ttfbRouting.WindowSeconds != nil && *p.ttfbRouting.WindowSeconds > 0 {
+		windowSeconds = *p.ttfbRouting.WindowSeconds
+	}
+	minSamples := 20
+	if p.ttfbRouting.MinSamples != nil && *p.ttfbRouting.MinSamples > 0 {
+		minSamples = *p.ttfbRouting.MinSamples
+	}
+	thresholdMs := 2500.0
+	if p.ttfbRouting.ThresholdMs != nil && *p.ttfbRouting.ThresholdMs > 0 {
+		thresholdMs = *p.ttfbRouting.ThresholdMs
+	}
+	minFactor := 0.2
+	if p.ttfbRouting.MinPenaltyFactor != nil && *p.ttfbRouting.MinPenaltyFactor > 0 && *p.ttfbRouting.MinPenaltyFactor <= 1 {
+		minFactor = *p.ttfbRouting.MinPenaltyFactor
+	}
+
+	filters := logstore.SearchFilters{Models: []string{model}}
+	if virtualKey != nil && virtualKey.ID != "" {
+		filters.VirtualKeyIDs = []string{virtualKey.ID}
+	}
+	stats, err := p.ttfbStats.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+	if err != nil {
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("TTFB routing stats unavailable for model %s: %v; using original provider weights", model, err))
+		return weighted
+	}
+
+	statsByProvider := make(map[string]logstore.TTFBStatsEntry, len(stats.Stats))
+	for _, entry := range stats.Stats {
+		if entry.Model != model {
+			continue
+		}
+		current, exists := statsByProvider[entry.Provider]
+		if !exists || entry.SampleCount > current.SampleCount {
+			statsByProvider[entry.Provider] = entry
+		}
+	}
+
+	for i := range weighted {
+		entry, ok := statsByProvider[weighted[i].config.Provider]
+		if !ok {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: no TTFB samples; using original weight %.2f", weighted[i].config.Provider, model, weighted[i].originalWeight))
+			continue
+		}
+		if !entry.HasMinSamples {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: %d samples below minimum %d; using original weight %.2f", weighted[i].config.Provider, model, entry.SampleCount, minSamples, weighted[i].originalWeight))
+			continue
+		}
+		if entry.P95TTFBMs <= thresholdMs {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing kept provider %s model %s at original weight %.2f: p95 %.0fms <= %.0fms", weighted[i].config.Provider, model, weighted[i].originalWeight, entry.P95TTFBMs, thresholdMs))
+			continue
+		}
+		factor := thresholdMs / entry.P95TTFBMs
+		if factor < minFactor {
+			factor = minFactor
+		}
+		if factor > 1 {
+			factor = 1
+		}
+		weighted[i].penaltyFactor = factor
+		weighted[i].effectiveWeight = weighted[i].originalWeight * factor
+		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing penalized provider %s model %s: p95 %.0fms > %.0fms, weight %.2f -> %.2f", weighted[i].config.Provider, model, entry.P95TTFBMs, thresholdMs, weighted[i].originalWeight, weighted[i].effectiveWeight))
+	}
+
+	return weighted
 }
 
 // publishRoutingAllowlist records, for downstream routing layers, which of the VK's configured
@@ -787,122 +917,6 @@ func (p *GovernancePlugin) applyRoutingRules(ctx *schemas.BifrostContext, req *s
 	return decision, nil
 }
 
-// computeMCPIncludeTools builds the MCP include-tools list for a virtual key. Returns the list
-// directly; callers store it via ctx.SetValue(schemas.MCPContextKeyIncludeTools, ...). VK-specific
-// MCP configs take precedence over AllowOnAllVirtualKeys clients.
-func (p *GovernancePlugin) computeMCPIncludeTools(virtualKey *configstoreTables.TableVirtualKey) []string {
-	var allowAllVKsClients map[string]string
-	if p.inMemoryStore != nil {
-		allowAllVKsClients = p.inMemoryStore.GetMCPClientsAllowingAllVirtualKeys()
-	}
-	return p.computeMCPIncludeToolsWith(virtualKey, allowAllVKsClients)
-}
-
-// computeMCPIncludeToolsWith is the computeMCPIncludeTools variant taking a pre-fetched
-// AllowOnAllVirtualKeys map (clientID → clientName), so callers that make multiple
-// grant decisions per request can evaluate them all against one consistent snapshot.
-func (p *GovernancePlugin) computeMCPIncludeToolsWith(virtualKey *configstoreTables.TableVirtualKey, allowAllVKsClients map[string]string) []string {
-	executeOnlyTools := make([]string, 0)
-
-	if allowAllVKsClients == nil {
-		allowAllVKsClients = make(map[string]string)
-	}
-
-	// Process VK-specific MCP configs first — explicit config always overrides AllowOnAllVirtualKeys.
-	// Track which AllowOnAllVirtualKeys clients have an explicit VK config so we don't double-add them.
-	handledClients := make(map[string]bool)
-	for _, vkMcpConfig := range virtualKey.MCPConfigs {
-		clientID := vkMcpConfig.MCPClient.ClientID
-		if _, isAllowAll := allowAllVKsClients[clientID]; isAllowAll {
-			// Explicit VK config exists — it takes precedence; mark as handled regardless of tool list
-			handledClients[clientID] = true
-		}
-		if vkMcpConfig.ToolsToExecute.IsEmpty() {
-			// No tools specified in virtual key config - skip this client entirely
-			continue
-		}
-		if vkMcpConfig.ToolsToExecute.IsUnrestricted() {
-			executeOnlyTools = append(executeOnlyTools, fmt.Sprintf("%s-*", vkMcpConfig.MCPClient.Name))
-			continue
-		}
-		for _, tool := range vkMcpConfig.ToolsToExecute {
-			if tool != "" {
-				executeOnlyTools = append(executeOnlyTools, fmt.Sprintf("%s-%s", vkMcpConfig.MCPClient.Name, tool))
-			}
-		}
-	}
-
-	// For AllowOnAllVirtualKeys clients with no explicit VK config, fall back to allowing all tools
-	for clientID, clientName := range allowAllVKsClients {
-		if !handledClients[clientID] {
-			executeOnlyTools = append(executeOnlyTools, fmt.Sprintf("%s-*", clientName))
-		}
-	}
-
-	return executeOnlyTools
-}
-
-// pruneMCPIncludeToolsFromContext narrows a caller-provided include-tools list (stamped on ctx
-// from the x-bf-mcp-include-tools header in lib/ctx.go) down to the tools the virtual key
-// allows, and writes the pruned list back to ctx. Returns true when a caller list was present,
-// regardless of how many entries survived. Entries the key does not grant are dropped; a
-// "client-*" wildcard is kept only when the key itself is unrestricted for that client,
-// otherwise it is replaced by the key's specific grants for that client (passing the wildcard
-// through would read downstream as "all tools of this client").
-func (p *GovernancePlugin) pruneMCPIncludeToolsFromContext(ctx *schemas.BifrostContext, virtualKey *configstoreTables.TableVirtualKey) bool {
-	existing := ctx.Value(schemas.MCPContextKeyIncludeTools)
-	if existing == nil {
-		return false
-	}
-	requested, _ := existing.([]string)
-
-	// Fetch the AllowOnAllVirtualKeys snapshot once so the wildcard checks (via vkSet)
-	// and the per-tool checks (via isMCPToolAllowedByVKWith) can't observe different
-	// states across a concurrent config reload.
-	var allowAllClients map[string]string
-	if p.inMemoryStore != nil {
-		allowAllClients = p.inMemoryStore.GetMCPClientsAllowingAllVirtualKeys()
-	}
-
-	vkTools := p.computeMCPIncludeToolsWith(virtualKey, allowAllClients)
-	vkSet := make(map[string]struct{}, len(vkTools))
-	for _, tool := range vkTools {
-		vkSet[tool] = struct{}{}
-	}
-
-	pruned := make([]string, 0, len(requested))
-	seen := make(map[string]struct{}, len(requested))
-	add := func(tool string) {
-		if _, dup := seen[tool]; !dup {
-			seen[tool] = struct{}{}
-			pruned = append(pruned, tool)
-		}
-	}
-	for _, pattern := range requested {
-		if pattern == "" {
-			continue
-		}
-		if clientName, isWildcard := strings.CutSuffix(pattern, "-*"); isWildcard {
-			if _, ok := vkSet[pattern]; ok {
-				add(pattern)
-				continue
-			}
-			for _, tool := range vkTools {
-				if strings.HasPrefix(tool, clientName+"-") {
-					add(tool)
-				}
-			}
-			continue
-		}
-		if p.isMCPToolAllowedByVKWith(virtualKey, pattern, allowAllClients) {
-			add(pattern)
-		}
-	}
-
-	ctx.SetValue(schemas.MCPContextKeyIncludeTools, pruned)
-	return true
-}
-
 // EvaluateGovernanceRequest is a common function that handles virtual key validation
 // and governance evaluation logic. It returns the evaluation result and a BifrostError
 // if the request should be rejected, or nil if allowed.
@@ -1030,33 +1044,6 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.BifrostContext
 		result = p.resolver.EvaluateUserRequest(ctx, evaluationRequest.UserID, evaluationRequest)
 	}
 
-	// Check the actual MCP tools injected into the request against the VK MCPConfigs.
-	// BifrostContextKeyMCPAddedTools is populated by AddToolsToRequest (which runs before
-	// PreLLMHook), so it contains the real expanded tool names (e.g. "youtube-search") rather
-	// than raw header patterns (e.g. "youtube-*"), giving us exact per-tool validation.
-	if result.Decision == DecisionAllow && result.VirtualKey != nil {
-		if addedTools, ok := ctx.Value(schemas.BifrostContextKeyMCPAddedTools).([]string); ok && len(addedTools) > 0 {
-			// Fetch once before the loop to avoid repeated lock acquisitions per tool.
-			var allowAllClients map[string]string
-			if p.inMemoryStore != nil {
-				allowAllClients = p.inMemoryStore.GetMCPClientsAllowingAllVirtualKeys()
-			}
-			var disallowed []string
-			for _, tool := range addedTools {
-				if !p.isMCPToolAllowedByVKWith(result.VirtualKey, tool, allowAllClients) {
-					disallowed = append(disallowed, tool)
-				}
-			}
-			if len(disallowed) > 0 {
-				result = &EvaluationResult{
-					Decision:   DecisionMCPToolBlocked,
-					Reason:     fmt.Sprintf("MCP tools not allowed for virtual key '%s': %s", result.VirtualKey.Name, strings.Join(disallowed, ", ")),
-					VirtualKey: result.VirtualKey,
-				}
-			}
-		}
-	}
-
 	// Mark request as rejected in context if not allowed
 	if result.Decision != DecisionAllow {
 		if ctx != nil {
@@ -1105,15 +1092,6 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.BifrostContext
 			},
 		}
 
-	case DecisionMCPToolBlocked:
-		return result, &schemas.BifrostError{
-			Type:       new(string(result.Decision)),
-			StatusCode: new(403),
-			Error: &schemas.ErrorField{
-				Message: result.Reason,
-			},
-		}
-
 	default:
 		// Fallback to deny for unknown decisions
 		return result, &schemas.BifrostError{
@@ -1125,61 +1103,14 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.BifrostContext
 	}
 }
 
-// isMCPToolAllowedByVK checks whether a tool pattern (in "clientName-toolName" or "clientName-*"
-// format) is permitted by the virtual key's MCPConfigs.
-//
-// Priority order:
-//  1. If the VK has an explicit MCP config for this client, that config is authoritative (can allow or deny).
-//  2. If no explicit config exists and the client has AllowOnAllVirtualKeys=true, all tools are allowed.
-//
-// For wildcard patterns ("clientName-*"): allowed if VK has the client configured with any tools.
-// Specific tool enforcement happens at execution time via checkVKMCPToolAllowance.
-// For specific tools ("clientName-toolName"): allowed if VK has "*" or the exact tool name.
-func (p *GovernancePlugin) isMCPToolAllowedByVK(vk *configstoreTables.TableVirtualKey, toolPattern string) bool {
-	var allowAllClients map[string]string
-	if p.inMemoryStore != nil {
-		allowAllClients = p.inMemoryStore.GetMCPClientsAllowingAllVirtualKeys()
-	}
-	return p.isMCPToolAllowedByVKWith(vk, toolPattern, allowAllClients)
-}
-
-// isMCPToolAllowedByVKWith checks whether a tool pattern is allowed by the virtual key,
-// using a pre-fetched allowAllClients map (clientID → clientName) to avoid repeated lock
-// acquisitions in loops.
-func (p *GovernancePlugin) isMCPToolAllowedByVKWith(vk *configstoreTables.TableVirtualKey, toolPattern string, allowAllClients map[string]string) bool {
-	// Check VK-specific MCP configs first — explicit config always overrides AllowOnAllVirtualKeys.
-	for _, mcpConfig := range vk.MCPConfigs {
-		clientName := mcpConfig.MCPClient.Name
-		if toolPattern != clientName+"-*" && !strings.HasPrefix(toolPattern, clientName+"-") {
-			continue
-		}
-		// Found an explicit config for this client — use it; do not fall back to AllowOnAllVirtualKeys.
-		if toolPattern == clientName+"-*" {
-			return !mcpConfig.ToolsToExecute.IsEmpty()
-		}
-		if mcpConfig.ToolsToExecute.IsUnrestricted() {
-			return true
-		}
-		toolSuffix := strings.TrimPrefix(toolPattern, clientName+"-")
-		return mcpConfig.ToolsToExecute.Contains(toolSuffix)
-	}
-	// No explicit VK config found — fall back to AllowOnAllVirtualKeys (allows all tools).
-	for _, clientName := range allowAllClients {
-		if strings.HasPrefix(toolPattern, clientName+"-") || toolPattern == clientName+"-*" {
-			return true
-		}
-	}
-	return false
-}
-
 // PreRequestHook is the per-request governance phase. It runs for both normal body-having
 // requests (route on req.Model) and large-payload streaming requests (route on
 // LargePayloadMetadata.Model from ctx — the body is opaque mid-stream, so routing is
 // constrained to same-protocol-family targets that the upstream provider can hydrate
 // from the rewritten metadata).
 //
-// Realtime + generic streaming bypass handleRequest (see core/bifrost.go
-// RunRealtimeTurnPreHooks / RunStreamPreHooks) and are still handled at HTTPTransportPreHook.
+// Generic streaming bypasses handleRequest (see core/bifrost.go RunStreamPreHooks)
+// and is still handled at HTTPTransportPreHook.
 func (p *GovernancePlugin) PreRequestHook(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) error {
 	if req.RequestType == schemas.PassthroughRequest || req.RequestType == schemas.PassthroughStreamRequest {
 		return nil
@@ -1236,23 +1167,6 @@ func (p *GovernancePlugin) PreRequestHook(ctx *schemas.BifrostContext, req *sche
 	if virtualKey != nil {
 		if err := p.loadBalanceProvider(ctx, req, virtualKey); err != nil {
 			return err
-		}
-
-		// A caller-provided include-tools list can only narrow the virtual key's
-		// tool grant, never expand it — prune entries the key does not allow.
-		includeToolsProvided := p.pruneMCPIncludeToolsFromContext(ctx, virtualKey)
-
-		p.cfgMutex.RLock()
-		autoInjectDisabled := p.disableAutoToolInject != nil && *p.disableAutoToolInject
-		p.cfgMutex.RUnlock()
-		// An include-clients filter opts the request into tool injection even when
-		// auto-injection is disabled (see ParseAndAddToolsToRequest in core/mcp), so
-		// the key's allowlist must be stamped on every path where injection can run.
-		includeClientsPresent := ctx.Value(schemas.MCPContextKeyIncludeClients) != nil
-		if !includeToolsProvided && (!autoInjectDisabled || includeClientsPresent) {
-			if tools := p.computeMCPIncludeTools(virtualKey); tools != nil {
-				ctx.SetValue(schemas.MCPContextKeyIncludeTools, tools)
-			}
 		}
 	}
 
@@ -1377,219 +1291,6 @@ func (p *GovernancePlugin) PostLLMHook(ctx *schemas.BifrostContext, result *sche
 	}
 
 	return result, err, nil
-}
-
-// PreMCPHook intercepts MCP tool execution requests before they are processed (governance decision point)
-// Parameters:
-//   - ctx: The Bifrost context
-//   - req: The Bifrost MCP request to be processed
-//
-// Returns:
-//   - *schemas.BifrostMCPRequest: The processed request
-//   - *schemas.MCPPluginShortCircuit: The plugin short circuit if the request is not allowed
-//   - error: Any error that occurred during processing
-func (p *GovernancePlugin) PreMCPHook(ctx *schemas.BifrostContext, req *schemas.BifrostMCPRequest) (*schemas.BifrostMCPRequest, *schemas.MCPPluginShortCircuit, error) {
-	toolName := req.GetToolName()
-
-	// Skip for non tool execution requests
-	if !req.RequestType.IsExecuteTool() {
-		return req, nil, nil
-	}
-
-	// Skip governance for codemode tools
-	if bifrost.IsCodemodeTool(toolName) {
-		return req, nil, nil
-	}
-
-	// Validate required headers are present
-	if headerErr := p.validateRequiredHeaders(ctx); headerErr != nil {
-		return req, &schemas.MCPPluginShortCircuit{Error: headerErr}, nil
-	}
-
-	// Extract governance headers and virtual key using utility functions
-	virtualKeyValue := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyVirtualKey)
-	// Extract user ID for enterprise user-level governance
-	userID := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyUserID)
-
-	// Create request context for evaluation (MCP requests don't have provider/model)
-	evaluationRequest := &EvaluationRequest{
-		VirtualKey: virtualKeyValue,
-		UserID:     userID,
-	}
-
-	// Evaluate governance using common function
-	_, bifrostError := p.EvaluateGovernanceRequest(ctx, evaluationRequest, schemas.MCPToolExecutionRequest)
-
-	// Convert BifrostError to MCPPluginShortCircuit if needed
-	if bifrostError != nil {
-		return req, &schemas.MCPPluginShortCircuit{
-			Error: bifrostError,
-		}, nil
-	}
-
-	// Blind single-tool check: validate the specific tool being executed against VK MCPConfigs.
-	// This runs independently of EvaluateGovernanceRequest to enforce execution-time allow-list.
-	if virtualKeyValue != "" {
-		vk, ok := p.store.GetVirtualKey(ctx, virtualKeyValue)
-		if !ok || vk == nil || !vk.IsActiveValue() {
-			// VK became invalid after initial check - fail closed for security
-			ctx.SetValue(governanceRejectedContextKey, true)
-			return req, &schemas.MCPPluginShortCircuit{Error: &schemas.BifrostError{
-				Type:       bifrost.Ptr(string(DecisionVirtualKeyNotFound)),
-				StatusCode: bifrost.Ptr(403),
-				Error: &schemas.ErrorField{
-					Message: "Virtual key not found",
-				},
-			}}, nil
-		}
-		if !p.isMCPToolAllowedByVK(vk, toolName) {
-			ctx.SetValue(governanceRejectedContextKey, true)
-			return req, &schemas.MCPPluginShortCircuit{Error: &schemas.BifrostError{
-				Type:       bifrost.Ptr(string(DecisionMCPToolBlocked)),
-				StatusCode: bifrost.Ptr(403),
-				Error: &schemas.ErrorField{
-					Message: fmt.Sprintf("MCP tool '%s' is not allowed for virtual key '%s'", toolName, vk.Name),
-				},
-			}}, nil
-		}
-		return req, nil, nil
-	}
-
-	return req, nil, nil
-}
-
-// PostMCPHook processes the MCP response and updates usage tracking (business logic execution)
-// Parameters:
-//   - ctx: The Bifrost context
-//   - resp: The Bifrost MCP response to be processed
-//   - bifrostErr: The Bifrost error to be processed
-//
-// Returns:
-//   - *schemas.BifrostMCPResponse: The processed response
-//   - *schemas.BifrostError: The processed error
-//   - error: Any error that occurred during processing
-func (p *GovernancePlugin) PostMCPHook(ctx *schemas.BifrostContext, resp *schemas.BifrostMCPResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostMCPResponse, *schemas.BifrostError, error) {
-	if _, ok := ctx.Value(governanceRejectedContextKey).(bool); ok {
-		return resp, bifrostErr, nil
-	}
-
-	// Skip non tool-execute envelopes. The MCP gate stamps MCPRequestType on both
-	// the success response (BifrostMCPResponse.ExtraFields) and the error
-	// (BifrostError.ExtraFields), so a single check covers both paths.
-	mcpReqType := schemas.MCPRequestType("")
-	if resp != nil {
-		mcpReqType = resp.ExtraFields.MCPRequestType
-	} else if bifrostErr != nil {
-		mcpReqType = bifrostErr.ExtraFields.MCPRequestType
-	}
-	if !mcpReqType.IsExecuteTool() {
-		return resp, bifrostErr, nil
-	}
-
-	// Extract governance information
-	virtualKey := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyVirtualKey)
-	requestID := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyRequestID)
-
-	if bifrost.GetBoolFromContext(ctx, schemas.BifrostContextKeySkipVirtualKeyUsageTracking) {
-		virtualKey = ""
-	}
-
-	// Skip if no virtual key
-	if virtualKey == "" {
-		return resp, bifrostErr, nil
-	}
-
-	// Determine if request was successful
-	success := (resp != nil && bifrostErr == nil)
-
-	// Skip usage tracking for codemode tools
-	if success && resp != nil && bifrost.IsCodemodeTool(resp.ExtraFields.ToolName) {
-		return resp, bifrostErr, nil
-	}
-
-	// Calculate MCP tool cost from catalog if available
-	var toolCost float64
-	if success && resp != nil && p.mcpCatalog != nil && resp.ExtraFields.ClientName != "" && resp.ExtraFields.ToolName != "" {
-		// Use separate client name and tool name fields
-		if pricingEntry, ok := p.mcpCatalog.GetPricingData(resp.ExtraFields.ClientName, resp.ExtraFields.ToolName); ok {
-			toolCost = pricingEntry.CostPerExecution
-			p.logger.Debug("MCP tool cost for %s.%s: $%.6f", resp.ExtraFields.ClientName, resp.ExtraFields.ToolName, toolCost)
-		}
-	}
-
-	// Create usage update for tracker (business logic) - MCP requests track request count and tool cost
-	usageUpdate := &UsageUpdate{
-		VirtualKey:   virtualKey,
-		Success:      success,
-		Cost:         toolCost,
-		RequestID:    requestID,
-		IsStreaming:  false,
-		IsFinalChunk: true,
-		HasUsageData: toolCost > 0, // Has usage data if we have a cost
-	}
-
-	// Queue usage update asynchronously using tracker
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
-		p.tracker.UpdateUsage(p.ctx, usageUpdate)
-	}()
-
-	return resp, bifrostErr, nil
-}
-
-// PreMCPConnectionHook resolves the caller's identity onto the BifrostContext
-// before the connect-plugin gate releases control to the credential-store
-// resolver. This is the only point in the MCP connect lifecycle where we can
-// turn the raw x-bf-vk header into the resolved VK row ID — anything later
-// (PreMCPHook / PostMCPHook) runs after the resolver has already needed that
-// row ID, and per-user auth types (per_user_oauth, per_user_headers) key
-// their stored credentials by it.
-//
-// The hook is intentionally narrow: it ONLY populates the identity context
-// keys (VK row ID, name, team / customer fan-out). Policy checks (budget,
-// rate limit, tool allow-list) stay on PreMCPHook for the actual CallTool —
-// Connect is transport setup, not the gated operation.
-//
-// No short-circuit returned even when the VK isn't recognized: bad-VK
-// rejection belongs on the tool-call path so the caller gets a stable
-// error format. An unknown VK here simply leaves the row ID empty, and the
-// resolver will surface the "requires an identity" error itself.
-func (p *GovernancePlugin) PreMCPConnectionHook(ctx *schemas.BifrostContext, req *schemas.BifrostMCPConnectRequest) (*schemas.BifrostMCPConnectRequest, *schemas.MCPConnectionShortCircuit, error) {
-	virtualKeyValue := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyVirtualKey)
-	if virtualKeyValue == "" {
-		return req, nil, nil
-	}
-	vk, ok := p.store.GetVirtualKey(ctx, virtualKeyValue)
-	if !ok || vk == nil {
-		// Unknown VK — leave identity unset; the resolver will surface the
-		// appropriate error on the per-user auth path. For shared-connection
-		// auth types this is a no-op (they don't read these keys).
-		return req, nil, nil
-	}
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceVirtualKeyID, vk.ID)
-	ctx.SetValue(schemas.BifrostContextKeyGovernanceVirtualKeyName, vk.Name)
-	if vk.Team != nil {
-		ctx.SetValue(schemas.BifrostContextKeyGovernanceTeamID, vk.Team.ID)
-		ctx.SetValue(schemas.BifrostContextKeyGovernanceTeamName, vk.Team.Name)
-		if vk.Team.Customer != nil {
-			ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerID, vk.Team.Customer.ID)
-			ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerName, vk.Team.Customer.Name)
-		}
-	}
-	if vk.Customer != nil {
-		ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerID, vk.Customer.ID)
-		ctx.SetValue(schemas.BifrostContextKeyGovernanceCustomerName, vk.Customer.Name)
-	}
-	return req, nil, nil
-}
-
-// PostMCPConnectionHook is a pass-through; the identity resolution that
-// PreMCPConnectionHook performs is observation-only and has no post-connect
-// cleanup. Implementing this satisfies MCPConnectionPlugin so the typed
-// PreMCPConnectionHook is dispatched by the plugin pipeline.
-func (p *GovernancePlugin) PostMCPConnectionHook(ctx *schemas.BifrostContext, resp *schemas.BifrostMCPConnectResponse, bifrostErr *schemas.BifrostError) (*schemas.BifrostMCPConnectResponse, *schemas.BifrostError, error) {
-	return resp, bifrostErr, nil
 }
 
 // Cleanup shuts down all components gracefully

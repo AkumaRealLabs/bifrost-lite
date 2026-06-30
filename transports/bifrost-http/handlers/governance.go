@@ -154,10 +154,6 @@ type CreateVirtualKeyRequest struct {
 		RateLimit         *CreateRateLimitRequest `json:"rate_limit,omitempty"`         // Provider-level rate limit
 		KeyIDs            schemas.WhiteList       `json:"key_ids,omitempty"`            // List of DBKey UUIDs to associate with this provider config
 	} `json:"provider_configs,omitempty"` // Empty means no providers allowed (deny-by-default)
-	MCPConfigs []struct {
-		MCPClientName  string            `json:"mcp_client_name" validate:"required"`
-		ToolsToExecute schemas.WhiteList `json:"tools_to_execute,omitempty"`
-	} `json:"mcp_configs,omitempty"` // Empty means no MCP clients allowed (deny-by-default)
 	TeamID          *string                 `json:"team_id,omitempty"`     // Mutually exclusive with CustomerID
 	CustomerID      *string                 `json:"customer_id,omitempty"` // Mutually exclusive with TeamID
 	Budgets         []CreateBudgetRequest   `json:"budgets,omitempty"`     // Multi-budget: each must have a unique reset_duration
@@ -180,11 +176,6 @@ type UpdateVirtualKeyRequest struct {
 		RateLimit         *UpdateRateLimitRequest `json:"rate_limit,omitempty"`         // Provider-level rate limit
 		KeyIDs            schemas.WhiteList       `json:"key_ids,omitempty"`            // List of DBKey UUIDs to associate with this provider config
 	} `json:"provider_configs,omitempty"`
-	MCPConfigs []struct {
-		ID             *uint             `json:"id,omitempty"` // null for new entries
-		MCPClientName  string            `json:"mcp_client_name" validate:"required"`
-		ToolsToExecute schemas.WhiteList `json:"tools_to_execute,omitempty"`
-	} `json:"mcp_configs,omitempty"`
 	TeamID           schemas.OptionalJSON[string] `json:"team_id,omitempty"`
 	CustomerID       schemas.OptionalJSON[string] `json:"customer_id,omitempty"`
 	Budgets          []CreateBudgetRequest        `json:"budgets,omitempty"` // Multi-budget: replaces all VK-level budgets
@@ -959,13 +950,9 @@ type UpdateProviderGovernanceRequest struct {
 	CalendarAligned *bool                   `json:"calendar_aligned,omitempty"`
 }
 
-// RegisterRoutes registers all governance-related routes for the new hierarchical system
+// RegisterRoutes registers the Lite governance surface. Retired governance
+// surfaces should 404.
 func (h *GovernanceHandler) RegisterRoutes(r *router.Router, middlewares ...schemas.BifrostHTTPMiddleware) {
-	r.GET("/api/governance/complexity-analyzer-config", lib.ChainMiddlewares(h.getComplexityAnalyzerConfig, middlewares...))
-	r.PUT("/api/governance/complexity-analyzer-config", lib.ChainMiddlewares(h.updateComplexityAnalyzerConfig, middlewares...))
-	r.POST("/api/governance/complexity-analyzer-config/reset", lib.ChainMiddlewares(h.resetComplexityAnalyzerConfig, middlewares...))
-
-	// Virtual Key CRUD operations
 	r.GET("/api/governance/virtual-keys", lib.ChainMiddlewares(h.getVirtualKeys, middlewares...))
 	r.POST("/api/governance/virtual-keys", lib.ChainMiddlewares(h.createVirtualKey, middlewares...))
 	r.POST("/api/governance/virtual-keys/rotate", lib.ChainMiddlewares(h.rotateVirtualKeys, middlewares...))
@@ -973,45 +960,6 @@ func (h *GovernanceHandler) RegisterRoutes(r *router.Router, middlewares ...sche
 	r.PUT("/api/governance/virtual-keys/{vk_id}", lib.ChainMiddlewares(h.updateVirtualKey, middlewares...))
 	r.POST("/api/governance/virtual-keys/{vk_id}/rotate", lib.ChainMiddlewares(h.rotateVirtualKey, middlewares...))
 	r.DELETE("/api/governance/virtual-keys/{vk_id}", lib.ChainMiddlewares(h.deleteVirtualKey, middlewares...))
-
-	// Team CRUD operations
-	r.GET("/api/governance/teams", lib.ChainMiddlewares(h.getTeams, middlewares...))
-	r.POST("/api/governance/teams", lib.ChainMiddlewares(h.createTeam, middlewares...))
-	r.GET("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.getTeam, middlewares...))
-	r.PUT("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.updateTeam, middlewares...))
-	r.DELETE("/api/governance/teams/{team_id}", lib.ChainMiddlewares(h.deleteTeam, middlewares...))
-
-	// Customer CRUD operations
-	r.GET("/api/governance/customers", lib.ChainMiddlewares(h.getCustomers, middlewares...))
-	r.POST("/api/governance/customers", lib.ChainMiddlewares(h.createCustomer, middlewares...))
-	r.GET("/api/governance/customers/{customer_id}", lib.ChainMiddlewares(h.getCustomer, middlewares...))
-	r.PUT("/api/governance/customers/{customer_id}", lib.ChainMiddlewares(h.updateCustomer, middlewares...))
-	r.DELETE("/api/governance/customers/{customer_id}", lib.ChainMiddlewares(h.deleteCustomer, middlewares...))
-
-	// Budget and Rate Limit GET operations
-	r.GET("/api/governance/budgets", lib.ChainMiddlewares(h.getBudgets, middlewares...))
-	r.GET("/api/governance/rate-limits", lib.ChainMiddlewares(h.getRateLimits, middlewares...))
-
-	// Routing Rules CRUD operations
-	r.GET("/api/governance/routing-rules", lib.ChainMiddlewares(h.getRoutingRules, middlewares...))
-	r.POST("/api/governance/routing-rules", lib.ChainMiddlewares(h.createRoutingRule, middlewares...))
-	r.GET("/api/governance/routing-rules/{rule_id}", lib.ChainMiddlewares(h.getRoutingRule, middlewares...))
-	r.PUT("/api/governance/routing-rules/{rule_id}", lib.ChainMiddlewares(h.updateRoutingRule, middlewares...))
-	r.DELETE("/api/governance/routing-rules/{rule_id}", lib.ChainMiddlewares(h.deleteRoutingRule, middlewares...))
-
-	// Model Config CRUD operations
-	r.GET("/api/governance/model-configs", lib.ChainMiddlewares(h.getModelConfigs, middlewares...))
-	r.POST("/api/governance/model-configs", lib.ChainMiddlewares(h.createModelConfig, middlewares...))
-	r.GET("/api/governance/model-configs/{mc_id}", lib.ChainMiddlewares(h.getModelConfig, middlewares...))
-	r.PUT("/api/governance/model-configs/{mc_id}", lib.ChainMiddlewares(h.updateModelConfig, middlewares...))
-	r.DELETE("/api/governance/model-configs/{mc_id}", lib.ChainMiddlewares(h.deleteModelConfig, middlewares...))
-
-	// Provider Governance operations
-	r.GET("/api/governance/providers", lib.ChainMiddlewares(h.getProviderGovernance, middlewares...))
-	r.PUT("/api/governance/providers/{provider_name}", lib.ChainMiddlewares(h.updateProviderGovernance, middlewares...))
-	r.DELETE("/api/governance/providers/{provider_name}", lib.ChainMiddlewares(h.deleteProviderGovernance, middlewares...))
-
-	// Pricing override operations
 	r.GET("/api/governance/pricing-overrides", lib.ChainMiddlewares(h.getPricingOverrides, middlewares...))
 	r.POST("/api/governance/pricing-overrides", lib.ChainMiddlewares(h.createPricingOverride, middlewares...))
 	r.PUT("/api/governance/pricing-overrides/{id}", lib.ChainMiddlewares(h.updatePricingOverride, middlewares...))
@@ -1108,41 +1056,6 @@ func (h *GovernanceHandler) reloadComplexityAnalyzerConfig(ctx context.Context, 
 
 // getVirtualKeys handles GET /api/governance/virtual-keys - Get all virtual keys with relationships
 func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
-	// Check if "from_memory" query parameter is set to true
-	fromMemory := string(ctx.QueryArgs().Peek("from_memory")) == "true"
-	if fromMemory {
-		data := h.governanceManager.GetGovernanceData(ctx)
-		if data == nil {
-			SendError(ctx, 500, "Governance data is not available")
-			return
-		}
-		// Convert map to slice to match the non-memory response format (array)
-		virtualKeys := make([]*configstoreTables.TableVirtualKey, 0, len(data.VirtualKeys))
-		for _, vk := range data.VirtualKeys {
-			virtualKeys = append(virtualKeys, vk)
-		}
-		sort.Slice(virtualKeys, func(i, j int) bool {
-			return virtualKeys[i].CreatedAt.Before(virtualKeys[j].CreatedAt)
-		})
-		byKey := buildVKModelConfigIndex(data.ModelConfigs)
-		hydratedVKs := make([]*configstoreTables.TableVirtualKey, len(virtualKeys))
-		for i, vk := range virtualKeys {
-			clone := *vk
-			pcs := make([]configstoreTables.TableVirtualKeyProviderConfig, len(vk.ProviderConfigs))
-			copy(pcs, vk.ProviderConfigs)
-			clone.ProviderConfigs = pcs
-			applyVKGovernanceFromModelConfigs(&clone, byKey)
-			hydratedVKs[i] = &clone
-		}
-		SendJSON(ctx, map[string]interface{}{
-			"virtual_keys": hydratedVKs,
-			"count":        len(hydratedVKs),
-			"total_count":  len(hydratedVKs),
-			"limit":        len(hydratedVKs),
-			"offset":       0,
-		})
-		return
-	}
 	// Check for pagination/filter parameters
 	limitStr := string(ctx.QueryArgs().Peek("limit"))
 	offsetStr := string(ctx.QueryArgs().Peek("offset"))
@@ -1380,33 +1293,6 @@ func (h *GovernanceHandler) createVirtualKey(ctx *fasthttp.RequestCtx) {
 			rateLimit:         topRateLimit,
 		}, vkGovProviders, true); err != nil {
 			return err
-		}
-		if req.MCPConfigs != nil {
-			// Check for duplicate MCPClientName values before processing
-			seenMCPClientNames := make(map[string]bool)
-			for _, mc := range req.MCPConfigs {
-				if seenMCPClientNames[mc.MCPClientName] {
-					return &badRequestError{err: fmt.Errorf("duplicate mcp_client_name: %s", mc.MCPClientName)}
-				}
-				seenMCPClientNames[mc.MCPClientName] = true
-			}
-
-			for _, mc := range req.MCPConfigs {
-				if err := mc.ToolsToExecute.Validate(); err != nil {
-					return &badRequestError{err: fmt.Errorf("invalid tools_to_execute for mcp client %s: %w", mc.MCPClientName, err)}
-				}
-				mcpClient, err := h.configStore.GetMCPClientByName(ctx, mc.MCPClientName)
-				if err != nil {
-					return fmt.Errorf("failed to get MCP client: %w", err)
-				}
-				if err := h.configStore.CreateVirtualKeyMCPConfig(ctx, &configstoreTables.TableVirtualKeyMCPConfig{
-					VirtualKeyID:   vk.ID,
-					MCPClientID:    mcpClient.ID,
-					ToolsToExecute: mc.ToolsToExecute,
-				}, tx); err != nil {
-					return err
-				}
-			}
 		}
 		return nil
 	}); err != nil {
@@ -1752,84 +1638,6 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 		if err := h.syncVKGovernanceToModelConfigs(ctx, tx, vk, top, vkGovProviders, req.ProviderConfigs != nil); err != nil {
 			return err
 		}
-		if req.MCPConfigs != nil {
-			// Check for duplicate MCPClientName values among all configs before processing
-			seenMCPClientNames := make(map[string]bool)
-			for _, mc := range req.MCPConfigs {
-				if seenMCPClientNames[mc.MCPClientName] {
-					return &badRequestError{err: fmt.Errorf("duplicate mcp_client_name: %s", mc.MCPClientName)}
-				}
-				seenMCPClientNames[mc.MCPClientName] = true
-			}
-			// Get existing MCP configs for comparison
-			var existingMCPConfigs []configstoreTables.TableVirtualKeyMCPConfig
-			if err := tx.Where("virtual_key_id = ?", vk.ID).Find(&existingMCPConfigs).Error; err != nil {
-				return err
-			}
-			sort.Slice(existingMCPConfigs, func(i, j int) bool { return existingMCPConfigs[i].ID < existingMCPConfigs[j].ID })
-			sort.Slice(req.MCPConfigs, func(i, j int) bool {
-				if req.MCPConfigs[i].ID == nil && req.MCPConfigs[j].ID != nil {
-					return false
-				}
-				if req.MCPConfigs[i].ID != nil && req.MCPConfigs[j].ID == nil {
-					return true
-				}
-				if req.MCPConfigs[i].ID != nil && req.MCPConfigs[j].ID != nil && *req.MCPConfigs[i].ID != *req.MCPConfigs[j].ID {
-					return *req.MCPConfigs[i].ID < *req.MCPConfigs[j].ID
-				}
-				return req.MCPConfigs[i].MCPClientName < req.MCPConfigs[j].MCPClientName
-			})
-			// Create maps for easier lookup
-			existingMCPConfigsMap := make(map[uint]configstoreTables.TableVirtualKeyMCPConfig)
-			for _, config := range existingMCPConfigs {
-				existingMCPConfigsMap[config.ID] = config
-			}
-			requestMCPConfigsMap := make(map[uint]bool)
-			// Process new configs: create new ones and update existing ones
-			for _, mc := range req.MCPConfigs {
-				if err := mc.ToolsToExecute.Validate(); err != nil {
-					return &badRequestError{err: fmt.Errorf("invalid tools_to_execute for mcp client %s: %w", mc.MCPClientName, err)}
-				}
-				if mc.ID == nil {
-					mcpClient, err := h.configStore.GetMCPClientByName(ctx, mc.MCPClientName)
-					if err != nil {
-						return fmt.Errorf("failed to get MCP client: %w", err)
-					}
-					// Create new MCP config
-					if err := h.configStore.CreateVirtualKeyMCPConfig(ctx, &configstoreTables.TableVirtualKeyMCPConfig{
-						VirtualKeyID:   vk.ID,
-						MCPClientID:    mcpClient.ID,
-						ToolsToExecute: mc.ToolsToExecute,
-					}, tx); err != nil {
-						return err
-					}
-				} else {
-					// Update existing MCP config
-					existing, ok := existingMCPConfigsMap[*mc.ID]
-					if !ok {
-						return fmt.Errorf("MCP config %d does not belong to this virtual key", *mc.ID)
-					}
-					requestMCPConfigsMap[*mc.ID] = true
-					existing.ToolsToExecute = mc.ToolsToExecute
-					if err := h.configStore.UpdateVirtualKeyMCPConfig(ctx, &existing, tx); err != nil {
-						return err
-					}
-				}
-			}
-			// Delete MCP configs that are not in the request
-			mcpConfigIDs := make([]uint, 0, len(existingMCPConfigsMap))
-			for id := range existingMCPConfigsMap {
-				mcpConfigIDs = append(mcpConfigIDs, id)
-			}
-			sort.Slice(mcpConfigIDs, func(i, j int) bool { return mcpConfigIDs[i] < mcpConfigIDs[j] })
-			for _, id := range mcpConfigIDs {
-				if !requestMCPConfigsMap[id] {
-					if err := h.configStore.DeleteVirtualKeyMCPConfig(ctx, id, tx); err != nil {
-						return err
-					}
-				}
-			}
-		}
 
 		if rateLimitIDToDelete != "" {
 			if err := h.configStore.DeleteRateLimit(ctx, rateLimitIDToDelete, tx); err != nil {
@@ -1876,20 +1684,6 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 		logger.Error("failed to reload virtual key after update: %v", err)
 		SendError(ctx, 500, "Virtual key updated in database but failed to reload in-memory state")
 		return
-	}
-
-	// Per-user credential reconciliation when the VK's MCP allowlist
-	// changed. Mirrors the AP-propagation path: enterprise orphans /
-	// reactivates credentials keyed to this VK (vk-keyed creds) and to the
-	// VK's owner (user-keyed creds) against the new effective allowlist
-	// (explicit rows ∪ MCPs with AllowOnAllVirtualKeys=true). OSS no-ops.
-	if req.MCPConfigs != nil && h.configStore != nil {
-		if err := h.configStore.ReconcileOauthAfterVKChange(ctx, vk.ID); err != nil {
-			logger.Error("reconcile OAuth credentials after VK %s update failed: %v", vk.ID, err)
-		}
-		if err := h.configStore.ReconcileMCPHeadersAfterVKChange(ctx, vk.ID); err != nil {
-			logger.Error("reconcile per-user-headers credentials after VK %s update failed: %v", vk.ID, err)
-		}
 	}
 
 	SendJSON(ctx, map[string]interface{}{

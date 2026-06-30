@@ -10,9 +10,6 @@ import type {
 	DimensionRankingsResponse,
 	LatencyHistogramResponse,
 	LogsHistogramResponse,
-	MCPCostHistogramResponse,
-	MCPHistogramResponse,
-	MCPTopToolsResponse,
 	ModelHistogramResponse,
 	ModelRankingsResponse,
 	ProviderCostHistogramResponse,
@@ -56,8 +53,8 @@ export function overviewModelUsageToCSV(data: ModelHistogramResponse | null): CS
 	return { headers, rows };
 }
 
-export function overviewLatencyToCSV(data: LatencyHistogramResponse | null): CSVData {
-	const headers = ["Timestamp", "Avg Latency (ms)", "P90 (ms)", "P95 (ms)", "P99 (ms)", "Total Requests"];
+export function overviewLatencyToCSV(data: LatencyHistogramResponse | null, label = "Latency"): CSVData {
+	const headers = ["Timestamp", `Avg ${label} (ms)`, "P90 (ms)", "P95 (ms)", "P99 (ms)", "Total Requests"];
 	const rows = (data?.buckets ?? []).map((b) => [
 		b.timestamp,
 		b.avg_latency,
@@ -114,6 +111,7 @@ export function modelRankingsToCSV(data: ModelRankingsResponse | null): CSVData 
 		"Total Tokens",
 		"Total Cost ($)",
 		"Avg Latency (ms)",
+		"P95 TTFB (ms)",
 		"Requests Trend (%)",
 		"Tokens Trend (%)",
 		"Cost Trend (%)",
@@ -128,6 +126,7 @@ export function modelRankingsToCSV(data: ModelRankingsResponse | null): CSVData 
 		r.total_tokens,
 		r.total_cost,
 		r.avg_latency,
+		r.p95_ttfb_ms ?? 0,
 		r.trend.has_previous_period ? r.trend.requests_trend : "N/A",
 		r.trend.has_previous_period ? r.trend.tokens_trend : "N/A",
 		r.trend.has_previous_period ? r.trend.cost_trend : "N/A",
@@ -160,24 +159,6 @@ export function dimensionRankingsToCSV(data: DimensionRankingsResponse | null, d
 	return { headers, rows };
 }
 
-export function mcpVolumeToCSV(data: MCPHistogramResponse | null): CSVData {
-	const headers = ["Timestamp", "Total Executions", "Success", "Error"];
-	const rows = (data?.buckets ?? []).map((b) => [b.timestamp, b.count, b.success, b.error]);
-	return { headers, rows };
-}
-
-export function mcpCostToCSV(data: MCPCostHistogramResponse | null): CSVData {
-	const headers = ["Timestamp", "Total Cost ($)"];
-	const rows = (data?.buckets ?? []).map((b) => [b.timestamp, b.total_cost]);
-	return { headers, rows };
-}
-
-export function mcpTopToolsToCSV(data: MCPTopToolsResponse | null): CSVData {
-	const headers = ["Tool Name", "Execution Count", "Cost ($)"];
-	const rows = (data?.tools ?? []).map((t) => [t.tool_name, t.count, t.cost]);
-	return { headers, rows };
-}
-
 export interface DashboardData {
 	// Overview
 	histogramData: LogsHistogramResponse | null;
@@ -185,34 +166,18 @@ export interface DashboardData {
 	costData: CostHistogramResponse | null;
 	modelData: ModelHistogramResponse | null;
 	latencyData: LatencyHistogramResponse | null;
+	ttfbData: LatencyHistogramResponse | null;
 	// Provider Usage
 	providerCostData: ProviderCostHistogramResponse | null;
 	providerTokenData: ProviderTokenHistogramResponse | null;
 	providerLatencyData: ProviderLatencyHistogramResponse | null;
+	providerTTFBData: ProviderLatencyHistogramResponse | null;
 	// Rankings
 	rankingsData: ModelRankingsResponse | null;
-	teamRankingsData: DimensionRankingsResponse | null;
-	customerRankingsData: DimensionRankingsResponse | null;
-	buRankingsData: DimensionRankingsResponse | null;
-	userRankingsData: DimensionRankingsResponse | null;
 	virtualKeyRankingsData: DimensionRankingsResponse | null;
-	// MCP
-	mcpHistogramData: MCPHistogramResponse | null;
-	mcpCostData: MCPCostHistogramResponse | null;
-	mcpTopToolsData: MCPTopToolsResponse | null;
 }
 
-export type ExportTab =
-	| "all"
-	| "overview"
-	| "provider-usage"
-	| "rankings"
-	| "team-rankings"
-	| "customer-rankings"
-	| "bu-rankings"
-	| "user-rankings"
-	| "virtual-key-rankings"
-	| "mcp";
+export type ExportTab = "all" | "overview" | "provider-usage" | "rankings" | "virtual-key-rankings";
 
 /** Return all CSV sections for the selected scope. Each entry becomes its own sheet / file section. */
 export function getCSVSections(data: DashboardData, tab: ExportTab): { name: string; csv: CSVData }[] {
@@ -225,6 +190,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "overview-cost", csv: overviewCostToCSV(data.costData) },
 			{ name: "overview-model-usage", csv: overviewModelUsageToCSV(data.modelData) },
 			{ name: "overview-latency", csv: overviewLatencyToCSV(data.latencyData) },
+			{ name: "overview-ttfb", csv: overviewLatencyToCSV(data.ttfbData, "TTFB") },
 		);
 	}
 
@@ -233,6 +199,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "provider-cost", csv: providerCostToCSV(data.providerCostData) },
 			{ name: "provider-tokens", csv: providerTokensToCSV(data.providerTokenData) },
 			{ name: "provider-latency", csv: providerLatencyToCSV(data.providerLatencyData) },
+			{ name: "provider-ttfb", csv: providerLatencyToCSV(data.providerTTFBData) },
 		);
 	}
 
@@ -240,32 +207,8 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 		sections.push({ name: "model-rankings", csv: modelRankingsToCSV(data.rankingsData) });
 	}
 
-	if (tab === "all" || tab === "team-rankings") {
-		sections.push({ name: "team-rankings", csv: dimensionRankingsToCSV(data.teamRankingsData, "Team") });
-	}
-
-	if (tab === "all" || tab === "customer-rankings") {
-		sections.push({ name: "customer-rankings", csv: dimensionRankingsToCSV(data.customerRankingsData, "Customer") });
-	}
-
-	if (tab === "all" || tab === "bu-rankings") {
-		sections.push({ name: "bu-rankings", csv: dimensionRankingsToCSV(data.buRankingsData, "Business Unit") });
-	}
-
-	if (tab === "all" || tab === "user-rankings") {
-		sections.push({ name: "user-rankings", csv: dimensionRankingsToCSV(data.userRankingsData, "User") });
-	}
-
 	if (tab === "all" || tab === "virtual-key-rankings") {
 		sections.push({ name: "virtual-key-rankings", csv: dimensionRankingsToCSV(data.virtualKeyRankingsData, "Virtual Key") });
-	}
-
-	if (tab === "all" || tab === "mcp") {
-		sections.push(
-			{ name: "mcp-volume", csv: mcpVolumeToCSV(data.mcpHistogramData) },
-			{ name: "mcp-cost", csv: mcpCostToCSV(data.mcpCostData) },
-			{ name: "mcp-top-tools", csv: mcpTopToolsToCSV(data.mcpTopToolsData) },
-		);
 	}
 
 	return sections;

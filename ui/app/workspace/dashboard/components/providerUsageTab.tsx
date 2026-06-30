@@ -16,11 +16,13 @@ export interface ProviderUsageTabProps {
 	providerCostData: ProviderCostHistogramResponse | null;
 	providerTokenData: ProviderTokenHistogramResponse | null;
 	providerLatencyData: ProviderLatencyHistogramResponse | null;
+	providerTTFBData: ProviderLatencyHistogramResponse | null;
 
 	// Loading states
 	loadingProviderCost: boolean;
 	loadingProviderTokens: boolean;
 	loadingProviderLatency: boolean;
+	loadingProviderTTFB: boolean;
 
 	// Time range
 	startTime: number;
@@ -41,6 +43,7 @@ export interface ProviderUsageTabProps {
 	providerCostProviders: string[];
 	providerTokenProviders: string[];
 	providerLatencyProviders: string[];
+	providerTTFBProviders: string[];
 
 	// Chart type toggle callbacks
 	onProviderCostChartToggle: (type: ChartType) => void;
@@ -57,9 +60,11 @@ function ProviderUsageTabImpl({
 	providerCostData,
 	providerTokenData,
 	providerLatencyData,
+	providerTTFBData,
 	loadingProviderCost,
 	loadingProviderTokens,
 	loadingProviderLatency,
+	loadingProviderTTFB,
 	startTime,
 	endTime,
 	providerCostChartType,
@@ -72,6 +77,7 @@ function ProviderUsageTabImpl({
 	providerCostProviders,
 	providerTokenProviders,
 	providerLatencyProviders,
+	providerTTFBProviders,
 	onProviderCostChartToggle,
 	onProviderTokenChartToggle,
 	onProviderLatencyChartToggle,
@@ -118,14 +124,31 @@ function ProviderUsageTabImpl({
 		return count > 0 ? weighted / count : null;
 	}, [providerLatencyData, providerLatencyProvider]);
 
+	const providerTTFBAvg = useMemo(() => {
+		if (!providerTTFBData?.buckets) return null;
+		let weighted = 0;
+		let count = 0;
+		for (const b of providerTTFBData.buckets) {
+			if (!b.by_provider) continue;
+			const providers = providerLatencyProvider === "all" ? providerTTFBData.providers : [providerLatencyProvider];
+			for (const p of providers) {
+				const s = b.by_provider[p];
+				if (!s || !s.total_requests) continue;
+				weighted += (s.avg_latency ?? 0) * s.total_requests;
+				count += s.total_requests;
+			}
+		}
+		return count > 0 ? weighted / count : null;
+	}, [providerTTFBData, providerLatencyProvider]);
+
 	return (
 		<div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
 			{/* Provider Cost Chart */}
 			<ChartCard
-				title="Provider Cost"
+				title="Provider 成本"
 				loading={loadingProviderCost}
 				testId="chart-provider-cost"
-				totalLabel="Total"
+				totalLabel="总计"
 				total={
 					providerCostTotal !== null ? (
 						<NumberFlow value={providerCostTotal} format={{ ...COMPACT_NUMBER_FORMAT, style: "currency", currency: "USD" }} />
@@ -158,7 +181,7 @@ function ProviderUsageTabImpl({
 													data-testid="provider-cost-legend-more-trigger"
 													className="text-muted-foreground cursor-default"
 												>
-													+{providerCostProviders.length - 1} more
+													+{providerCostProviders.length - 1} 个
 												</button>
 											</TooltipTrigger>
 											<TooltipContent>
@@ -215,10 +238,10 @@ function ProviderUsageTabImpl({
 
 			{/* Provider Token Usage Chart */}
 			<ChartCard
-				title="Provider Token Usage"
+				title="Provider Token 用量"
 				loading={loadingProviderTokens}
 				testId="chart-provider-tokens"
-				totalLabel="Total"
+				totalLabel="总计"
 				total={providerTokenTotal !== null ? <NumberFlow value={providerTokenTotal} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 				totalTooltip={providerTokenTotal !== null ? providerTokenTotal.toLocaleString("en-US") : undefined}
 				legend={
@@ -243,7 +266,7 @@ function ProviderUsageTabImpl({
 													data-testid="provider-token-legend-more-trigger"
 													className="text-muted-foreground cursor-default"
 												>
-													+{providerTokenProviders.length - 1} more
+													+{providerTokenProviders.length - 1} 个
 												</button>
 											</TooltipTrigger>
 											<TooltipContent>
@@ -264,11 +287,11 @@ function ProviderUsageTabImpl({
 							<>
 								<span className="flex items-center gap-1">
 									<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS.promptTokens }} />
-									<span className="text-muted-foreground">Input</span>
+									<span className="text-muted-foreground">输入</span>
 								</span>
 								<span className="flex items-center gap-1">
 									<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS.completionTokens }} />
-									<span className="text-muted-foreground">Output</span>
+									<span className="text-muted-foreground">输出</span>
 								</span>
 							</>
 						)}
@@ -301,10 +324,10 @@ function ProviderUsageTabImpl({
 
 			{/* Provider Latency Chart */}
 			<ChartCard
-				title="Provider Latency"
+				title="Provider 延迟"
 				loading={loadingProviderLatency}
 				testId="chart-provider-latency"
-				totalLabel="Avg"
+				totalLabel="平均"
 				total={
 					providerLatencyAvg !== null ? (
 						<NumberFlow value={providerLatencyAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
@@ -335,7 +358,7 @@ function ProviderUsageTabImpl({
 													data-testid="provider-latency-legend-more-trigger"
 													className="text-muted-foreground cursor-default"
 												>
-													+{providerLatencyProviders.length - 1} more
+													+{providerLatencyProviders.length - 1} 个
 												</button>
 											</TooltipTrigger>
 											<TooltipContent>
@@ -356,7 +379,7 @@ function ProviderUsageTabImpl({
 							<>
 								<span className="flex items-center gap-1">
 									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
-									<span className="text-muted-foreground">Avg</span>
+									<span className="text-muted-foreground">平均</span>
 								</span>
 								<span className="flex items-center gap-1">
 									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
@@ -396,6 +419,105 @@ function ProviderUsageTabImpl({
 					startTime={startTime}
 					endTime={endTime}
 					selectedProvider={providerLatencyProvider}
+				/>
+			</ChartCard>
+
+			{/* Provider TTFB Chart */}
+			<ChartCard
+				title="Provider TTFB"
+				loading={loadingProviderTTFB}
+				testId="chart-provider-ttfb"
+				totalLabel="平均"
+				total={
+					providerTTFBAvg !== null ? (
+						<NumberFlow value={providerTTFBAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
+					) : undefined
+				}
+				totalTooltip={providerTTFBAvg !== null ? `${providerTTFBAvg.toLocaleString("en-US", { maximumFractionDigits: 6 })}ms` : undefined}
+				legend={
+					<div className={CHART_HEADER_LEGEND_CLASS}>
+						{providerLatencyProvider === "all" ? (
+							providerTTFBProviders.length > 0 && (
+								<>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span data-testid="provider-ttfb-legend-trigger" className="flex items-center gap-1">
+												<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getModelColor(0) }} />
+												<span className="text-muted-foreground max-w-[100px] truncate">{providerTTFBProviders[0]}</span>
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>{providerTTFBProviders[0]}</TooltipContent>
+									</Tooltip>
+									{providerTTFBProviders.length > 1 && (
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													type="button"
+													data-testid="provider-ttfb-legend-more-trigger"
+													className="text-muted-foreground cursor-default"
+												>
+													+{providerTTFBProviders.length - 1} 个
+												</button>
+											</TooltipTrigger>
+											<TooltipContent>
+												<div className="flex flex-col gap-1">
+													{providerTTFBProviders.slice(1).map((provider, idx) => (
+														<span key={provider} className="flex items-center gap-1">
+															<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getModelColor(idx + 1) }} />
+															{provider}
+														</span>
+													))}
+												</div>
+											</TooltipContent>
+										</Tooltip>
+									)}
+								</>
+							)
+						) : (
+							<>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
+									<span className="text-muted-foreground">平均</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
+									<span className="text-muted-foreground">P90</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p95 }} />
+									<span className="text-muted-foreground">P95</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p99 }} />
+									<span className="text-muted-foreground">P99</span>
+								</span>
+							</>
+						)}
+					</div>
+				}
+				controls={
+					<>
+						<ProviderFilterSelect
+							providers={availableProviders}
+							selectedProvider={providerLatencyProvider}
+							onProviderChange={onProviderLatencyProviderChange}
+							data-testid="dashboard-provider-ttfb-filter"
+						/>
+						<ChartTypeToggle
+							chartType={providerLatencyChartType}
+							onToggle={onProviderLatencyChartToggle}
+							data-testid="dashboard-provider-ttfb-chart-toggle"
+						/>
+					</>
+				}
+			>
+				<ProviderLatencyChart
+					data={providerTTFBData}
+					chartType={providerLatencyChartType}
+					startTime={startTime}
+					endTime={endTime}
+					selectedProvider={providerLatencyProvider}
+					metricLabel="TTFB"
 				/>
 			</ChartCard>
 		</div>

@@ -10,7 +10,6 @@ import {
 	setSelectedProvider,
 	useAppDispatch,
 	useAppSelector,
-	useCreateProviderMutation,
 	useGetProvidersQuery,
 	useLazyGetProviderQuery,
 } from "@/lib/store";
@@ -38,7 +37,7 @@ export default function Providers() {
 	// Redirect Settings-only users to Custom pricing tab
 	useEffect(() => {
 		if (!hasProvidersAccess && hasSettingsOnly) {
-			navigate({ to: "/workspace/custom-pricing", replace: true });
+			navigate({ to: "/workspace/config/client-settings", replace: true });
 		}
 	}, [hasProvidersAccess, hasSettingsOnly, navigate]);
 
@@ -53,14 +52,10 @@ export default function Providers() {
 
 	const { data: savedProviders, isLoading: isLoadingProviders } = useGetProvidersQuery();
 	const [getProvider, { isLoading: isLoadingProvider }] = useLazyGetProviderQuery();
-	const [createProvider] = useCreateProviderMutation();
 
 	const configuredProviders = (savedProviders ?? []).slice().sort((a, b) => a.name.localeCompare(b.name));
 	const configuredProviderNamesArr = configuredProviders.map((p) => p.name);
 	const configuredProviderNamesKey = JSON.stringify(configuredProviderNamesArr);
-	const existingInSidebarNames = new Set(configuredProviders.map((p) => p.name));
-
-	const knownProviders = ProviderNames.map((name) => ({ name }));
 
 	useEffect(() => {
 		if (!provider) return;
@@ -82,7 +77,6 @@ export default function Providers() {
 							concurrency_and_buffer_size: DefaultPerformanceConfig,
 							network_config: DefaultNetworkConfig,
 							custom_provider_config: undefined,
-							proxy_config: undefined,
 							send_back_raw_request: undefined,
 							send_back_raw_response: undefined,
 							provider_status: "error",
@@ -90,8 +84,8 @@ export default function Providers() {
 					);
 					return;
 				}
-				toast.error("Something went wrong", {
-					description: `We encountered an error while getting provider config: ${getErrorMessage(err)}`,
+				toast.error("出了点问题", {
+					description: `获取 Provider 配置时出错： ${getErrorMessage(err)}`,
 				});
 			});
 	}, [provider, isLoadingProviders]);
@@ -119,21 +113,6 @@ export default function Providers() {
 		return <FullPageLoader />;
 	}
 
-	const handleSelectKnownProvider = async (name: string) => {
-		try {
-			await createProvider({ provider: name as ModelProviderName }).unwrap();
-			setProvider(name);
-		} catch (err: any) {
-			if (err?.status === 409) {
-				setProvider(name);
-				return;
-			}
-			toast.error("Failed to add provider", {
-				description: getErrorMessage(err),
-			});
-		}
-	};
-
 	if (configuredProviders.length === 0) {
 		return (
 			<div className="mx-auto w-full max-w-7xl">
@@ -141,9 +120,6 @@ export default function Providers() {
 					addProviderDropdown={
 						<AddProviderDropdown
 							disabled={!hasProviderCreateAccess}
-							existingInSidebar={existingInSidebarNames}
-							knownProviders={knownProviders}
-							onSelectKnownProvider={handleSelectKnownProvider}
 							onAddCustomProvider={() => setShowCustomProviderSheet(true)}
 							variant="empty"
 						/>
@@ -194,10 +170,10 @@ export default function Providers() {
 				<TooltipProvider>
 					<div className="custom-scrollbar flex-1 overflow-y-auto">
 						<div className="rounded-md bg-zinc-50/50 p-4 dark:bg-zinc-800/20">
-							{/* Configured Providers (standard with keys + custom) */}
+							{/* 已配置 Provider (standard with keys + custom) */}
 							{configuredProviders.length > 0 && (
 								<div className="mb-4">
-									<div className="text-muted-foreground mb-2 text-xs font-medium">Configured Providers</div>
+									<div className="text-muted-foreground mb-2 text-xs font-medium">已配置 Provider</div>
 									{configuredProviders.map((p) => {
 										const isCustom = !ProviderNames.includes(p.name as KnownProvider);
 										const label = isCustom ? p.name : ProviderLabels[p.name as keyof typeof ProviderLabels];
@@ -232,7 +208,7 @@ export default function Providers() {
 												<ProviderStatusBadge status={p.provider_status} />
 												{isCustom && (
 													<Badge variant="secondary" className="text-muted-foreground ml-auto shrink-0 px-1.5 py-0.5 text-[10px] font-bold">
-														CUSTOM
+														自定义
 													</Badge>
 												)}
 											</div>
@@ -244,9 +220,6 @@ export default function Providers() {
 								<div className="pb-4">
 									<AddProviderDropdown
 										disabled={!hasProviderCreateAccess}
-										existingInSidebar={existingInSidebarNames}
-										knownProviders={knownProviders}
-										onSelectKnownProvider={handleSelectKnownProvider}
 										onAddCustomProvider={() => setShowCustomProviderSheet(true)}
 									/>
 								</div>
@@ -262,7 +235,7 @@ export default function Providers() {
 			)}
 			{!selectedProvider && (
 				<div className="bg-muted/10 flex w-full items-center justify-center rounded-md" style={{ maxHeight: "calc(100vh - 300px)" }}>
-					<div className="text-muted-foreground text-sm">Select a provider</div>
+					<div className="text-muted-foreground text-sm">请选择一个 Provider</div>
 				</div>
 			)}
 			{!isLoadingProvider && selectedProvider && (
@@ -311,7 +284,7 @@ function ProviderStatusBadge({ status }: { status: ProviderStatus }) {
 			<TooltipTrigger>
 				<AlertCircle className="h-3 w-3" />
 			</TooltipTrigger>
-			<TooltipContent>{status === "error" ? "Provider could not be initialized" : "Provider is deleted"}</TooltipContent>
+			<TooltipContent>{status === "error" ? "Provider 初始化失败" : "Provider 已删除"}</TooltipContent>
 		</Tooltip>
 	) : null;
 }
@@ -333,7 +306,7 @@ function KeyDiscoveryFailedBadge({
 			<TooltipTrigger>
 				<AlertCircle className="h-3 w-3" />
 			</TooltipTrigger>
-			<TooltipContent>{provider.description || "Provider model discovery failed."}</TooltipContent>
+			<TooltipContent>{provider.description || "Provider 模型发现失败。"}</TooltipContent>
 		</Tooltip>
 	);
 }

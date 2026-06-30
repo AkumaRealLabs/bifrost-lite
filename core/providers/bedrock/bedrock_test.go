@@ -187,7 +187,6 @@ func TestBedrock(t *testing.T) {
 		ReasoningModel:           "claude-4.5-sonnet",
 		PromptCachingModel:       "claude-4.5-sonnet",
 		ImageEditModel:           "amazon.nova-canvas-v1:0",
-		ImageVariationModel:      "amazon.nova-canvas-v1:0",
 		InterleavedThinkingModel: "claude-opus-4-5",
 		BatchExtraParams:         batchExtraParams,
 		FileExtraParams:          fileExtraParams,
@@ -226,7 +225,6 @@ func TestBedrock(t *testing.T) {
 			FileBatchInput:             true,
 			CountTokens:                true,
 			ImageEdit:                  true,
-			ImageVariation:             true,
 			StructuredOutputs:          true,
 			InterleavedThinking:        true,
 			EagerInputStreaming:        true, // fine-grained-tool-streaming-2025-05-14 (per B-header)

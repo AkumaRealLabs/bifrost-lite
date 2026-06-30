@@ -29,6 +29,7 @@ export interface OverviewTabProps {
 	costData: CostHistogramResponse | null;
 	modelData: ModelHistogramResponse | null;
 	latencyData: LatencyHistogramResponse | null;
+	ttfbData: LatencyHistogramResponse | null;
 	logsStats: LogStats | null;
 
 	// Loading states
@@ -37,6 +38,7 @@ export interface OverviewTabProps {
 	loadingCost: boolean;
 	loadingModels: boolean;
 	loadingLatency: boolean;
+	loadingTTFB: boolean;
 	loadingStats: boolean;
 
 	// Time range
@@ -77,12 +79,14 @@ function OverviewTabImpl({
 	costData,
 	modelData,
 	latencyData,
+	ttfbData,
 	logsStats,
 	loadingHistogram,
 	loadingTokens,
 	loadingCost,
 	loadingModels,
 	loadingLatency,
+	loadingTTFB,
 	loadingStats,
 	startTime,
 	endTime,
@@ -148,27 +152,40 @@ function OverviewTabImpl({
 		return count > 0 ? weighted / count : null;
 	}, [latencyData]);
 
+	const ttfbAvg = useMemo(() => {
+		if (!ttfbData?.buckets || ttfbData.buckets.length === 0) return null;
+		let weighted = 0;
+		let count = 0;
+		for (const b of ttfbData.buckets) {
+			const reqs = b.total_requests ?? 0;
+			if (reqs === 0) continue;
+			weighted += (b.avg_latency ?? 0) * reqs;
+			count += reqs;
+		}
+		return count > 0 ? weighted / count : null;
+	}, [ttfbData]);
+
 	return (
 		<>
 			{/* Charts Grid */}
 			<div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
 				{/* Log Volume Chart */}
 				<ChartCard
-					title="Request Volume"
+					title="请求量"
 					loading={loadingHistogram}
 					testId="chart-log-volume"
-					totalLabel="Total"
+					totalLabel="总计"
 					total={volumeTotal !== null ? <NumberFlow value={volumeTotal} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 					totalTooltip={volumeTotal !== null ? volumeTotal.toLocaleString("en-US") : undefined}
 					legend={
 						<div className={CHART_HEADER_LEGEND_CLASS}>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS.success }} />
-								<span className="text-muted-foreground">Success</span>
+								<span className="text-muted-foreground">成功</span>
 							</span>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS.error }} />
-								<span className="text-muted-foreground">Error</span>
+								<span className="text-muted-foreground">错误</span>
 							</span>
 						</div>
 					}
@@ -181,25 +198,25 @@ function OverviewTabImpl({
 
 				{/* Token Usage Chart */}
 				<ChartCard
-					title="Token Usage"
+					title="Token 用量"
 					loading={loadingTokens}
 					testId="chart-token-usage"
-					totalLabel="Total"
+					totalLabel="总计"
 					total={tokenTotal !== null ? <NumberFlow value={tokenTotal} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 					totalTooltip={tokenTotal !== null ? tokenTotal.toLocaleString("en-US") : undefined}
 					legend={
 						<div className={CHART_HEADER_LEGEND_CLASS}>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS.promptTokens }} />
-								<span className="text-muted-foreground">Input</span>
+								<span className="text-muted-foreground">输入</span>
 							</span>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS.completionTokens }} />
-								<span className="text-muted-foreground">Output</span>
+								<span className="text-muted-foreground">输出</span>
 							</span>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: CHART_COLORS.cachedReadTokens }} />
-								<span className="text-muted-foreground">Cached</span>
+								<span className="text-muted-foreground">缓存</span>
 							</span>
 						</div>
 					}
@@ -209,21 +226,21 @@ function OverviewTabImpl({
 				</ChartCard>
 
 				{/* External Cache Hit Rate Meter */}
-				<ChartCard title="External Cache Hit Rate" loading={loadingTokens} testId="chart-cache-external">
+				<ChartCard title="外部缓存命中率" loading={loadingTokens} testId="chart-cache-external">
 					<ExternalCacheTokenMeterChart data={tokenData} />
 				</ChartCard>
 
 				{/* Local Cache Hit Rate Meter */}
-				<ChartCard title="Local Cache Hit Rate" loading={loadingStats} testId="chart-cache-local">
+				<ChartCard title="本地缓存命中率" loading={loadingStats} testId="chart-cache-local">
 					<LocalCacheTokenMeterChart data={logsStats} />
 				</ChartCard>
 
 				{/* Cost Chart */}
 				<ChartCard
-					title="Cost"
+					title="成本"
 					loading={loadingCost}
 					testId="chart-cost-total"
-					totalLabel="Total"
+					totalLabel="总计"
 					total={
 						costTotal !== null ? (
 							<NumberFlow value={costTotal} format={{ ...COMPACT_NUMBER_FORMAT, style: "currency", currency: "USD" }} />
@@ -252,7 +269,7 @@ function OverviewTabImpl({
 											<Tooltip>
 												<TooltipTrigger asChild>
 													<span tabIndex={0} data-testid="cost-legend-more-trigger" className="text-muted-foreground cursor-default">
-														+{costModels.length - 1} more
+														+{costModels.length - 1} 个
 													</span>
 												</TooltipTrigger>
 												<TooltipContent>
@@ -304,10 +321,10 @@ function OverviewTabImpl({
 
 				{/* Model Usage Chart */}
 				<ChartCard
-					title="Model Usage"
+					title="模型用量"
 					loading={loadingModels}
 					testId="chart-model-usage"
-					totalLabel="Total"
+					totalLabel="总计"
 					total={modelUsageTotal !== null ? <NumberFlow value={modelUsageTotal} format={COMPACT_NUMBER_FORMAT} /> : undefined}
 					totalTooltip={modelUsageTotal !== null ? modelUsageTotal.toLocaleString("en-US") : undefined}
 					legend={
@@ -328,7 +345,7 @@ function OverviewTabImpl({
 											<Tooltip>
 												<TooltipTrigger asChild>
 													<span tabIndex={0} data-testid="usage-legend-more-trigger" className="text-muted-foreground cursor-default">
-														+{usageModels.length - 1} more
+														+{usageModels.length - 1} 个
 													</span>
 												</TooltipTrigger>
 												<TooltipContent>
@@ -354,11 +371,11 @@ function OverviewTabImpl({
 								<>
 									<span className="flex items-center gap-1">
 										<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS.success }} />
-										<span className="text-muted-foreground">Success</span>
+										<span className="text-muted-foreground">成功</span>
 									</span>
 									<span className="flex items-center gap-1">
 										<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: CHART_COLORS.error }} />
-										<span className="text-muted-foreground">Error</span>
+										<span className="text-muted-foreground">错误</span>
 									</span>
 								</>
 							)}
@@ -381,10 +398,10 @@ function OverviewTabImpl({
 
 				{/* Latency Chart */}
 				<ChartCard
-					title="Latency"
+					title="延迟"
 					loading={loadingLatency}
 					testId="chart-latency"
-					totalLabel="Avg"
+					totalLabel="平均"
 					total={
 						latencyAvg !== null ? (
 							<NumberFlow value={latencyAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
@@ -395,7 +412,7 @@ function OverviewTabImpl({
 						<div className={CHART_HEADER_LEGEND_CLASS}>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
-								<span className="text-muted-foreground">Avg</span>
+								<span className="text-muted-foreground">平均</span>
 							</span>
 							<span className="flex items-center gap-1">
 								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
@@ -416,6 +433,45 @@ function OverviewTabImpl({
 					}
 				>
 					<LatencyChart data={latencyData} chartType={latencyChartType} startTime={startTime} endTime={endTime} />
+				</ChartCard>
+
+				{/* TTFB Chart */}
+				<ChartCard
+					title="TTFB"
+					loading={loadingTTFB}
+					testId="chart-ttfb"
+					totalLabel="平均"
+					total={
+						ttfbAvg !== null ? (
+							<NumberFlow value={ttfbAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
+						) : undefined
+					}
+					totalTooltip={ttfbAvg !== null ? `${ttfbAvg.toLocaleString("en-US", { maximumFractionDigits: 6 })}ms` : undefined}
+					legend={
+						<div className={CHART_HEADER_LEGEND_CLASS}>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
+								<span className="text-muted-foreground">平均</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
+								<span className="text-muted-foreground">P90</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p95 }} />
+								<span className="text-muted-foreground">P95</span>
+							</span>
+							<span className="flex items-center gap-1">
+								<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p99 }} />
+								<span className="text-muted-foreground">P99</span>
+							</span>
+						</div>
+					}
+					controls={
+						<ChartTypeToggle chartType={latencyChartType} onToggle={onLatencyChartToggle} data-testid="dashboard-ttfb-chart-toggle" />
+					}
+				>
+					<LatencyChart data={ttfbData} chartType={latencyChartType} startTime={startTime} endTime={endTime} metricLabel="TTFB" />
 				</ChartCard>
 			</div>
 		</>

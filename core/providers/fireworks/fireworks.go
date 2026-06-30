@@ -40,7 +40,6 @@ func NewFireworksProvider(config *schemas.ProviderConfig, logger schemas.Logger)
 	}
 
 	// Configure proxy and retry policy
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -88,7 +87,6 @@ func (provider *FireworksProvider) listModelsByKey(_ *schemas.BifrostContext, ke
 		false,
 	), nil
 }
-
 
 // TextCompletion performs a text completion request to the Fireworks AI API.
 func (provider *FireworksProvider) TextCompletion(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostTextCompletionRequest) (*schemas.BifrostTextCompletionResponse, *schemas.BifrostError) {
@@ -294,11 +292,6 @@ func (provider *FireworksProvider) ImageEdit(ctx *schemas.BifrostContext, key sc
 // ImageEditStream is not supported by the Fireworks AI provider.
 func (provider *FireworksProvider) ImageEditStream(ctx *schemas.BifrostContext, postHookRunner schemas.PostHookRunner, postHookSpanFinalizer func(context.Context), key schemas.Key, request *schemas.BifrostImageEditRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
 	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageEditStreamRequest, provider.GetProviderKey())
-}
-
-// ImageVariation is not supported by the Fireworks AI provider.
-func (provider *FireworksProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration is not supported by the Fireworks AI provider.

@@ -4,7 +4,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scrollArea";
 import { Skeleton } from "@/components/ui/skeleton";
-import { RequestTypeLabels, RequestTypes, RoutingEngineUsedLabels, Statuses } from "@/lib/constants/logs";
+import { RequestTypeLabels, RequestTypes, Statuses } from "@/lib/constants/logs";
 import { useGetAvailableFilterDataQuery, useGetProvidersQuery } from "@/lib/store";
 import type { LogFilters } from "@/lib/types/logs";
 import { cn } from "@/lib/utils";
@@ -69,11 +69,11 @@ export function LogsFilterSidebar({ filters, onFiltersChange }: LogsSidebarProps
 				type="button"
 				onClick={toggleCollapsed}
 				className="bg-card group flex h-full w-10 shrink-0 cursor-pointer flex-col items-center gap-3 rounded-r-md py-4 text-sm font-medium"
-				title="Show filters"
-				aria-label="Show filters"
+				title="显示筛选"
+				aria-label="显示筛选"
 			>
 				<PanelLeftOpen className="text-muted-foreground group-hover:text-foreground size-4 transition-colors" />
-				<span className="rotate-180 select-none [writing-mode:vertical-rl]">Filters</span>
+				<span className="rotate-180 select-none [writing-mode:vertical-rl]">筛选</span>
 				{activeFilterCount > 0 && (
 					<span className="bg-primary/10 text-primary flex size-6 items-center justify-center rounded-full text-xs font-medium">
 						{activeFilterCount}
@@ -87,15 +87,15 @@ export function LogsFilterSidebar({ filters, onFiltersChange }: LogsSidebarProps
 		<div className="bg-card flex h-full w-64 shrink-0 flex-col rounded-r-md">
 			{/* Header */}
 			<div className="flex h-11 items-center justify-between border-b pr-2 pl-5">
-				<span className="text-sm font-semibold">Filters</span>
+				<span className="text-sm font-semibold">筛选</span>
 				<div className="flex items-center gap-1">
 					{activeFilterCount > 0 && (
 						<Button variant="outline" size="sm" className="text-muted-foreground h-7 px-2 text-xs" onClick={handleReset}>
 							<RotateCcw className="size-3" />
-							Reset
+							重置
 						</Button>
 					)}
-					<Button variant="ghost" size="icon" className="size-7" onClick={toggleCollapsed} title="Hide filters" aria-label="Hide filters">
+					<Button variant="ghost" size="icon" className="size-7" onClick={toggleCollapsed} title="隐藏筛选" aria-label="隐藏筛选">
 						<PanelLeftClose className="size-4" />
 					</Button>
 				</div>
@@ -113,13 +113,7 @@ export function LogsFilterSidebar({ filters, onFiltersChange }: LogsSidebarProps
 					<ProvidersFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<TypeFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<AliasesFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<RoutingEnginesFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<RoutingRulesFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<LocalCachingFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<UserFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<TeamFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<CustomerFilter filters={filters} onFiltersChange={onFiltersChange} />
-					<BusinessUnitFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<SessionFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<CostFilter filters={filters} onFiltersChange={onFiltersChange} />
 					<StopReasonFilter filters={filters} onFiltersChange={onFiltersChange} />
@@ -256,7 +250,7 @@ function SearchableCheckboxList({
 	items,
 	isSelected,
 	onToggle,
-	placeholder = "Search...",
+	placeholder = "搜索...",
 	inputRef,
 	testIdPrefix,
 	allowCustom = false,
@@ -327,7 +321,7 @@ function SearchableCheckboxList({
 				/>
 			))}
 			{filtered.length === 0 && !showAddCustom && (
-				<div className="text-muted-foreground flex h-9 items-center px-3 text-xs">No results</div>
+				<div className="text-muted-foreground flex h-9 items-center px-3 text-xs">没有结果</div>
 			)}
 			{showAddCustom && (
 				<button
@@ -338,7 +332,7 @@ function SearchableCheckboxList({
 				>
 					<Plus className="text-muted-foreground size-3.5 shrink-0" />
 					<span className="truncate">
-						Use <span className="font-medium">&quot;{trimmed}&quot;</span>
+						使用 <span className="font-medium">&quot;{trimmed}&quot;</span>
 					</span>
 				</button>
 			)}
@@ -353,7 +347,7 @@ function SearchableCheckboxList({
 function StatusFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
 	const hasActive = (filters.status || []).length > 0;
 	return (
-		<FilterSection title="Status" defaultOpen={defaultOpen || hasActive} testId="status-filter-toggle">
+		<FilterSection title="状态" defaultOpen={defaultOpen || hasActive} testId="status-filter-toggle">
 			{Statuses.map((status) => (
 				<CheckboxFilterItem
 					key={status}
@@ -398,7 +392,7 @@ function StopReasonFilter({ filters, onFiltersChange, defaultOpen }: FilterCompo
 
 	return (
 		<FilterSection
-			title="Stop Reason"
+			title="停止原因"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -406,7 +400,7 @@ function StopReasonFilter({ filters, onFiltersChange, defaultOpen }: FilterCompo
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search or add a stop reason"
+				placeholder="搜索或添加停止原因"
 				items={items}
 				allowCustom
 				isSelected={(reason) => (filters.stop_reasons || []).includes(reason)}
@@ -439,7 +433,7 @@ function ProvidersFilter({ filters, onFiltersChange, defaultOpen }: FilterCompon
 
 	return (
 		<FilterSection
-			title="Providers"
+			title="Provider"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -447,7 +441,7 @@ function ProvidersFilter({ filters, onFiltersChange, defaultOpen }: FilterCompon
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search providers"
+				placeholder="搜索 Provider"
 				items={availableProviders.map((p) => ({ key: p.name, label: p.name }))}
 				isSelected={(name) => (filters.providers || []).includes(name)}
 				onToggle={(name) => {
@@ -468,7 +462,7 @@ function ProvidersFilter({ filters, onFiltersChange, defaultOpen }: FilterCompon
 function TypeFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
 	const hasActive = (filters.objects || []).length > 0;
 	return (
-		<FilterSection title="Type" defaultOpen={defaultOpen || hasActive} testId="type-filter-toggle">
+		<FilterSection title="类型" defaultOpen={defaultOpen || hasActive} testId="type-filter-toggle">
 			{RequestTypes.map((type) => {
 				const label = RequestTypeLabels[type as keyof typeof RequestTypeLabels] ?? type;
 				return (
@@ -515,7 +509,7 @@ function ModelsFilter({ filters, onFiltersChange, defaultOpen }: FilterComponent
 
 	return (
 		<FilterSection
-			title="Models"
+			title="模型"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -523,7 +517,7 @@ function ModelsFilter({ filters, onFiltersChange, defaultOpen }: FilterComponent
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search or add a model"
+				placeholder="搜索或添加模型"
 				items={items}
 				allowCustom
 				isSelected={(model) => (filters.models || []).includes(model)}
@@ -566,7 +560,7 @@ function AliasesFilter({ filters, onFiltersChange, defaultOpen }: FilterComponen
 
 	return (
 		<FilterSection
-			title="Aliases"
+			title="别名"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -574,7 +568,7 @@ function AliasesFilter({ filters, onFiltersChange, defaultOpen }: FilterComponen
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search or add an alias"
+				placeholder="搜索或添加别名"
 				items={items}
 				allowCustom
 				isSelected={(alias) => (filters.aliases || []).includes(alias)}
@@ -629,7 +623,7 @@ function SelectedKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterCom
 
 	return (
 		<FilterSection
-			title="Selected Keys"
+			title="Provider Key"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -637,7 +631,7 @@ function SelectedKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterCom
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search keys"
+				placeholder="搜索 Key"
 				items={dedup(availableSelectedKeys).map((name) => ({ key: name, label: name }))}
 				isSelected={isSelected}
 				onToggle={toggle}
@@ -687,7 +681,7 @@ function VirtualKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterComp
 
 	return (
 		<FilterSection
-			title="Virtual Keys"
+			title="虚拟 Key"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -695,7 +689,7 @@ function VirtualKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterComp
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search virtual keys"
+				placeholder="搜索虚拟 Key"
 				items={dedup(availableVirtualKeys).map((name) => ({ key: name, label: name }))}
 				isSelected={isSelected}
 				onToggle={toggle}
@@ -708,125 +702,19 @@ function VirtualKeysFilter({ filters, onFiltersChange, defaultOpen }: FilterComp
 }
 
 // ---------------------------------------------------------------------------
-// RoutingEnginesFilter
-// ---------------------------------------------------------------------------
-
-function RoutingEnginesFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.routing_engine_used || []).length > 0;
-	const [opened, setOpened] = useState(defaultOpen || hasActive);
-	const searchInputRef = useAutoFocusOnOpen(opened);
-	const [searchQuery, setSearchQuery] = useState("");
-	const {
-		data: filterData,
-		isUninitialized,
-		isLoading,
-		isFetching,
-	} = useGetAvailableFilterDataQuery({ dimensions: ["routing_engines"], q: searchQuery || undefined }, { skip: !opened && !hasActive });
-	const availableRoutingEngines = filterData?.routing_engines || [];
-
-	if (!isUninitialized && !isLoading && availableRoutingEngines.length === 0 && !hasActive && !opened) return null;
-
-	return (
-		<FilterSection
-			title="Routing Engines"
-			defaultOpen={defaultOpen || hasActive}
-			loading={isLoading}
-			onOpenChange={setOpened}
-			testId="routing-engines-filter-toggle"
-		>
-			<SearchableCheckboxList
-				inputRef={searchInputRef}
-				placeholder="Search engines"
-				items={availableRoutingEngines.map((engine) => ({
-					key: engine,
-					label: RoutingEngineUsedLabels[engine as keyof typeof RoutingEngineUsedLabels] ?? engine,
-				}))}
-				isSelected={(engine) => (filters.routing_engine_used || []).includes(engine)}
-				onToggle={(engine) => {
-					const current = filters.routing_engine_used || [];
-					const next = current.includes(engine) ? current.filter((e) => e !== engine) : [...current, engine];
-					onFiltersChange({ ...filters, routing_engine_used: next });
-				}}
-				testIdPrefix="routing-engines-filter"
-				onSearch={setSearchQuery}
-				fetching={isFetching}
-			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// RoutingRulesFilter
-// ---------------------------------------------------------------------------
-
-function RoutingRulesFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.routing_rule_ids || []).length > 0;
-	const [opened, setOpened] = useState(defaultOpen || hasActive);
-	const searchInputRef = useAutoFocusOnOpen(opened);
-	const [searchQuery, setSearchQuery] = useState("");
-	const {
-		data: filterData,
-		isUninitialized,
-		isLoading,
-		isFetching,
-	} = useGetAvailableFilterDataQuery({ dimensions: ["routing_rules"], q: searchQuery || undefined }, { skip: !opened && !hasActive });
-	const availableRoutingRules = filterData?.routing_rules || [];
-	const nameToIds = useMemo(() => groupByName(availableRoutingRules), [availableRoutingRules]);
-
-	if (!isUninitialized && !isLoading && availableRoutingRules.length === 0 && !hasActive && !opened) return null;
-
-	const toggle = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.routing_rule_ids || [];
-		const allSelected = resolvedIds.every((id) => current.includes(id));
-		const next = allSelected
-			? current.filter((v) => !resolvedIds.includes(v))
-			: [...current, ...resolvedIds.filter((id) => !current.includes(id))];
-		onFiltersChange({ ...filters, routing_rule_ids: next });
-	};
-
-	const isSelected = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.routing_rule_ids || [];
-		return resolvedIds.every((id) => current.includes(id));
-	};
-
-	return (
-		<FilterSection
-			title="Routing Rules"
-			defaultOpen={defaultOpen || hasActive}
-			loading={isLoading}
-			onOpenChange={setOpened}
-			testId="routing-rules-filter-toggle"
-		>
-			<SearchableCheckboxList
-				inputRef={searchInputRef}
-				placeholder="Search rules"
-				items={dedup(availableRoutingRules).map((name) => ({ key: name, label: name }))}
-				isSelected={isSelected}
-				onToggle={toggle}
-				onSearch={setSearchQuery}
-				fetching={isFetching}
-				testIdPrefix="routing-rules-filter"
-			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
 // SessionFilter
 // ---------------------------------------------------------------------------
 
 function SessionFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
 	const hasActive = !!filters.parent_request_id;
 	return (
-		<FilterSection title="Session" defaultOpen={defaultOpen || hasActive} testId="session-filter-toggle">
+		<FilterSection title="会话" defaultOpen={defaultOpen || hasActive} testId="session-filter-toggle">
 			<div className="relative">
 				<Search className="text-muted-foreground pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2" />
 				<Input
 					value={filters.parent_request_id || ""}
 					onChange={(e) => onFiltersChange({ ...filters, parent_request_id: e.target.value })}
-					placeholder="Parent request ID"
+					placeholder="父请求 ID"
 					className="h-8 border-0 pl-8 text-sm"
 					data-testid="session-filter-input"
 					autoFocus
@@ -862,7 +750,7 @@ function UserFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentPr
 
 	return (
 		<FilterSection
-			title="User"
+			title="用户"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
@@ -870,7 +758,7 @@ function UserFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentPr
 		>
 			<SearchableCheckboxList
 				inputRef={searchInputRef}
-				placeholder="Search or add a user"
+				placeholder="搜索或添加用户"
 				items={items}
 				allowCustom
 				isSelected={(id) => (filters.user_ids || []).includes(id)}
@@ -888,225 +776,19 @@ function UserFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentPr
 }
 
 // ---------------------------------------------------------------------------
-// TeamFilter
-// ---------------------------------------------------------------------------
-
-function TeamFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.team_ids || []).length > 0;
-	const [opened, setOpened] = useState(defaultOpen || hasActive);
-	const searchInputRef = useAutoFocusOnOpen(opened);
-	const [searchQuery, setSearchQuery] = useState("");
-	const {
-		data: filterData,
-		isUninitialized,
-		isLoading,
-		isFetching,
-	} = useGetAvailableFilterDataQuery({ dimensions: ["teams"], q: searchQuery || undefined }, { skip: !opened && !hasActive });
-	const availableTeams = filterData?.teams || [];
-	const nameToIds = useMemo(() => groupByName(availableTeams), [availableTeams]);
-
-	if (!isUninitialized && !isLoading && availableTeams.length === 0 && !hasActive && !opened) return null;
-
-	const toggle = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.team_ids || [];
-		const allSelected = resolvedIds.every((id) => current.includes(id));
-		const next = allSelected
-			? current.filter((v) => !resolvedIds.includes(v))
-			: [...current, ...resolvedIds.filter((id) => !current.includes(id))];
-		onFiltersChange({ ...filters, team_ids: next });
-	};
-
-	const isSelected = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.team_ids || [];
-		return resolvedIds.every((id) => current.includes(id));
-	};
-
-	return (
-		<FilterSection
-			title="Teams"
-			defaultOpen={defaultOpen || hasActive}
-			loading={isLoading}
-			onOpenChange={setOpened}
-			testId="teams-filter-toggle"
-		>
-			<SearchableCheckboxList
-				inputRef={searchInputRef}
-				placeholder="Search or add a team"
-				items={dedup(availableTeams).map((name) => ({ key: name, label: name }))}
-				isSelected={isSelected}
-				onToggle={toggle}
-				onSearch={setSearchQuery}
-				fetching={isFetching}
-				testIdPrefix="teams-filter"
-			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// CustomerFilter
-// ---------------------------------------------------------------------------
-
-function CustomerFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.customer_ids || []).length > 0;
-	const [opened, setOpened] = useState(defaultOpen || hasActive);
-	const searchInputRef = useAutoFocusOnOpen(opened);
-	const [searchQuery, setSearchQuery] = useState("");
-	const {
-		data: filterData,
-		isUninitialized,
-		isLoading,
-		isFetching,
-	} = useGetAvailableFilterDataQuery({ dimensions: ["customers"], q: searchQuery || undefined }, { skip: !opened && !hasActive });
-	const availableCustomers = filterData?.customers || [];
-	const nameToIds = useMemo(() => groupByName(availableCustomers), [availableCustomers]);
-
-	if (!isUninitialized && !isLoading && availableCustomers.length === 0 && !hasActive && !opened) return null;
-
-	const toggle = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.customer_ids || [];
-		const allSelected = resolvedIds.every((id) => current.includes(id));
-		const next = allSelected
-			? current.filter((v) => !resolvedIds.includes(v))
-			: [...current, ...resolvedIds.filter((id) => !current.includes(id))];
-		onFiltersChange({ ...filters, customer_ids: next });
-	};
-
-	const isSelected = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.customer_ids || [];
-		return resolvedIds.every((id) => current.includes(id));
-	};
-
-	return (
-		<FilterSection
-			title="Customers"
-			defaultOpen={defaultOpen || hasActive}
-			loading={isLoading}
-			onOpenChange={setOpened}
-			testId="customers-filter-toggle"
-		>
-			<SearchableCheckboxList
-				inputRef={searchInputRef}
-				placeholder="Search or add a customer"
-				items={dedup(availableCustomers).map((name) => ({ key: name, label: name }))}
-				allowCustom
-				isSelected={isSelected}
-				onToggle={toggle}
-				onSearch={setSearchQuery}
-				fetching={isFetching}
-				testIdPrefix="customers-filter"
-			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// BusinessUnitFilter
-// ---------------------------------------------------------------------------
-
-function BusinessUnitFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.business_unit_ids || []).length > 0;
-	const [opened, setOpened] = useState(defaultOpen || hasActive);
-	const searchInputRef = useAutoFocusOnOpen(opened);
-	const [searchQuery, setSearchQuery] = useState("");
-	const {
-		data: filterData,
-		isUninitialized,
-		isLoading,
-		isFetching,
-	} = useGetAvailableFilterDataQuery({ dimensions: ["business_units"], q: searchQuery || undefined }, { skip: !opened && !hasActive });
-	const availableBusinessUnits = filterData?.business_units || [];
-	const nameToIds = useMemo(() => groupByName(availableBusinessUnits), [availableBusinessUnits]);
-
-	if (!isUninitialized && !isLoading && availableBusinessUnits.length === 0 && !hasActive && !opened) return null;
-
-	const toggle = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.business_unit_ids || [];
-		const allSelected = resolvedIds.every((id) => current.includes(id));
-		const next = allSelected
-			? current.filter((v) => !resolvedIds.includes(v))
-			: [...current, ...resolvedIds.filter((id) => !current.includes(id))];
-		onFiltersChange({ ...filters, business_unit_ids: next });
-	};
-
-	const isSelected = (name: string) => {
-		const resolvedIds = nameToIds.get(name) || [name];
-		const current = filters.business_unit_ids || [];
-		return resolvedIds.every((id) => current.includes(id));
-	};
-
-	return (
-		<FilterSection
-			title="Business Units"
-			defaultOpen={defaultOpen || hasActive}
-			loading={isLoading}
-			onOpenChange={setOpened}
-			testId="business-units-filter-toggle"
-		>
-			<SearchableCheckboxList
-				inputRef={searchInputRef}
-				placeholder="Search or add a business unit"
-				items={dedup(availableBusinessUnits).map((name) => ({ key: name, label: name }))}
-				allowCustom
-				isSelected={isSelected}
-				onToggle={toggle}
-				onSearch={setSearchQuery}
-				fetching={isFetching}
-				testIdPrefix="business-units-filter"
-			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
 // CostFilter
 // ---------------------------------------------------------------------------
 
 function CostFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
 	const hasActive = !!filters.missing_cost_only;
 	return (
-		<FilterSection title="Cost" defaultOpen={defaultOpen || hasActive} testId="cost-filter-toggle">
+		<FilterSection title="成本" defaultOpen={defaultOpen || hasActive} testId="cost-filter-toggle">
 			<CheckboxFilterItem
-				label="Show missing cost only"
+				label="只看缺失成本"
 				checked={!!filters.missing_cost_only}
 				onCheckedChange={(checked) => onFiltersChange({ ...filters, missing_cost_only: !!checked })}
 				testId="cost-filter-missing-only-checkbox"
 			/>
-		</FilterSection>
-	);
-}
-
-// ---------------------------------------------------------------------------
-// LocalCachingFilter – filter by semantic-cache hit type (direct / semantic)
-// ---------------------------------------------------------------------------
-
-const LocalCachingOptions: { key: string; label: string }[] = [
-	{ key: "direct", label: "Direct cache" },
-	{ key: "semantic", label: "Semantic cache" },
-];
-
-function LocalCachingFilter({ filters, onFiltersChange, defaultOpen }: FilterComponentProps) {
-	const hasActive = (filters.cache_hit_types || []).length > 0;
-	return (
-		<FilterSection title="Local Caching" defaultOpen={defaultOpen || hasActive} testId="local-caching-filter-toggle">
-			{LocalCachingOptions.map((option) => (
-				<CheckboxFilterItem
-					key={option.key}
-					label={option.label}
-					checked={(filters.cache_hit_types || []).includes(option.key)}
-					onCheckedChange={() => {
-						const current = filters.cache_hit_types || [];
-						const next = current.includes(option.key) ? current.filter((t) => t !== option.key) : [...current, option.key];
-						onFiltersChange({ ...filters, cache_hit_types: next });
-					}}
-					testId={`local-caching-filter-checkbox-${option.key}`}
-				/>
-			))}
 		</FilterSection>
 	);
 }
@@ -1156,14 +838,14 @@ function MetadataFilters({ filters, onFiltersChange, defaultOpen }: FilterCompon
 
 	return (
 		<FilterSection
-			title="Metadata"
+			title="元数据"
 			defaultOpen={defaultOpen || hasActive}
 			loading={isLoading}
 			onOpenChange={setOpened}
 			testId="metadata-filter-toggle"
 		>
 			{isEmpty ? (
-				<div className="text-muted-foreground px-3 py-2 text-xs">No metadata keys</div>
+				<div className="text-muted-foreground px-3 py-2 text-xs">没有元数据 Key</div>
 			) : (
 				<>
 					<div className="relative border-b">
@@ -1175,13 +857,13 @@ function MetadataFilters({ filters, onFiltersChange, defaultOpen }: FilterCompon
 						<Input
 							value={searchQuery}
 							onChange={(e) => setSearchQuery(e.target.value)}
-							placeholder="Search metadata..."
+							placeholder="搜索元数据..."
 							className="h-8 border-0 pl-8 text-xs"
 							data-testid="metadata-search-input"
 						/>
 					</div>
 					{entries.length === 0 && !isFetching && (
-						<div className="text-muted-foreground flex h-9 items-center px-3 text-xs">No results</div>
+						<div className="text-muted-foreground flex h-9 items-center px-3 text-xs">没有结果</div>
 					)}
 					{entries.map(([metadataKey, values]) => (
 						<div key={metadataKey} data-testid={`metadata-${metadataKey}-filter-group`}>
@@ -1201,7 +883,7 @@ function MetadataFilters({ filters, onFiltersChange, defaultOpen }: FilterCompon
 							<div className="px-3 py-2.5">
 								<Input
 									className="placeholder:text-muted-foreground h-7 w-full rounded border bg-transparent px-2 text-sm"
-									placeholder="Custom value..."
+									placeholder="自定义值..."
 									value={
 										customInputs[metadataKey] ??
 										(filters.metadata_filters?.[metadataKey] && !values.includes(filters.metadata_filters[metadataKey])

@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fasthttp/router"
 	"github.com/maximhq/bifrost/core/schemas"
 	"github.com/maximhq/bifrost/framework/configstore"
 	configstoreTables "github.com/maximhq/bifrost/framework/configstore/tables"
@@ -67,7 +68,6 @@ func cloneTestVirtualKey(vk *configstoreTables.TableVirtualKey) *configstoreTabl
 	clone := *vk
 	clone.Budgets = append([]configstoreTables.TableBudget(nil), vk.Budgets...)
 	clone.ProviderConfigs = append([]configstoreTables.TableVirtualKeyProviderConfig(nil), vk.ProviderConfigs...)
-	clone.MCPConfigs = append([]configstoreTables.TableVirtualKeyMCPConfig(nil), vk.MCPConfigs...)
 	return &clone
 }
 
@@ -125,6 +125,61 @@ func (m *mockRotateGovernanceManager) ReloadVirtualKey(ctx context.Context, id s
 		return nil, m.reloadErr
 	}
 	return m.store.GetVirtualKey(ctx, id)
+}
+
+func TestGovernanceRegisterRoutes_LiteSurfaceOnly(t *testing.T) {
+	h := &GovernanceHandler{}
+	r := router.New()
+	h.RegisterRoutes(r)
+
+	registered := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/governance/virtual-keys"},
+		{"POST", "/api/governance/virtual-keys"},
+		{"POST", "/api/governance/virtual-keys/rotate"},
+		{"GET", "/api/governance/virtual-keys/vk-1"},
+		{"PUT", "/api/governance/virtual-keys/vk-1"},
+		{"POST", "/api/governance/virtual-keys/vk-1/rotate"},
+		{"DELETE", "/api/governance/virtual-keys/vk-1"},
+		{"GET", "/api/governance/pricing-overrides"},
+		{"POST", "/api/governance/pricing-overrides"},
+		{"PUT", "/api/governance/pricing-overrides/override-1"},
+		{"DELETE", "/api/governance/pricing-overrides/override-1"},
+		{"GET", "/api/governance/virtual-keys/quota"},
+	}
+	for _, tc := range registered {
+		handle, _ := r.Lookup(tc.method, tc.path, nil)
+		if handle == nil {
+			t.Fatalf("expected %s %s to be registered", tc.method, tc.path)
+		}
+	}
+
+	removed := []struct {
+		method string
+		path   string
+	}{
+		{"GET", "/api/governance/teams"},
+		{"POST", "/api/governance/teams"},
+		{"GET", "/api/governance/customers"},
+		{"GET", "/api/governance/budgets"},
+		{"GET", "/api/governance/rate-limits"},
+		{"GET", "/api/governance/providers"},
+		{"PUT", "/api/governance/providers/openai"},
+		{"DELETE", "/api/governance/providers/openai"},
+		{"GET", "/api/governance/routing-rules"},
+		{"POST", "/api/governance/routing-rules"},
+		{"GET", "/api/governance/model-configs"},
+		{"POST", "/api/governance/model-configs"},
+		{"GET", "/api/governance/complexity-analyzer-config"},
+	}
+	for _, tc := range removed {
+		handle, _ := r.Lookup(tc.method, tc.path, nil)
+		if handle != nil {
+			t.Fatalf("expected %s %s to be absent from Lite route surface", tc.method, tc.path)
+		}
+	}
 }
 
 type mockComplexityGovernanceManager struct {
@@ -1051,9 +1106,6 @@ func TestRotateVirtualKey_OnlyChangesValueAndReloads(t *testing.T) {
 				ProviderConfigs: []configstoreTables.TableVirtualKeyProviderConfig{
 					{ID: 7, VirtualKeyID: "vk-1", Provider: "openai"},
 				},
-				MCPConfigs: []configstoreTables.TableVirtualKeyMCPConfig{
-					{ID: 9, VirtualKeyID: "vk-1", MCPClientID: 3},
-				},
 			},
 		},
 	}
@@ -1093,9 +1145,6 @@ func TestRotateVirtualKey_OnlyChangesValueAndReloads(t *testing.T) {
 	}
 	if len(updated.ProviderConfigs) != 1 || updated.ProviderConfigs[0].ID != 7 {
 		t.Fatalf("rotation changed provider configs: %#v", updated.ProviderConfigs)
-	}
-	if len(updated.MCPConfigs) != 1 || updated.MCPConfigs[0].ID != 9 {
-		t.Fatalf("rotation changed MCP configs: %#v", updated.MCPConfigs)
 	}
 
 	var resp struct {

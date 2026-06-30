@@ -1,7 +1,12 @@
 // Types for the logs interface based on BifrostResponse schema
 
 import { DBKey, VirtualKey } from "./governance";
-import { RoutingRule } from "./routingRules";
+
+export interface RoutingRule {
+	id: string;
+	name: string;
+	[key: string]: unknown;
+}
 
 // Speech and Transcription types
 export interface VoiceConfig {
@@ -485,10 +490,6 @@ export interface ImageEditInput {
 	prompt: string;
 }
 
-export interface ImageVariationInput {
-	image: { image: string | null }; // image bytes null when stripped by large-payload threshold
-}
-
 // Main LogEntry interface matching backend
 export interface KeyAttemptRecord {
 	attempt: number;
@@ -556,7 +557,6 @@ export interface LogEntry {
 	transcription_input?: TranscriptionInput;
 	image_generation_input?: { prompt: string };
 	image_edit_input?: ImageEditInput;
-	image_variation_input?: ImageVariationInput;
 	video_generation_input?: { prompt: string };
 	speech_output?: BifrostSpeech;
 	transcription_output?: BifrostTranscribe;
@@ -564,6 +564,7 @@ export interface LogEntry {
 	tools?: Tool[];
 	tool_calls?: ToolCall[];
 	latency?: number;
+	ttfb_ms?: number | null;
 	token_usage?: LLMUsage;
 	cache_debug?: CacheDebug;
 	cost?: number; // Cost in dollars (total cost of the request - includes cache lookup cost)
@@ -588,8 +589,6 @@ export interface LogFilters {
 	parent_request_id?: string;
 	selected_key_ids?: string[];
 	virtual_key_ids?: string[];
-	routing_rule_ids?: string[];
-	routing_engine_used?: string[]; // For filtering by routing engine (routing-rule, governance, loadbalancing)
 	status?: string[];
 	stop_reasons?: string[]; // For filtering by stop reason (stop, length, content_filter, refusal, tool_calls, etc.)
 	objects?: string[]; // For filtering by request type (chat.completion, text.completion, embedding)
@@ -598,22 +597,20 @@ export interface LogFilters {
 	period?: string; // relative period ("1h","6h","24h","7d","30d"); computed server-side, takes precedence over start_time/end_time
 	min_latency?: number;
 	max_latency?: number;
+	min_ttfb_ms?: number;
+	max_ttfb_ms?: number;
 	min_tokens?: number;
 	max_tokens?: number;
 	missing_cost_only?: boolean;
-	cache_hit_types?: string[]; // For filtering by local-cache hit type ("direct", "semantic")
 	content_search?: string;
 	metadata_filters?: Record<string, string>; // key=metadataKey, value=metadataValue for filtering by metadata
 	user_ids?: string[];
-	team_ids?: string[];
-	customer_ids?: string[];
-	business_unit_ids?: string[];
 }
 
 export interface Pagination {
 	limit: number;
 	offset: number;
-	sort_by: "timestamp" | "latency" | "tokens" | "cost";
+	sort_by: "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost";
 	order: "asc" | "desc";
 }
 
@@ -769,6 +766,24 @@ export interface ProviderLatencyHistogramResponse {
 	buckets: ProviderLatencyHistogramBucket[];
 	bucket_size_seconds: number;
 	providers: string[];
+}
+
+export interface TTFBStatsEntry {
+	provider: string;
+	model: string;
+	virtual_key_id?: string;
+	sample_count: number;
+	avg_ttfb_ms: number;
+	p90_ttfb_ms: number;
+	p95_ttfb_ms: number;
+	p99_ttfb_ms: number;
+	has_min_samples: boolean;
+}
+
+export interface TTFBStatsResponse {
+	window_seconds: number;
+	min_samples: number;
+	stats: TTFBStatsEntry[];
 }
 
 export interface LogsResponse {
@@ -1036,115 +1051,6 @@ export interface ResponsesResponseIncompleteDetails {
 	reason: string;
 }
 
-// WebSocket message types
-export interface WebSocketLogMessage {
-	type: "log";
-	operation: "create" | "update";
-	payload: LogEntry;
-}
-
-// ============================================================================
-// MCP Tool Log Types (separate table from LLM logs)
-// ============================================================================
-
-// MCP Tool Log Entry - represents a single MCP tool execution
-export interface MCPToolLogEntry {
-	id: string;
-	llm_request_id?: string; // Links to the LLM request that triggered this tool call
-	timestamp: string; // ISO string format
-	tool_name: string;
-	server_label?: string; // MCP server that provided the tool
-	virtual_key_id?: string;
-	virtual_key_name?: string;
-	arguments?: Record<string, unknown> | string; // JSON parsed tool arguments
-	result?: Record<string, unknown> | string; // JSON parsed tool result
-	error_details?: BifrostError;
-	latency?: number; // Execution time in milliseconds
-	cost?: number; // Cost in dollars (per execution cost)
-	status: string; // "processing", "success", or "error"
-	metadata?: Record<string, string>;
-	created_at: string; // ISO string format
-	virtual_key?: VirtualKey;
-}
-
-// MCP Tool Log Filters
-export interface MCPToolLogFilters {
-	tool_names?: string[];
-	server_labels?: string[];
-	status?: string[];
-	virtual_key_ids?: string[];
-	llm_request_ids?: string[];
-	start_time?: string; // RFC3339 format
-	end_time?: string; // RFC3339 format
-	period?: string; // relative period ("1h","6h","24h","7d","30d"); computed server-side, takes precedence over start_time/end_time
-	min_latency?: number;
-	max_latency?: number;
-	content_search?: string;
-}
-
-// MCP Tool Log Statistics
-export interface MCPToolLogStats {
-	total_executions: number;
-	success_rate: number;
-	average_latency: number;
-	total_cost: number; // Total cost in dollars
-}
-
-// MCP Tool Log Search Response
-export interface MCPToolLogsResponse {
-	logs: MCPToolLogEntry[];
-	pagination: Pagination & { total_count: number };
-	has_logs: boolean;
-}
-
-// MCP Tool Log Filter Data Response
-export interface MCPToolLogFilterData {
-	tool_names: string[];
-	server_labels: string[];
-	virtual_keys: VirtualKey[];
-}
-
-// WebSocket message types for MCP tool logs
-export interface WebSocketMCPToolLogMessage {
-	type: "mcp_log";
-	operation: "create" | "update";
-	payload: MCPToolLogEntry;
-}
-
-// MCP histogram types
-
-export interface MCPHistogramBucket {
-	timestamp: string;
-	count: number;
-	success: number;
-	error: number;
-}
-
-export interface MCPHistogramResponse {
-	buckets: MCPHistogramBucket[];
-	bucket_size_seconds: number;
-}
-
-export interface MCPCostHistogramBucket {
-	timestamp: string;
-	total_cost: number;
-}
-
-export interface MCPCostHistogramResponse {
-	buckets: MCPCostHistogramBucket[];
-	bucket_size_seconds: number;
-}
-
-export interface MCPTopTool {
-	tool_name: string;
-	count: number;
-	cost: number;
-}
-
-export interface MCPTopToolsResponse {
-	tools: MCPTopTool[];
-}
-
 // Model Rankings types
 export interface ModelRankingTrend {
 	has_previous_period: boolean;
@@ -1163,6 +1069,7 @@ export interface ModelRankingEntry {
 	total_tokens: number;
 	total_cost: number;
 	avg_latency: number;
+	p95_ttfb_ms?: number;
 	trend: ModelRankingTrend;
 }
 

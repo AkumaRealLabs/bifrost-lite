@@ -113,7 +113,6 @@ func NewCohereProvider(config *schemas.ProviderConfig, logger schemas.Logger) (*
 	}
 
 	// Setting proxy and retry policy
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	// Pre-warm response pools
@@ -1068,11 +1067,6 @@ func (provider *CohereProvider) ImageEdit(ctx *schemas.BifrostContext, key schem
 // ImageEditStream is not supported by the Cohere provider.
 func (provider *CohereProvider) ImageEditStream(ctx *schemas.BifrostContext, postHookRunner schemas.PostHookRunner, postHookSpanFinalizer func(context.Context), key schemas.Key, request *schemas.BifrostImageEditRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
 	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageEditStreamRequest, provider.GetProviderKey())
-}
-
-// ImageVariation is not supported by the Cohere provider.
-func (provider *CohereProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration is not supported by the Cohere provider.

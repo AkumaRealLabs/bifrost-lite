@@ -57,7 +57,6 @@ func newOpencodeProvider(
 		ConnPoolStrategy:    fasthttp.FIFO,
 	}
 
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -222,11 +221,6 @@ func (p *opencodeProvider) ImageEdit(ctx *schemas.BifrostContext, key schemas.Ke
 // ImageEditStream is not supported by Opencode.
 func (p *opencodeProvider) ImageEditStream(ctx *schemas.BifrostContext, postHookRunner schemas.PostHookRunner, postHookSpanFinalizer func(context.Context), key schemas.Key, request *schemas.BifrostImageEditRequest) (chan *schemas.BifrostStreamChunk, *schemas.BifrostError) {
 	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageEditStreamRequest, p.GetProviderKey())
-}
-
-// ImageVariation is not supported by Opencode.
-func (p *opencodeProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, p.GetProviderKey())
 }
 
 // VideoGeneration is not supported by Opencode.

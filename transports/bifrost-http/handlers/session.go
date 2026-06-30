@@ -19,15 +19,13 @@ import (
 
 // SessionHandler manages HTTP requests for session operations
 type SessionHandler struct {
-	configStore   configstore.ConfigStore
-	wsTicketStore *WSTicketStore
+	configStore configstore.ConfigStore
 }
 
 // NewSessionHandler creates a new session handler instance
-func NewSessionHandler(configStore configstore.ConfigStore, wsTicketStore *WSTicketStore) *SessionHandler {
+func NewSessionHandler(configStore configstore.ConfigStore) *SessionHandler {
 	return &SessionHandler{
-		configStore:   configStore,
-		wsTicketStore: wsTicketStore,
+		configStore: configStore,
 	}
 }
 
@@ -36,7 +34,6 @@ func (h *SessionHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.POST("/api/session/login", lib.ChainMiddlewares(h.login, middlewares...))
 	r.POST("/api/session/logout", lib.ChainMiddlewares(h.logout, middlewares...))
 	r.GET("/api/session/is-auth-enabled", lib.ChainMiddlewares(h.isAuthEnabled, middlewares...))
-	r.POST("/api/session/ws-ticket", lib.ChainMiddlewares(h.issueWSTicket, middlewares...))
 }
 
 // isAuthEnabled handles GET /api/session/is-auth-enabled - Check if auth is enabled
@@ -211,33 +208,5 @@ func (h *SessionHandler) logout(ctx *fasthttp.RequestCtx) {
 
 	SendJSON(ctx, map[string]any{
 		"message": "Logout successful",
-	})
-}
-
-// issueWSTicket handles POST /api/session/ws-ticket - Issue a short-lived ticket for WebSocket auth.
-// The caller must already be authenticated (via cookie or Authorization header).
-// Returns a one-time-use ticket that the frontend passes as ?ticket= when opening the WebSocket.
-func (h *SessionHandler) issueWSTicket(ctx *fasthttp.RequestCtx) {
-	if h.wsTicketStore == nil {
-		SendError(ctx, fasthttp.StatusServiceUnavailable, "WebSocket tickets are not available")
-		return
-	}
-	sessionToken, ok := ctx.UserValue(schemas.BifrostContextKeySessionToken).(string)
-	if !ok {
-		SendError(ctx, fasthttp.StatusUnauthorized, "Unauthorized")
-		return
-	}
-	if sessionToken == "" {
-		// This is the case where auth is not configured or not enabled
-		sessionToken = "dummy-session"
-	}
-	ticket, err := h.wsTicketStore.Issue(sessionToken)
-	if err != nil {
-		logger.Error("failed to issue WS ticket: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to issue WebSocket ticket")
-		return
-	}
-	SendJSON(ctx, map[string]any{
-		"ticket": ticket,
 	})
 }

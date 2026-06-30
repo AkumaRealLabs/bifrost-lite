@@ -11,7 +11,6 @@ import { Check, Copy, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Field, QueryBuilder, RuleGroupType } from "react-querybuilder";
 import "react-querybuilder/dist/query-builder.css";
-import { normalizeRoutingRuleGroupQuery } from "@/lib/utils/routingRuleGroupQuery";
 import { ActionButton } from "./actionButton";
 import { CombinatorSelector } from "./combinatorSelector";
 import { FieldSelector } from "./fieldSelector";
@@ -63,6 +62,8 @@ const defaultQuery: RuleGroupType = {
 	rules: [],
 };
 
+const normalizeRuleGroupQuery = (query: RuleGroupType): RuleGroupType => query;
+
 export function CELRuleBuilder({
 	onChange,
 	initialQuery,
@@ -76,7 +77,7 @@ export function CELRuleBuilder({
 		hideCELExpression: false,
 	},
 }: CELRuleBuilderProps) {
-	const normalizedInitial = normalizeRoutingRuleGroupQuery(initialQuery ?? defaultQuery);
+	const normalizedInitial = normalizeRuleGroupQuery(initialQuery ?? defaultQuery);
 	const [query, setQuery] = useState<RuleGroupType>(normalizedInitial);
 	const [celExpression, setCelExpression] = useState("");
 	const onChangeRef = useRef(onChange);

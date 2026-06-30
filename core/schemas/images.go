@@ -82,8 +82,6 @@ func (r *BifrostImageGenerationResponse) BackfillParams(req *BifrostRequest) {
 			r.Model = req.ImageGenerationRequest.Model
 		case req.ImageEditRequest != nil:
 			r.Model = req.ImageEditRequest.Model
-		case req.ImageVariationRequest != nil:
-			r.Model = req.ImageVariationRequest.Model
 		}
 	}
 
@@ -122,8 +120,6 @@ func getModelFromRequest(req *BifrostRequest) string {
 		return req.ImageGenerationRequest.Model
 	case req.ImageEditRequest != nil:
 		return req.ImageEditRequest.Model
-	case req.ImageVariationRequest != nil:
-		return req.ImageVariationRequest.Model
 	}
 	return ""
 }
@@ -159,13 +155,6 @@ func getNumInputImagesSizeAndQualityFromRequest(req *BifrostRequest) (numInputIm
 			if p.Quality != nil {
 				quality = normalizeImageQuality(*p.Quality)
 			}
-		}
-	case req.ImageVariationRequest != nil:
-		if req.ImageVariationRequest.Input != nil {
-			numInputImages = 1
-		}
-		if req.ImageVariationRequest.Params != nil && req.ImageVariationRequest.Params.Size != nil {
-			size = *req.ImageVariationRequest.Params.Size
 		}
 	}
 	return numInputImages, size, quality
@@ -324,34 +313,3 @@ type ImageEditParameters struct {
 	NumInferenceSteps *int                   `json:"num_inference_steps,omitempty"` // number of inference steps
 	ExtraParams       map[string]interface{} `json:"-"`
 }
-
-// BifrostImageVariationRequest represents an image variation request in bifrost format
-type BifrostImageVariationRequest struct {
-	Provider       ModelProvider             `json:"provider"`
-	Model          string                    `json:"model"`
-	Input          *ImageVariationInput      `json:"input"`
-	Params         *ImageVariationParameters `json:"params,omitempty"`
-	Fallbacks      []Fallback                `json:"fallbacks,omitempty"`
-	RawRequestBody []byte                    `json:"-"`
-}
-
-// GetRawRequestBody implements [utils.RequestBodyGetter].
-func (b *BifrostImageVariationRequest) GetRawRequestBody() []byte {
-	return b.RawRequestBody
-}
-
-type ImageVariationInput struct {
-	Image ImageInput `json:"image"`
-}
-
-type ImageVariationParameters struct {
-	N              *int                   `json:"n,omitempty"`               // Number of images (1-10)
-	ResponseFormat *string                `json:"response_format,omitempty"` // "url", "b64_json"
-	Size           *string                `json:"size,omitempty"`            // "256x256", "512x512", "1024x1024", "1792x1024", "1024x1792", "1536x1024", "1024x1536", "auto"
-	User           *string                `json:"user,omitempty"`
-	ExtraParams    map[string]interface{} `json:"-"`
-}
-
-// BifrostImageVariationResponse represents the image variation response in bifrost format
-// It uses the same structure as image generation response
-type BifrostImageVariationResponse = BifrostImageGenerationResponse

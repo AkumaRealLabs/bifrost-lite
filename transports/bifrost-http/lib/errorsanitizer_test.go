@@ -63,6 +63,43 @@ func TestSanitizeBifrostErrorForClientPreservesClientValidationMessage(t *testin
 	}
 }
 
+func TestSanitizeBifrostErrorForClientHidesInternalRoutingConfigDetails(t *testing.T) {
+	tests := []string{
+		"no keys found for provider: congmingai_openai_lv3 and model: gpt-5.5",
+		"no keys found that support model: gpt-5.5",
+	}
+
+	for _, message := range tests {
+		t.Run(message, func(t *testing.T) {
+			err := &schemas.BifrostError{
+				Error: &schemas.ErrorField{
+					Message: message,
+					Error:   errors.New("inner detail"),
+					Param:   "gpt-5.5",
+				},
+			}
+
+			sanitized := SanitizeBifrostErrorForClient(err)
+
+			if sanitized == err {
+				t.Fatal("expected sanitizer to return a copy")
+			}
+			if sanitized.Error.Message != ClientSafeInternalErrorMessage {
+				t.Fatalf("expected generic message, got %q", sanitized.Error.Message)
+			}
+			if sanitized.Error.Error != nil {
+				t.Fatalf("expected nested error to be removed, got %v", sanitized.Error.Error)
+			}
+			if sanitized.Error.Param != nil {
+				t.Fatalf("expected param to be removed, got %v", sanitized.Error.Param)
+			}
+			if err.Error.Message != message || err.Error.Error == nil || err.Error.Param == nil {
+				t.Fatal("expected original error to remain unchanged")
+			}
+		})
+	}
+}
+
 func TestSanitizeBifrostErrorForClientPreservesNonSensitiveServerMessage(t *testing.T) {
 	statusCode := fasthttp.StatusInternalServerError
 	err := &schemas.BifrostError{

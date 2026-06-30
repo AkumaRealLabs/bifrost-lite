@@ -124,7 +124,7 @@ func (t *UsageTracker) UpdateUsage(ctx context.Context, update *UsageUpdate) {
 
 	// 1. Update rate limit usage for both provider-level and model-level
 	// This applies even when virtual keys are disabled or not present
-	// Guard: only update when Model is set (MCP paths may not have it); provider is optional —
+	// Guard: only update when Model is set; provider is optional.
 	// the underlying function handles empty provider by skipping provider-level and still
 	// updating any matching global model-only configs.
 	if update.Model != "" {
@@ -135,7 +135,7 @@ func (t *UsageTracker) UpdateUsage(ctx context.Context, update *UsageUpdate) {
 
 	// 2. Update budget usage for both provider-level and model-level
 	// This applies even when virtual keys are disabled or not present
-	// Guard: only update when Model is set (MCP paths may not have it); provider is optional —
+	// Guard: only update when Model is set; provider is optional.
 	// the underlying function handles empty provider by skipping provider-level and still
 	// updating any matching global model-only configs.
 	if update.Model != "" && shouldUpdateBudget && update.Cost > 0 {
@@ -157,8 +157,7 @@ func (t *UsageTracker) UpdateUsage(ctx context.Context, update *UsageUpdate) {
 			}
 		}
 		// Update per-user-scoped model config rate limits and budgets. Mirrors the
-		// VK-scoped model block below. Gated on model being present — MCP tool
-		// execution paths (no model) are excluded naturally by this guard.
+		// VK-scoped model block below. Gated on model being present.
 		if update.Model != "" {
 			if err := t.store.UpdateScopedModelRateLimitUsageInMemory(ctx, configstoreTables.ModelConfigScopeUser, update.UserID, update.Model, update.Provider, update.TokensUsed, shouldUpdateTokens, shouldUpdateRequests); err != nil {
 				t.logger.Error("failed to update scoped model rate limit usage for user %s: %v", update.UserID, err)

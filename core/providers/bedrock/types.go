@@ -292,10 +292,10 @@ type BedrockS3Location struct {
 
 // BedrockToolUse represents a tool use request
 type BedrockToolUse struct {
-	ToolUseID string          `json:"toolUseId"`       // Required: Unique identifier for this tool use
-	Name      string          `json:"name"`            // Required: Name of the tool to use
-	Input     json.RawMessage `json:"input"`           // Required: Input parameters for the tool (json.RawMessage preserves key ordering for prompt caching)
-	Type      string          `json:"type,omitempty"`  // Optional: "server_tool_use" for Nova system tools
+	ToolUseID string          `json:"toolUseId"`      // Required: Unique identifier for this tool use
+	Name      string          `json:"name"`           // Required: Name of the tool to use
+	Input     json.RawMessage `json:"input"`          // Required: Input parameters for the tool (json.RawMessage preserves key ordering for prompt caching)
+	Type      string          `json:"type,omitempty"` // Optional: "server_tool_use" for Nova system tools
 }
 
 // BedrockToolResult represents the result of a tool use
@@ -524,7 +524,7 @@ type BedrockGuardrailTrace struct {
 
 // BedrockGuardrailAssessment represents a guardrail assessment
 type BedrockGuardrailAssessment struct {
-	AppliedGuardrailDetails   *BedrockGuardrailAppliedDetails           `json:"appliedGuardrailDetails,omitempty"`
+	AppliedGuardrailDetails   *BedrockGuardrailAppliedDetails            `json:"appliedGuardrailDetails,omitempty"`
 	AutomatedReasoningPolicy  *BedrockGuardrailAutomatedReasoningPolicy  `json:"automatedReasoningPolicy,omitempty"`
 	ContentPolicy             *BedrockGuardrailContentPolicy             `json:"contentPolicy,omitempty"`
 	ContextualGroundingPolicy *BedrockGuardrailContextualGroundingPolicy `json:"contextualGroundingPolicy,omitempty"`
@@ -908,7 +908,6 @@ type BedrockCohereEmbeddingResponse struct {
 }
 
 const TaskTypeTextImage = "TEXT_IMAGE"
-const TaskTypeImageVariation = "IMAGE_VARIATION"
 const TaskTypeInpainting = "INPAINTING"
 const TaskTypeOutpainting = "OUTPAINTING"
 const TaskTypeBackgroundRemoval = "BACKGROUND_REMOVAL"
@@ -939,26 +938,6 @@ type ImageGenerationConfig struct {
 	CfgScale       *float64 `json:"cfgScale,omitempty"`
 	Quality        *string  `json:"quality,omitempty"`
 	Seed           *int     `json:"seed,omitempty"`
-}
-
-// BedrockImageVariationRequest represents a Bedrock image variation request
-type BedrockImageVariationRequest struct {
-	TaskType              *string                      `json:"taskType"`              // Should be "IMAGE_VARIATION"
-	ImageVariationParams  *BedrockImageVariationParams `json:"imageVariationParams"`  // Parameters for image variation
-	ImageGenerationConfig *ImageGenerationConfig       `json:"imageGenerationConfig"` // Image generation config (reused)
-	ExtraParams           map[string]interface{}       `json:"-"`
-}
-
-// GetExtraParams implements the RequestBodyWithExtraParams interface
-func (req *BedrockImageVariationRequest) GetExtraParams() map[string]interface{} {
-	return req.ExtraParams
-}
-
-type BedrockImageVariationParams struct {
-	Text               *string  `json:"text,omitempty"`               // Prompt/text for variation
-	NegativeText       *string  `json:"negativeText,omitempty"`       // Negative prompt
-	Images             []string `json:"images"`                       // Base64-encoded image strings
-	SimilarityStrength *float64 `json:"similarityStrength,omitempty"` // Range: 0.2 to 1.0
 }
 
 // BedrockImageEditRequest represents a Bedrock image edit request
@@ -1264,11 +1243,10 @@ type BedrockInvokeRequest struct {
 	FrequencyPenalty *float64 `json:"frequency_penalty,omitempty"`
 	PresencePenalty  *float64 `json:"presence_penalty,omitempty"`
 
-	// ==================== BEDROCK IMAGE GEN / EDIT / VARIATION (Titan/Nova Canvas) ====================
+	// ==================== BEDROCK IMAGE GEN / EDIT (Titan/Nova Canvas) ====================
 
 	TaskType                *string                         `json:"taskType,omitempty"`
 	TextToImageParams       *BedrockTextToImageParams       `json:"textToImageParams,omitempty"`
-	ImageVariationParams    *BedrockImageVariationParams    `json:"imageVariationParams,omitempty"`
 	InPaintingParams        *BedrockInPaintingParams        `json:"inPaintingParams,omitempty"`
 	OutPaintingParams       *BedrockOutPaintingParams       `json:"outPaintingParams,omitempty"`
 	BackgroundRemovalParams *BedrockBackgroundRemovalParams `json:"backgroundRemovalParams,omitempty"`
@@ -1276,7 +1254,7 @@ type BedrockInvokeRequest struct {
 
 	// ==================== STABILITY AI IMAGE ====================
 
-	// Image is the base64-encoded input image (SA edit / variation)
+	// Image is the base64-encoded input image (SA edit)
 	Image          *string `json:"image,omitempty"`
 	Mask           *string `json:"mask,omitempty"`            // base64 mask for inpainting
 	NegativePrompt *string `json:"negative_prompt,omitempty"` // SA gen / edit

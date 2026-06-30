@@ -73,7 +73,7 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 
 	const handleSubmit = async () => {
 		if (!hasUpdateAccess) {
-			toast.error("You don't have permission to perform this action");
+			toast.error("你没有执行此操作的权限");
 			return;
 		}
 
@@ -82,18 +82,18 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 		const cleaned = extraRows.map((r) => ({ key: r.key.trim(), value: r.value })).filter((r) => r.key !== "" || r.value !== "");
 		const missingKey = cleaned.find((r) => r.key === "");
 		if (missingKey) {
-			toast.error("Attribute rows must have a key");
+			toast.error("属性行必须有 key");
 			return;
 		}
 		const dupKey = cleaned.find((r, i) => cleaned.findIndex((other) => other.key === r.key) !== i);
 		if (dupKey) {
-			toast.error(`Duplicate attribute key: ${dupKey.key}`);
+			toast.error(`重复的属性 key：${dupKey.key}`);
 			return;
 		}
 		// "description" is the special-cased field above — disallow it as an extra row.
 		const reservedClash = cleaned.find((r) => r.key === "description");
 		if (reservedClash) {
-			toast.error("Use the Description field instead of a 'description' attribute row");
+			toast.error("请使用 Description 字段，不要再新增 'description' 属性行");
 			return;
 		}
 
@@ -110,7 +110,7 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 					additional_attributes: Object.keys(attributes).length > 0 ? attributes : undefined,
 				},
 			]).unwrap();
-			toast.success("Attributes saved");
+			toast.success("属性已保存");
 			handleClose();
 		} catch (err) {
 			toast.error(getErrorMessage(err));
@@ -130,10 +130,9 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 				data-testid="model-catalog-attribute-sheet"
 			>
 				<SheetHeader className="flex flex-col items-start p-0 px-8 py-4" headerClassName="mb-0 sticky -top-4 bg-card z-10">
-					<SheetTitle>Edit Model Attributes</SheetTitle>
+					<SheetTitle>编辑模型属性</SheetTitle>
 					<SheetDescription>
-						Update the description and other attributes for this model. These attributes are stored on the pricing row and preserved across
-						the pricing sync.
+						更新该模型的描述和其他属性。这些属性会保存在价格行中，并在价格同步时保留。
 					</SheetDescription>
 				</SheetHeader>
 
@@ -149,7 +148,7 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 								</div>
 							</div>
 							<div>
-								<Label className="text-sm font-medium">Model</Label>
+								<Label className="text-sm font-medium">模型</Label>
 								<div className="bg-muted/30 mt-2 rounded-sm border px-3 py-2 font-mono text-sm">{model.name}</div>
 							</div>
 						</div>
@@ -158,13 +157,13 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 
 						{/* Description */}
 						<div>
-							<Label className="text-sm font-medium">Description</Label>
+							<Label className="text-sm font-medium">描述</Label>
 							<Textarea
 								className="mt-2"
 								value={description}
 								onChange={(e) => setDescription(e.target.value)}
 								rows={4}
-								placeholder="A short description of this model — shown anywhere additional_attributes.description is consumed."
+								placeholder="该模型的简短描述，会在读取 additional_attributes.description 的地方显示。"
 								data-testid="model-catalog-description-textarea"
 							/>
 						</div>
@@ -174,15 +173,15 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 						{/* Other attributes */}
 						<div className="space-y-3">
 							<div className="flex items-center justify-between">
-								<Label className="text-sm font-medium">Other Attributes</Label>
+								<Label className="text-sm font-medium">其他属性</Label>
 								<Button type="button" variant="outline" size="sm" onClick={handleAddRow} data-testid="model-catalog-add-attribute-row">
 									<Plus className="mr-1 h-3 w-3" />
-									Add
+									新增
 								</Button>
 							</div>
 							{extraRows.length === 0 ? (
 								<p className="text-muted-foreground text-xs">
-									No additional attributes. Add a key-value pair for anything beyond description.
+									暂无其他属性。除了 description 之外的内容都可以以 key-value 对的形式添加。
 								</p>
 							) : (
 								<div className="space-y-2">
@@ -220,7 +219,7 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 
 					<div className="bg-card sticky bottom-0 shrink-0 border-t px-8 py-4">
 						<div className="flex items-center justify-end gap-3">
-							{!hasUpdateAccess && <p className="text-destructive text-sm">You don't have permission to perform this action</p>}
+							{!hasUpdateAccess && <p className="text-destructive text-sm">你没有执行此操作的权限</p>}
 							<Button type="button" variant="outline" onClick={handleClose} data-testid="model-catalog-attribute-cancel">
 								Cancel
 							</Button>
@@ -230,7 +229,7 @@ export default function AttributeSheet({ model, onClose }: AttributeSheetProps) 
 								disabled={isLoading || !isDirty || !hasUpdateAccess}
 								data-testid="model-catalog-attribute-submit"
 							>
-								{isLoading ? "Saving..." : "Save Changes"}
+								{isLoading ? "正在保存..." : "保存修改"}
 							</Button>
 						</div>
 					</div>

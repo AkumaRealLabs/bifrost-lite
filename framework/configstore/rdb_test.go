@@ -2,7 +2,6 @@ package configstore
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -42,19 +41,6 @@ func setupRDBTestStore(t *testing.T) *RDBConfigStore {
 		&tables.TableClientConfig{},
 		&tables.TableGovernanceConfig{},
 		&tables.TablePlugin{},
-		&tables.TableMCPClient{},
-		&tables.TableMCPLibrary{},
-		&tables.TableVirtualKeyMCPConfig{},
-		&tables.TableFolder{},
-		&tables.TablePrompt{},
-		&tables.TablePromptVersion{},
-		&tables.TablePromptVersionMessage{},
-		&tables.TablePromptSession{},
-		&tables.TablePromptSessionMessage{},
-		&tables.TableOauthUserSession{},
-		&tables.TableOauthUserToken{},
-		&tables.TableMCPPerUserHeaderCredential{},
-		&tables.TableMCPPerUserHeaderFlow{},
 	)
 	require.NoError(t, err, "Failed to migrate test database")
 
@@ -307,107 +293,6 @@ func TestRDBConfigStore_UpdateComplexityAnalyzerConfigRejectsInvalidConfig(t *te
 			require.Error(t, err)
 		})
 	}
-}
-
-func TestUpsertMCPLibraryEntry(t *testing.T) {
-	store := setupRDBTestStore(t)
-	ctx := context.Background()
-
-	entry := &tables.TableMCPLibrary{
-		Slug:           "filesystem",
-		Name:           "Filesystem",
-		Description:    "original",
-		ConnectionType: schemas.MCPConnectionTypeSTDIO,
-		AuthType:       schemas.MCPAuthTypeNone,
-		Source:         "remote",
-	}
-	require.NoError(t, store.UpsertMCPLibraryEntry(ctx, entry))
-
-	entry.Description = "updated"
-	require.NoError(t, store.UpsertMCPLibraryEntry(ctx, entry))
-
-	entries, totalCount, err := store.GetMCPLibraryPaginated(ctx, MCPLibraryQueryParams{Limit: 1})
-	require.NoError(t, err)
-	require.Equal(t, int64(1), totalCount)
-	require.Len(t, entries, 1)
-	require.Equal(t, "updated", entries[0].Description)
-}
-
-func TestValidateSkillVersionIncrementRequiresGreaterVersion(t *testing.T) {
-	tests := []struct {
-		name    string
-		latest  string
-		next    string
-		wantErr bool
-	}{
-		{name: "rejects lower prerelease core", latest: "1.0.3", next: "1.0.2-1", wantErr: true},
-		{name: "accepts same core with suffix after release", latest: "1.0.3", next: "1.0.3-1", wantErr: false},
-		{name: "accepts release after same core suffix", latest: "1.0.3-beta1", next: "1.0.3", wantErr: false},
-		{name: "accepts higher patch", latest: "1.0.3", next: "1.0.4", wantErr: false},
-		{name: "accepts higher minor", latest: "1.0.3", next: "1.1.0", wantErr: false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := validateSkillVersionIncrement(tt.latest, tt.next)
-			if tt.wantErr {
-				require.Error(t, err)
-				return
-			}
-			require.NoError(t, err)
-		})
-	}
-}
-
-func TestLatestCreatedSkillVersionUsesCreationOrder(t *testing.T) {
-	store := setupRDBTestStore(t)
-	err := store.DB().AutoMigrate(
-		&tables.TableSkill{},
-		&tables.TableSkillVersion{},
-		&tables.TableSkillFile{},
-		&tables.TableSkillFileBlob{},
-	)
-	require.NoError(t, err)
-	ctx := context.Background()
-	baseTime := time.Now()
-
-	skillID := "skill-latest-created"
-	err = store.DB().Create(&tables.TableSkill{
-		ID:            skillID,
-		Name:          "latest-created",
-		Description:   "Latest created version test",
-		SkillMDBody:   "body",
-		LatestVersion: "1.0.3",
-		CreatedAt:     baseTime,
-		UpdatedAt:     baseTime,
-	}).Error
-	require.NoError(t, err)
-	err = store.DB().Create(&tables.TableSkillVersion{
-		ID:                  "skill-version-old",
-		SkillID:             skillID,
-		Version:             "1.0.3",
-		SkillMDBody:         "body",
-		FrontmatterSnapshot: tables.SkillJSONMap{"name": "latest-created", "description": "Latest created version test"},
-		CreatedAt:           baseTime,
-	}).Error
-	require.NoError(t, err)
-	err = store.DB().Create(&tables.TableSkillVersion{
-		ID:                  "skill-version-new",
-		SkillID:             skillID,
-		Version:             "1.0.2-1",
-		SkillMDBody:         "body",
-		FrontmatterSnapshot: tables.SkillJSONMap{"name": "latest-created", "description": "Latest created version test"},
-		CreatedAt:           baseTime.Add(time.Minute),
-	}).Error
-	require.NoError(t, err)
-
-	latest, err := latestCreatedSkillVersion(store.DB(), skillID)
-	require.NoError(t, err)
-	assert.Equal(t, "1.0.2-1", latest)
-
-	skill, err := store.GetSkillLean(ctx, skillID)
-	require.NoError(t, err)
-	assert.Equal(t, "1.0.2-1", skill.HighestVersion)
 }
 
 // =============================================================================
@@ -1375,12 +1260,23 @@ func TestDeleteProvider_RemovesVirtualKeyProviderConfigs(t *testing.T) {
 func TestUpdateClientConfig(t *testing.T) {
 	store := setupRDBTestStore(t)
 	ctx := context.Background()
+	windowSeconds := 300
+	minSamples := 12
+	thresholdMs := 1800.0
+	minPenaltyFactor := 0.35
 
 	config := &ClientConfig{
 		EnableLogging:        new(true),
 		InitialPoolSize:      100,
 		LogRetentionDays:     30,
 		MaxRequestBodySizeMB: 50,
+		TTFBRouting: &TTFBRoutingConfig{
+			Enabled:          true,
+			WindowSeconds:    &windowSeconds,
+			MinSamples:       &minSamples,
+			ThresholdMs:      &thresholdMs,
+			MinPenaltyFactor: &minPenaltyFactor,
+		},
 	}
 
 	err := store.UpdateClientConfig(ctx, config)
@@ -1390,6 +1286,12 @@ func TestUpdateClientConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.EnableLogging != nil && *result.EnableLogging)
 	assert.Equal(t, 100, result.InitialPoolSize)
+	require.NotNil(t, result.TTFBRouting)
+	assert.True(t, result.TTFBRouting.Enabled)
+	assert.Equal(t, windowSeconds, *result.TTFBRouting.WindowSeconds)
+	assert.Equal(t, minSamples, *result.TTFBRouting.MinSamples)
+	assert.Equal(t, thresholdMs, *result.TTFBRouting.ThresholdMs)
+	assert.Equal(t, minPenaltyFactor, *result.TTFBRouting.MinPenaltyFactor)
 }
 
 func TestUpdateClientMetadata(t *testing.T) {
@@ -1897,273 +1799,4 @@ func TestRateLimitDurationFormats(t *testing.T) {
 		err := store.CreateRateLimit(ctx, rateLimit)
 		assert.NoError(t, err, "Duration %s should be valid", duration)
 	}
-}
-
-// =============================================================================
-// Prompt Deletion Tests
-// =============================================================================
-
-// testPromptTree holds IDs of entities created by createTestPromptTree for verification
-type testPromptTree struct {
-	FolderID   string
-	PromptIDs  []string
-	VersionIDs []uint
-	SessionIDs []uint
-}
-
-// createTestPromptTree creates a folder with 2 prompts, each having 2 versions (with messages) and 1 session (with messages).
-func createTestPromptTree(t *testing.T, store *RDBConfigStore, ctx context.Context) testPromptTree {
-	t.Helper()
-
-	tree := testPromptTree{}
-
-	// Create folder
-	folder := &tables.TableFolder{ID: "folder-1", Name: "Test Folder"}
-	require.NoError(t, store.CreateFolder(ctx, folder))
-	tree.FolderID = folder.ID
-
-	for i, promptID := range []string{"prompt-1", "prompt-2"} {
-		_ = i
-		prompt := &tables.TablePrompt{ID: promptID, Name: "Prompt " + promptID, FolderID: &tree.FolderID}
-		require.NoError(t, store.CreatePrompt(ctx, prompt))
-		tree.PromptIDs = append(tree.PromptIDs, promptID)
-
-		// Create 2 versions with messages
-		for v := 0; v < 2; v++ {
-			version := &tables.TablePromptVersion{
-				PromptID:      promptID,
-				CommitMessage: "version commit",
-				Messages: []tables.TablePromptVersionMessage{
-					{PromptID: promptID, Message: json.RawMessage(`{"role":"user","content":"hello"}`)},
-				},
-			}
-			require.NoError(t, store.CreatePromptVersion(ctx, version))
-			tree.VersionIDs = append(tree.VersionIDs, version.ID)
-		}
-
-		// Create 1 session with messages
-		session := &tables.TablePromptSession{
-			PromptID: promptID,
-			Name:     "Session " + promptID,
-			Messages: []tables.TablePromptSessionMessage{
-				{PromptID: promptID, Message: json.RawMessage(`{"role":"user","content":"hi"}`)},
-			},
-		}
-		require.NoError(t, store.CreatePromptSession(ctx, session))
-		tree.SessionIDs = append(tree.SessionIDs, session.ID)
-	}
-
-	return tree
-}
-
-// countRows returns the number of rows in a table
-func countRows(t *testing.T, store *RDBConfigStore, model interface{}) int64 {
-	t.Helper()
-	var count int64
-	require.NoError(t, store.DB().Model(model).Count(&count).Error)
-	return count
-}
-
-func TestDeleteFolder(t *testing.T) {
-	t.Run("NotFound", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		err := store.DeleteFolder(ctx, "nonexistent")
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
-	t.Run("Empty", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		folder := &tables.TableFolder{ID: "folder-empty", Name: "Empty"}
-		require.NoError(t, store.CreateFolder(ctx, folder))
-
-		require.NoError(t, store.DeleteFolder(ctx, "folder-empty"))
-
-		_, err := store.GetFolderByID(ctx, "folder-empty")
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
-	t.Run("CascadesAll", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		// Verify entities exist before deletion
-		assert.Greater(t, countRows(t, store, &tables.TablePrompt{}), int64(0))
-		assert.Greater(t, countRows(t, store, &tables.TablePromptVersion{}), int64(0))
-		assert.Greater(t, countRows(t, store, &tables.TablePromptVersionMessage{}), int64(0))
-		assert.Greater(t, countRows(t, store, &tables.TablePromptSession{}), int64(0))
-		assert.Greater(t, countRows(t, store, &tables.TablePromptSessionMessage{}), int64(0))
-
-		require.NoError(t, store.DeleteFolder(ctx, tree.FolderID))
-
-		// All child entities should be deleted
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TableFolder{}))
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TablePrompt{}))
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TablePromptVersion{}))
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TablePromptVersionMessage{}))
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TablePromptSession{}))
-		assert.Equal(t, int64(0), countRows(t, store, &tables.TablePromptSessionMessage{}))
-	})
-}
-
-func TestDeletePrompt(t *testing.T) {
-	t.Run("NotFound", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		err := store.DeletePrompt(ctx, "nonexistent")
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
-	t.Run("CascadesAll", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		require.NoError(t, store.DeletePrompt(ctx, tree.PromptIDs[0]))
-
-		// First prompt and its children should be gone
-		_, err := store.GetPromptByID(ctx, tree.PromptIDs[0])
-		assert.ErrorIs(t, err, ErrNotFound)
-
-		// Second prompt should still exist
-		p2, err := store.GetPromptByID(ctx, tree.PromptIDs[1])
-		require.NoError(t, err)
-		assert.Equal(t, tree.PromptIDs[1], p2.ID)
-	})
-
-	t.Run("LeavesFolder", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		require.NoError(t, store.DeletePrompt(ctx, tree.PromptIDs[0]))
-
-		// Folder should still exist
-		folder, err := store.GetFolderByID(ctx, tree.FolderID)
-		require.NoError(t, err)
-		assert.Equal(t, tree.FolderID, folder.ID)
-	})
-
-	t.Run("LeavesSiblings", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		require.NoError(t, store.DeletePrompt(ctx, tree.PromptIDs[0]))
-
-		// Sibling prompt's versions and sessions should be unaffected
-		versions, err := store.GetPromptVersions(ctx, tree.PromptIDs[1])
-		require.NoError(t, err)
-		assert.Len(t, versions, 2)
-
-		sessions, err := store.GetPromptSessions(ctx, tree.PromptIDs[1])
-		require.NoError(t, err)
-		assert.Len(t, sessions, 1)
-	})
-}
-
-func TestDeletePromptVersion(t *testing.T) {
-	t.Run("NotFound", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		err := store.DeletePromptVersion(ctx, 99999)
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
-	t.Run("NonLatest", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		// Version at index 0 is v1 (non-latest), index 1 is v2 (latest) for prompt-1
-		nonLatestID := tree.VersionIDs[0]
-		latestID := tree.VersionIDs[1]
-
-		require.NoError(t, store.DeletePromptVersion(ctx, nonLatestID))
-
-		// Non-latest version should be gone
-		_, err := store.GetPromptVersionByID(ctx, nonLatestID)
-		assert.ErrorIs(t, err, ErrNotFound)
-
-		// Latest version should still be latest
-		latest, err := store.GetPromptVersionByID(ctx, latestID)
-		require.NoError(t, err)
-		assert.True(t, latest.IsLatest)
-	})
-
-	t.Run("LatestPromotesPrevious", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		// Delete the latest version (index 1 = v2 for prompt-1)
-		latestID := tree.VersionIDs[1]
-		prevID := tree.VersionIDs[0]
-
-		require.NoError(t, store.DeletePromptVersion(ctx, latestID))
-
-		// Previous version should now be latest
-		prev, err := store.GetPromptVersionByID(ctx, prevID)
-		require.NoError(t, err)
-		assert.True(t, prev.IsLatest)
-	})
-
-	t.Run("LeavesPrompt", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		require.NoError(t, store.DeletePromptVersion(ctx, tree.VersionIDs[0]))
-
-		// Prompt should still exist
-		prompt, err := store.GetPromptByID(ctx, tree.PromptIDs[0])
-		require.NoError(t, err)
-		assert.Equal(t, tree.PromptIDs[0], prompt.ID)
-	})
-}
-
-func TestDeletePromptSession(t *testing.T) {
-	t.Run("NotFound", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		err := store.DeletePromptSession(ctx, 99999)
-		assert.ErrorIs(t, err, ErrNotFound)
-	})
-
-	t.Run("CascadesMessages", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		sessionID := tree.SessionIDs[0]
-		require.NoError(t, store.DeletePromptSession(ctx, sessionID))
-
-		// Session should be gone
-		_, err := store.GetPromptSessionByID(ctx, sessionID)
-		assert.ErrorIs(t, err, ErrNotFound)
-
-		// Session messages for that session should be gone
-		var msgCount int64
-		require.NoError(t, store.DB().Model(&tables.TablePromptSessionMessage{}).Where("session_id = ?", sessionID).Count(&msgCount).Error)
-		assert.Equal(t, int64(0), msgCount)
-	})
-
-	t.Run("LeavesPrompt", func(t *testing.T) {
-		store := setupRDBTestStore(t)
-		ctx := context.Background()
-		tree := createTestPromptTree(t, store, ctx)
-
-		require.NoError(t, store.DeletePromptSession(ctx, tree.SessionIDs[0]))
-
-		// Prompt and versions should still exist
-		prompt, err := store.GetPromptByID(ctx, tree.PromptIDs[0])
-		require.NoError(t, err)
-		assert.Equal(t, tree.PromptIDs[0], prompt.ID)
-
-		versions, err := store.GetPromptVersions(ctx, tree.PromptIDs[0])
-		require.NoError(t, err)
-		assert.Len(t, versions, 2)
-	})
 }

@@ -87,7 +87,6 @@ func NewHuggingFaceProvider(config *schemas.ProviderConfig, logger schemas.Logge
 		huggingFaceTranscriptionResponsePool.Put(&HuggingFaceTranscriptionResponse{})
 	}
 
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -1658,11 +1657,6 @@ func (provider *HuggingFaceProvider) ImageEditStream(ctx *schemas.BifrostContext
 	}()
 
 	return responseChan, nil
-}
-
-// ImageVariation is not supported by the HuggingFace provider.
-func (provider *HuggingFaceProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration is not supported by the Hugging Face provider.

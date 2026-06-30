@@ -186,7 +186,7 @@ func (s *Store) computeCostFromInput(input costInput, routingInfo schemas.Routin
 
 	// Route to the appropriate compute function
 	switch requestType {
-	case schemas.ChatCompletionRequest, schemas.TextCompletionRequest, schemas.ResponsesRequest, schemas.RealtimeRequest, schemas.CompactionRequest:
+	case schemas.ChatCompletionRequest, schemas.TextCompletionRequest, schemas.ResponsesRequest, schemas.CompactionRequest:
 		return computeTextCost(pricing, input.usage, input.tier)
 	case schemas.EmbeddingRequest:
 		return computeEmbeddingCost(pricing, input.usage, input.tier)
@@ -196,7 +196,7 @@ func (s *Store) computeCostFromInput(input costInput, routingInfo schemas.Routin
 		return computeSpeechCost(pricing, input.usage, input.audioSeconds, input.audioTextInputChars, input.tier)
 	case schemas.TranscriptionRequest:
 		return computeTranscriptionCost(pricing, input.usage, input.audioSeconds, input.audioTokenDetails, input.tier)
-	case schemas.ImageGenerationRequest, schemas.ImageEditRequest, schemas.ImageVariationRequest:
+	case schemas.ImageGenerationRequest, schemas.ImageEditRequest:
 		return computeImageCost(pricing, input.imageUsage, input.imageSize, input.imageQuality, input.tier)
 	case schemas.VideoGenerationRequest, schemas.VideoRemixRequest:
 		return computeVideoCost(pricing, input.usage, input.videoSeconds, input.tier)
@@ -1098,7 +1098,7 @@ func (s *Store) resolvePricing(routingInfo schemas.RoutingInfo, requestType sche
 //   - Vertex: strips the "provider/model" prefix and retries, then falls back to chat mode for Responses requests.
 //   - Bedrock: prepends the "anthropic." namespace for Claude models, then falls back to chat mode for Responses requests.
 //   - All providers: for Responses/ResponsesStream requests, retries the lookup in chat mode.
-//   - All providers: for ImageEdit/ImageVariation requests, retries the lookup in image-generation mode.
+//   - All providers: for ImageEdit requests, retries the lookup in image-generation mode.
 //
 // The method acquires a read lock for the duration of the lookup.
 //
@@ -1130,7 +1130,7 @@ func (s *Store) getBasePricing(model, provider string, requestType schemas.Reque
 		}
 
 		// Lookup in chat if responses not found
-		if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.WebSocketResponsesRequest || requestType == schemas.RealtimeRequest || requestType == schemas.CompactionRequest {
+		if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.CompactionRequest {
 			s.logger.Debug("secondary lookup failed, trying vertex provider for the same model in chat completion")
 			pricing, ok = s.pricingData[makeKey(model, "vertex", normalizeRequestType(schemas.ChatCompletionRequest))]
 			if ok {
@@ -1150,7 +1150,7 @@ func (s *Store) getBasePricing(model, provider string, requestType schemas.Reque
 			}
 
 			// Lookup in chat if responses not found
-			if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.WebSocketResponsesRequest || requestType == schemas.RealtimeRequest || requestType == schemas.CompactionRequest {
+			if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.CompactionRequest {
 				s.logger.Debug("secondary lookup failed, trying vertex provider for the same model in chat completion")
 				pricing, ok = s.pricingData[makeKey(modelWithoutProvider, "vertex", normalizeRequestType(schemas.ChatCompletionRequest))]
 				if ok {
@@ -1170,7 +1170,7 @@ func (s *Store) getBasePricing(model, provider string, requestType schemas.Reque
 			}
 
 			// Lookup in chat if responses not found
-			if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.WebSocketResponsesRequest || requestType == schemas.RealtimeRequest || requestType == schemas.CompactionRequest {
+			if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.CompactionRequest {
 				s.logger.Debug("secondary lookup failed, trying chat provider for the same model in chat completion")
 				pricing, ok = s.pricingData[makeKey("anthropic."+model, provider, normalizeRequestType(schemas.ChatCompletionRequest))]
 				if ok {
@@ -1181,7 +1181,7 @@ func (s *Store) getBasePricing(model, provider string, requestType schemas.Reque
 	}
 
 	// Lookup in chat if responses/compaction not found
-	if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.WebSocketResponsesRequest || requestType == schemas.RealtimeRequest || requestType == schemas.CompactionRequest {
+	if requestType == schemas.ResponsesRequest || requestType == schemas.ResponsesStreamRequest || requestType == schemas.CompactionRequest {
 		s.logger.Debug("primary lookup failed, trying chat provider for the same model in chat completion")
 		pricing, ok = s.pricingData[makeKey(model, provider, normalizeRequestType(schemas.ChatCompletionRequest))]
 		if ok {
@@ -1191,8 +1191,7 @@ func (s *Store) getBasePricing(model, provider string, requestType schemas.Reque
 
 	// Lookup in image generation if image edit not found
 	if requestType == schemas.ImageEditRequest ||
-		requestType == schemas.ImageEditStreamRequest ||
-		requestType == schemas.ImageVariationRequest {
+		requestType == schemas.ImageEditStreamRequest {
 		s.logger.Debug("primary lookup failed, trying image generation provider for the same model")
 		pricing, ok = s.pricingData[makeKey(model, provider, normalizeRequestType(schemas.ImageGenerationRequest))]
 		if ok {
@@ -1270,8 +1269,6 @@ func detectPassthroughRequestType(provider schemas.ModelProvider, path string) s
 			return schemas.ImageGenerationRequest
 		case strings.HasSuffix(path, "/images/edits"):
 			return schemas.ImageEditRequest
-		case strings.HasSuffix(path, "/images/variations"):
-			return schemas.ImageVariationRequest
 		case strings.HasSuffix(path, "/audio/speech"):
 			return schemas.SpeechRequest
 		case strings.HasSuffix(path, "/audio/transcriptions"),

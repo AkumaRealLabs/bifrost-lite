@@ -34,8 +34,7 @@ type LoggingHandler struct {
 	// dropdowns don't need request-fresh data and the underlying matview-backed
 	// query set is heavy; a short TTL plus single-flight collapses hot reloads
 	// (every page load fires this) into one DB roundtrip.
-	filterDataCache    filterDataCache
-	mcpFilterDataCache filterDataCache
+	filterDataCache filterDataCache
 }
 
 // Keep session log page size in one place so the session sheet limit is easy to tune later.
@@ -72,22 +71,11 @@ const (
 	filterDimMetadataKeys   = "metadata_keys"
 )
 
-// MCP filter dimensions for /api/mcp-logs/filterdata.
-const (
-	mcpFilterDimToolNames    = "tool_names"
-	mcpFilterDimServerLabels = "server_labels"
-	mcpFilterDimVirtualKeys  = "virtual_keys"
-)
-
 var allFilterDimensions = []string{
 	filterDimModels, filterDimAliases, filterDimSelectedKeys, filterDimVirtualKeys,
 	filterDimRoutingRules, filterDimRoutingEngines, filterDimStopReasons,
 	filterDimTeams, filterDimCustomers, filterDimUsers, filterDimBusinessUnits,
 	filterDimMetadataKeys,
-}
-
-var allMCPFilterDimensions = []string{
-	mcpFilterDimToolNames, mcpFilterDimServerLabels, mcpFilterDimVirtualKeys,
 }
 
 // parseFilterDimensions returns the requested subset of dimensions in a
@@ -197,6 +185,19 @@ func parseParentRequestIDFilter(ctx *fasthttp.RequestCtx) string {
 	return ""
 }
 
+func applyTTFBFilters(ctx *fasthttp.RequestCtx, filters *logstore.SearchFilters) {
+	if minTTFB := string(ctx.QueryArgs().Peek("min_ttfb_ms")); minTTFB != "" {
+		if val, err := strconv.ParseFloat(minTTFB, 64); err == nil {
+			filters.MinTTFBMs = &val
+		}
+	}
+	if maxTTFB := string(ctx.QueryArgs().Peek("max_ttfb_ms")); maxTTFB != "" {
+		if val, err := strconv.ParseFloat(maxTTFB, 64); err == nil {
+			filters.MaxTTFBMs = &val
+		}
+	}
+}
+
 type RedactedKeysManager interface {
 	GetAllRedactedKeys(ctx context.Context, ids []string) []schemas.Key
 	GetAllRedactedVirtualKeys(ctx context.Context, ids []string) []tables.TableVirtualKey
@@ -232,12 +233,15 @@ func (h *LoggingHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.GET("/api/logs/histogram/cost", lib.ChainMiddlewares(h.getLogsCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/models", lib.ChainMiddlewares(h.getLogsModelHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency", lib.ChainMiddlewares(h.getLogsLatencyHistogram, middlewares...))
+	r.GET("/api/logs/histogram/ttfb", lib.ChainMiddlewares(h.getLogsTTFBHistogram, middlewares...))
 	r.GET("/api/logs/histogram/cost/by-provider", lib.ChainMiddlewares(h.getLogsProviderCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/tokens/by-provider", lib.ChainMiddlewares(h.getLogsProviderTokenHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency/by-provider", lib.ChainMiddlewares(h.getLogsProviderLatencyHistogram, middlewares...))
+	r.GET("/api/logs/histogram/ttfb/by-provider", lib.ChainMiddlewares(h.getLogsProviderTTFBHistogram, middlewares...))
 	r.GET("/api/logs/histogram/cost/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionCostHistogram, middlewares...))
 	r.GET("/api/logs/histogram/tokens/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionTokenHistogram, middlewares...))
 	r.GET("/api/logs/histogram/latency/by-dimension", lib.ChainMiddlewares(h.getLogsDimensionLatencyHistogram, middlewares...))
+	r.GET("/api/logs/ttfb/stats", lib.ChainMiddlewares(h.getLogsTTFBStats, middlewares...))
 	r.GET("/api/logs/dropped", lib.ChainMiddlewares(h.getDroppedRequests, middlewares...))
 	r.GET("/api/logs/filterdata", lib.ChainMiddlewares(h.getAvailableFilterData, middlewares...))
 	r.GET("/api/logs/rankings", lib.ChainMiddlewares(h.getModelRankings, middlewares...))
@@ -246,16 +250,6 @@ func (h *LoggingHandler) RegisterRoutes(r *router.Router, middlewares ...schemas
 	r.GET("/api/logs/dashboard", lib.ChainMiddlewares(h.getDashboard, middlewares...))
 	r.DELETE("/api/logs", lib.ChainMiddlewares(h.deleteLogs, middlewares...))
 	r.POST("/api/logs/recalculate-cost", lib.ChainMiddlewares(h.recalculateLogCosts, middlewares...))
-
-	// MCP Tool Log retrieval with filtering, search, and pagination
-	r.GET("/api/mcp-logs", lib.ChainMiddlewares(h.getMCPLogs, middlewares...))
-	r.GET("/api/mcp-logs/stats", lib.ChainMiddlewares(h.getMCPLogsStats, middlewares...))
-	r.GET("/api/mcp-logs/filterdata", lib.ChainMiddlewares(h.getMCPLogsFilterData, middlewares...))
-	r.GET("/api/mcp-logs/histogram", lib.ChainMiddlewares(h.getMCPHistogram, middlewares...))
-	r.GET("/api/mcp-logs/histogram/cost", lib.ChainMiddlewares(h.getMCPCostHistogram, middlewares...))
-	r.GET("/api/mcp-logs/histogram/top-tools", lib.ChainMiddlewares(h.getMCPTopTools, middlewares...))
-	r.GET("/api/mcp-logs/{id}", lib.ChainMiddlewares(h.getMCPLogByID, middlewares...))
-	r.DELETE("/api/mcp-logs", lib.ChainMiddlewares(h.deleteMCPLogs, middlewares...))
 }
 
 // getLogSessionByID handles GET /api/logs/sessions/{session_id} - Get logs in a single session.
@@ -456,6 +450,7 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -519,7 +514,7 @@ func (h *LoggingHandler) getLogs(ctx *fasthttp.RequestCtx) {
 	// Sort parameters
 	pagination.SortBy = "timestamp" // Default sort field
 	if sortBy := string(ctx.QueryArgs().Peek("sort_by")); sortBy != "" {
-		if sortBy == "timestamp" || sortBy == "latency" || sortBy == "tokens" || sortBy == "cost" {
+		if sortBy == "timestamp" || sortBy == "latency" || sortBy == "ttfb_ms" || sortBy == "tokens" || sortBy == "cost" {
 			pagination.SortBy = sortBy
 		}
 	}
@@ -697,6 +692,7 @@ func (h *LoggingHandler) getLogsStats(ctx *fasthttp.RequestCtx) {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -856,6 +852,7 @@ func parseHistogramFilters(ctx *fasthttp.RequestCtx) *logstore.SearchFilters {
 			filters.MaxLatency = &val
 		}
 	}
+	applyTTFBFilters(ctx, filters)
 	if minTokens := string(ctx.QueryArgs().Peek("min_tokens")); minTokens != "" {
 		if val, err := strconv.Atoi(minTokens); err == nil {
 			filters.MinTokens = &val
@@ -952,6 +949,21 @@ func (h *LoggingHandler) getLogsLatencyHistogram(ctx *fasthttp.RequestCtx) {
 	SendJSON(ctx, result)
 }
 
+// getLogsTTFBHistogram handles GET /api/logs/histogram/ttfb - Get time-bucketed streaming TTFB percentiles
+func (h *LoggingHandler) getLogsTTFBHistogram(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
+
+	result, err := h.logManager.GetTTFBHistogram(ctx, filters, bucketSizeSeconds)
+	if err != nil {
+		logger.Error("failed to get TTFB histogram: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("TTFB histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
 // getLogsProviderCostHistogram handles GET /api/logs/histogram/cost/by-provider - Get time-bucketed cost data with provider breakdown
 func (h *LoggingHandler) getLogsProviderCostHistogram(ctx *fasthttp.RequestCtx) {
 	filters := parseHistogramFilters(ctx)
@@ -991,6 +1003,54 @@ func (h *LoggingHandler) getLogsProviderLatencyHistogram(ctx *fasthttp.RequestCt
 	if err != nil {
 		logger.Error("failed to get provider latency histogram: %v", err)
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Provider latency histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
+// getLogsProviderTTFBHistogram handles GET /api/logs/histogram/ttfb/by-provider - Get time-bucketed streaming TTFB percentiles with provider breakdown
+func (h *LoggingHandler) getLogsProviderTTFBHistogram(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
+
+	result, err := h.logManager.GetProviderTTFBHistogram(ctx, filters, bucketSizeSeconds)
+	if err != nil {
+		logger.Error("failed to get provider TTFB histogram: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Provider TTFB histogram calculation failed: %v", err))
+		return
+	}
+
+	SendJSON(ctx, result)
+}
+
+func (h *LoggingHandler) getLogsTTFBStats(ctx *fasthttp.RequestCtx) {
+	filters := parseHistogramFilters(ctx)
+
+	windowSeconds := 900
+	if raw := string(ctx.QueryArgs().Peek("window_seconds")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			SendError(ctx, fasthttp.StatusBadRequest, "window_seconds must be greater than 0")
+			return
+		}
+		windowSeconds = parsed
+	}
+
+	minSamples := 20
+	if raw := string(ctx.QueryArgs().Peek("min_samples")); raw != "" {
+		parsed, err := strconv.Atoi(raw)
+		if err != nil || parsed <= 0 {
+			SendError(ctx, fasthttp.StatusBadRequest, "min_samples must be greater than 0")
+			return
+		}
+		minSamples = parsed
+	}
+
+	result, err := h.logManager.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+	if err != nil {
+		logger.Error("failed to get TTFB stats: %v", err)
+		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("TTFB stats calculation failed: %v", err))
 		return
 	}
 
@@ -1123,28 +1183,17 @@ var dashboardRankingDimensions = []logstore.RankingDimension{
 	logstore.RankingDimensionBusinessUnit,
 }
 
-const dashboardMCPTopToolsLimit = 10
-
 // getDashboard handles GET /api/logs/dashboard - returns every metric shown on
 // the /workspace/dashboard page in a single consolidated, public-facing payload.
 //
 // It accepts the same filter query parameters as the individual histogram and
 // rankings endpoints (period OR start_time/end_time, providers, models, status,
-// virtual_key_ids, team_ids, etc., plus metadata_<key> filters) and the MCP
-// filter params (tool_names, server_labels). Filters are parsed once and the
-// histogram bucket size is derived once from the resolved time range, so every
-// section is computed against an identical window. All sub-queries run
-// concurrently; if any fails the whole request fails, so consumers always get a
-// complete payload or a clear error, never partial data.
+// virtual_key_ids, team_ids, etc., plus metadata_<key> filters). Filters are
+// parsed once and the histogram bucket size is derived once from the resolved
+// time range, so every section is computed against an identical window.
 func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 	filters := parseHistogramFilters(ctx)
 	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
-
-	mcpFilters, err := parseMCPHistogramFilters(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
 
 	result := &logstore.DashboardResult{
 		Meta: logstore.DashboardMeta{
@@ -1203,6 +1252,14 @@ func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 		result.Overview.Latency = res
 		return nil
 	})
+	g.Go(func() error {
+		res, err := h.logManager.GetTTFBHistogram(gCtx, filters, bucketSizeSeconds)
+		if err != nil {
+			return fmt.Errorf("TTFB histogram: %w", err)
+		}
+		result.Overview.TTFB = res
+		return nil
+	})
 
 	// modelHistogram backs both the Overview "Model Usage" card and the Model
 	// Rankings "Top Models" chart; compute it once and share the pointer.
@@ -1241,6 +1298,14 @@ func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 		result.ProviderUsage.Latency = res
 		return nil
 	})
+	g.Go(func() error {
+		res, err := h.logManager.GetProviderTTFBHistogram(gCtx, filters, bucketSizeSeconds)
+		if err != nil {
+			return fmt.Errorf("provider TTFB histogram: %w", err)
+		}
+		result.ProviderUsage.TTFB = res
+		return nil
+	})
 
 	// ---- Model Rankings table ----
 	g.Go(func() error {
@@ -1266,32 +1331,6 @@ func (h *LoggingHandler) getDashboard(ctx *fasthttp.RequestCtx) {
 			return nil
 		})
 	}
-
-	// ---- MCP usage ----
-	g.Go(func() error {
-		res, err := h.logManager.GetMCPHistogram(gCtx, *mcpFilters, bucketSizeSeconds)
-		if err != nil {
-			return fmt.Errorf("mcp histogram: %w", err)
-		}
-		result.MCP.Volume = res
-		return nil
-	})
-	g.Go(func() error {
-		res, err := h.logManager.GetMCPCostHistogram(gCtx, *mcpFilters, bucketSizeSeconds)
-		if err != nil {
-			return fmt.Errorf("mcp cost histogram: %w", err)
-		}
-		result.MCP.Cost = res
-		return nil
-	})
-	g.Go(func() error {
-		res, err := h.logManager.GetMCPTopTools(gCtx, *mcpFilters, dashboardMCPTopToolsLimit)
-		if err != nil {
-			return fmt.Errorf("mcp top tools: %w", err)
-		}
-		result.MCP.TopTools = res
-		return nil
-	})
 
 	if err := g.Wait(); err != nil {
 		logger.Error("failed to build dashboard data: %v", err)
@@ -1825,478 +1864,4 @@ func parseMetadataFilters(ctx *fasthttp.RequestCtx, filters *logstore.SearchFilt
 type recalculateCostRequest struct {
 	Filters logstore.SearchFilters `json:"filters"`
 	Limit   *int                   `json:"limit,omitempty"`
-}
-
-// parseMCPFiltersAndPagination parses MCP tool log filters and pagination from query parameters.
-// Returns an error if any required parsing fails (e.g., invalid time format, invalid number format).
-func parseMCPFiltersAndPagination(ctx *fasthttp.RequestCtx) (*logstore.MCPToolLogSearchFilters, *logstore.PaginationOptions, error) {
-	filters := &logstore.MCPToolLogSearchFilters{}
-	pagination := &logstore.PaginationOptions{}
-
-	// Extract filters from query parameters
-	if toolNames := string(ctx.QueryArgs().Peek("tool_names")); toolNames != "" {
-		filters.ToolNames = parseCommaSeparated(toolNames)
-	}
-	if serverLabels := string(ctx.QueryArgs().Peek("server_labels")); serverLabels != "" {
-		filters.ServerLabels = parseCommaSeparated(serverLabels)
-	}
-	if statuses := string(ctx.QueryArgs().Peek("status")); statuses != "" {
-		filters.Status = parseCommaSeparated(statuses)
-	}
-	if virtualKeyIDs := string(ctx.QueryArgs().Peek("virtual_key_ids")); virtualKeyIDs != "" {
-		filters.VirtualKeyIDs = parseCommaSeparated(virtualKeyIDs)
-	}
-	if llmRequestIDs := string(ctx.QueryArgs().Peek("llm_request_ids")); llmRequestIDs != "" {
-		filters.LLMRequestIDs = parseCommaSeparated(llmRequestIDs)
-	}
-	var startTimeErr, endTimeErr error
-	if startTime := string(ctx.QueryArgs().Peek("start_time")); startTime != "" {
-		t, err := time.Parse(time.RFC3339Nano, startTime)
-		if err != nil {
-			startTimeErr = fmt.Errorf("invalid start_time format: %w", err)
-		} else {
-			filters.StartTime = &t
-		}
-	}
-	if endTime := string(ctx.QueryArgs().Peek("end_time")); endTime != "" {
-		t, err := time.Parse(time.RFC3339Nano, endTime)
-		if err != nil {
-			endTimeErr = fmt.Errorf("invalid end_time format: %w", err)
-		} else {
-			filters.EndTime = &t
-		}
-	}
-	if period := string(ctx.QueryArgs().Peek("period")); period != "" {
-		if start, end := ResolvePeriod(period); start != nil {
-			filters.StartTime = start
-			filters.EndTime = end
-			startTimeErr = nil
-			endTimeErr = nil
-		}
-	}
-	if startTimeErr != nil {
-		return nil, nil, startTimeErr
-	}
-	if endTimeErr != nil {
-		return nil, nil, endTimeErr
-	}
-	if minLatency := string(ctx.QueryArgs().Peek("min_latency")); minLatency != "" {
-		f, err := strconv.ParseFloat(minLatency, 64)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid min_latency format: %w", err)
-		}
-		filters.MinLatency = &f
-	}
-	if maxLatency := string(ctx.QueryArgs().Peek("max_latency")); maxLatency != "" {
-		val, err := strconv.ParseFloat(maxLatency, 64)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid max_latency format: %w", err)
-		}
-		filters.MaxLatency = &val
-	}
-	if contentSearch := string(ctx.QueryArgs().Peek("content_search")); contentSearch != "" {
-		filters.ContentSearch = contentSearch
-	}
-
-	// Extract pagination parameters
-	pagination.Limit = 50 // Default limit
-	if limit := string(ctx.QueryArgs().Peek("limit")); limit != "" {
-		i, err := strconv.Atoi(limit)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid limit format: %w", err)
-		}
-		if i <= 0 {
-			return nil, nil, fmt.Errorf("limit must be greater than 0")
-		}
-		if i > 1000 {
-			return nil, nil, fmt.Errorf("limit cannot exceed 1000")
-		}
-		pagination.Limit = i
-	}
-
-	pagination.Offset = 0 // Default offset
-	if offset := string(ctx.QueryArgs().Peek("offset")); offset != "" {
-		i, err := strconv.Atoi(offset)
-		if err != nil {
-			return nil, nil, fmt.Errorf("invalid offset format: %w", err)
-		}
-		if i < 0 {
-			return nil, nil, fmt.Errorf("offset cannot be negative")
-		}
-		pagination.Offset = i
-	}
-
-	// Sort parameters
-	pagination.SortBy = "timestamp" // Default sort field
-	if sortBy := string(ctx.QueryArgs().Peek("sort_by")); sortBy != "" {
-		if sortBy == "timestamp" || sortBy == "latency" || sortBy == "cost" {
-			pagination.SortBy = sortBy
-		} else {
-			return nil, nil, fmt.Errorf("invalid sort_by: must be 'timestamp', 'latency' or 'cost'")
-		}
-	}
-
-	pagination.Order = "desc" // Default sort order
-	if order := string(ctx.QueryArgs().Peek("order")); order != "" {
-		if order == "asc" || order == "desc" {
-			pagination.Order = order
-		} else {
-			return nil, nil, fmt.Errorf("invalid order: must be 'asc' or 'desc'")
-		}
-	}
-
-	return filters, pagination, nil
-}
-
-// parseMCPFilters parses MCP tool log filters from query parameters (without pagination).
-// Returns an error if any required parsing fails.
-func parseMCPFilters(ctx *fasthttp.RequestCtx) (*logstore.MCPToolLogSearchFilters, error) {
-	filters := &logstore.MCPToolLogSearchFilters{}
-
-	// Extract filters from query parameters
-	if toolNames := string(ctx.QueryArgs().Peek("tool_names")); toolNames != "" {
-		filters.ToolNames = parseCommaSeparated(toolNames)
-	}
-	if serverLabels := string(ctx.QueryArgs().Peek("server_labels")); serverLabels != "" {
-		filters.ServerLabels = parseCommaSeparated(serverLabels)
-	}
-	if statuses := string(ctx.QueryArgs().Peek("status")); statuses != "" {
-		filters.Status = parseCommaSeparated(statuses)
-	}
-	if virtualKeyIDs := string(ctx.QueryArgs().Peek("virtual_key_ids")); virtualKeyIDs != "" {
-		filters.VirtualKeyIDs = parseCommaSeparated(virtualKeyIDs)
-	}
-	if llmRequestIDs := string(ctx.QueryArgs().Peek("llm_request_ids")); llmRequestIDs != "" {
-		filters.LLMRequestIDs = parseCommaSeparated(llmRequestIDs)
-	}
-	var timeParseErr error
-	if startTime := string(ctx.QueryArgs().Peek("start_time")); startTime != "" {
-		t, err := time.Parse(time.RFC3339Nano, startTime)
-		if err != nil {
-			timeParseErr = fmt.Errorf("invalid start_time format: %w", err)
-		} else {
-			filters.StartTime = &t
-		}
-	}
-	if endTime := string(ctx.QueryArgs().Peek("end_time")); endTime != "" {
-		t, err := time.Parse(time.RFC3339Nano, endTime)
-		if err != nil {
-			if timeParseErr == nil {
-				timeParseErr = fmt.Errorf("invalid end_time format: %w", err)
-			}
-		} else {
-			filters.EndTime = &t
-		}
-	}
-	if period := string(ctx.QueryArgs().Peek("period")); period != "" {
-		if start, end := ResolvePeriod(period); start != nil {
-			filters.StartTime = start
-			filters.EndTime = end
-			timeParseErr = nil
-		}
-	}
-	if timeParseErr != nil {
-		return nil, timeParseErr
-	}
-	if minLatency := string(ctx.QueryArgs().Peek("min_latency")); minLatency != "" {
-		f, err := strconv.ParseFloat(minLatency, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid min_latency format: %w", err)
-		}
-		filters.MinLatency = &f
-	}
-	if maxLatency := string(ctx.QueryArgs().Peek("max_latency")); maxLatency != "" {
-		val, err := strconv.ParseFloat(maxLatency, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid max_latency format: %w", err)
-		}
-		filters.MaxLatency = &val
-	}
-	if contentSearch := string(ctx.QueryArgs().Peek("content_search")); contentSearch != "" {
-		filters.ContentSearch = contentSearch
-	}
-
-	return filters, nil
-}
-
-// ==================== MCP TOOL LOGGING HANDLERS ====================
-
-// getMCPLogs handles GET /api/mcp-logs - Get MCP tool logs with filtering, search, and pagination via query parameters
-func (h *LoggingHandler) getMCPLogs(ctx *fasthttp.RequestCtx) {
-	filters, pagination, err := parseMCPFiltersAndPagination(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-
-	result, err := h.logManager.SearchMCPToolLogs(ctx, filters, pagination)
-	if err != nil {
-		logger.Error("failed to search MCP tool logs: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Search failed: %v", err))
-		return
-	}
-
-	// Collect unique virtual key IDs from the logs
-	virtualKeyIDs := make(map[string]struct{})
-	for _, log := range result.Logs {
-		if log.VirtualKeyID != nil && *log.VirtualKeyID != "" {
-			virtualKeyIDs[*log.VirtualKeyID] = struct{}{}
-		}
-	}
-
-	toSlice := func(m map[string]struct{}) []string {
-		if len(m) == 0 {
-			return nil
-		}
-		out := make([]string, 0, len(m))
-		for id := range m {
-			out = append(out, id)
-		}
-		return out
-	}
-
-	redactedVirtualKeys := h.redactedKeysManager.GetAllRedactedVirtualKeys(ctx, toSlice(virtualKeyIDs))
-
-	// Add virtual key to the result
-	for i, log := range result.Logs {
-		if log.VirtualKeyID != nil && log.VirtualKeyName != nil && *log.VirtualKeyID != "" && *log.VirtualKeyName != "" {
-			result.Logs[i].VirtualKey = findRedactedVirtualKey(redactedVirtualKeys, *log.VirtualKeyID, *log.VirtualKeyName)
-		}
-	}
-
-	SendJSON(ctx, result)
-}
-
-// getMCPLogByID handles GET /api/mcp-logs/{id} - Get a single MCP tool log entry by ID.
-func (h *LoggingHandler) getMCPLogByID(ctx *fasthttp.RequestCtx) {
-	id, ok := ctx.UserValue("id").(string)
-	if !ok || strings.TrimSpace(id) == "" {
-		SendError(ctx, fasthttp.StatusBadRequest, "MCP log id is required")
-		return
-	}
-
-	log, err := h.logManager.GetMCPToolLog(ctx, id)
-	if err != nil {
-		if errors.Is(err, logstore.ErrNotFound) {
-			SendError(ctx, fasthttp.StatusNotFound, "MCP log not found")
-			return
-		}
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to get MCP log: %v", err))
-		return
-	}
-
-	if log.VirtualKeyID != nil && log.VirtualKeyName != nil && *log.VirtualKeyID != "" && *log.VirtualKeyName != "" {
-		redactedVirtualKeys := h.redactedKeysManager.GetAllRedactedVirtualKeys(ctx, []string{*log.VirtualKeyID})
-		log.VirtualKey = findRedactedVirtualKey(redactedVirtualKeys, *log.VirtualKeyID, *log.VirtualKeyName)
-	}
-
-	SendJSON(ctx, log)
-}
-
-// getMCPLogsStats handles GET /api/mcp-logs/stats - Get statistics for MCP tool logs with filtering
-func (h *LoggingHandler) getMCPLogsStats(ctx *fasthttp.RequestCtx) {
-	filters, err := parseMCPFilters(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-
-	stats, err := h.logManager.GetMCPToolLogStats(ctx, filters)
-	if err != nil {
-		logger.Error("failed to get MCP tool log stats: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Stats calculation failed: %v", err))
-		return
-	}
-
-	SendJSON(ctx, stats)
-}
-
-// getMCPLogsFilterData handles GET /api/mcp-logs/filterdata - Get all unique filter data from MCP tool logs
-func (h *LoggingHandler) getMCPLogsFilterData(ctx *fasthttp.RequestCtx) {
-	hideDeletedVirtualKeys := h.shouldHideDeletedVirtualKeysInFilters()
-
-	dims := parseFilterDimensions(string(ctx.QueryArgs().Peek("dimensions")), allMCPFilterDimensions)
-	want := dimSet(dims)
-	query := strings.TrimSpace(string(ctx.QueryArgs().Peek("q")))
-	useCache := shouldUseFilterDataCache(ctx, query)
-
-	var entry *filterDataCacheEntry
-	if useCache {
-		cacheKey := fmt.Sprintf("hide_deleted=%v|dims=%s", hideDeletedVirtualKeys, strings.Join(dims, ","))
-		var cached map[string]interface{}
-		var ok bool
-		entry, cached, ok = h.mcpFilterDataCache.load(cacheKey)
-		if ok {
-			SendJSON(ctx, cached)
-			return
-		}
-	}
-	released := false
-	defer func() {
-		if !released && entry != nil {
-			h.mcpFilterDataCache.release(entry)
-		}
-	}()
-
-	var toolNames []string
-	if _, ok := want[mcpFilterDimToolNames]; ok {
-		var err error
-		toolNames, err = h.logManager.GetAvailableToolNames(ctx, defaultFilterDataLimit, query)
-		if err != nil {
-			logger.Error("failed to get available tool names: %v", err)
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get available tool names: %v", err))
-			return
-		}
-	}
-
-	var serverLabels []string
-	if _, ok := want[mcpFilterDimServerLabels]; ok {
-		var err error
-		serverLabels, err = h.logManager.GetAvailableServerLabels(ctx, defaultFilterDataLimit, query)
-		if err != nil {
-			logger.Error("failed to get available server labels: %v", err)
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get available server labels: %v", err))
-			return
-		}
-	}
-
-	var virtualKeysArray []tables.TableVirtualKey
-	if _, ok := want[mcpFilterDimVirtualKeys]; ok {
-		virtualKeys, err := h.logManager.GetAvailableMCPVirtualKeys(ctx, defaultFilterDataLimit, query)
-		if err != nil {
-			logger.Error("failed to get available MCP virtual keys: %v", err)
-			SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("Failed to get available MCP virtual keys: %v", err))
-			return
-		}
-
-		virtualKeyIDs := make([]string, len(virtualKeys))
-		for i, key := range virtualKeys {
-			virtualKeyIDs[i] = key.ID
-		}
-
-		redactedVirtualKeys := make(map[string]tables.TableVirtualKey)
-		for _, virtualKey := range h.redactedKeysManager.GetAllRedactedVirtualKeys(ctx, virtualKeyIDs) {
-			redactedVirtualKeys[virtualKey.ID] = virtualKey
-		}
-
-		for _, virtualKey := range virtualKeys {
-			if _, ok := redactedVirtualKeys[virtualKey.ID]; !ok {
-				if hideDeletedVirtualKeys {
-					continue
-				}
-				redactedVirtualKeys[virtualKey.ID] = tables.TableVirtualKey{
-					ID:   virtualKey.ID,
-					Name: virtualKey.Name + " (deleted)",
-				}
-			}
-		}
-
-		virtualKeysArray = make([]tables.TableVirtualKey, 0, len(redactedVirtualKeys))
-		for _, key := range redactedVirtualKeys {
-			virtualKeysArray = append(virtualKeysArray, key)
-		}
-	}
-
-	payload := make(map[string]interface{}, len(dims))
-	if _, ok := want[mcpFilterDimToolNames]; ok {
-		payload[mcpFilterDimToolNames] = toolNames
-	}
-	if _, ok := want[mcpFilterDimServerLabels]; ok {
-		payload[mcpFilterDimServerLabels] = serverLabels
-	}
-	if _, ok := want[mcpFilterDimVirtualKeys]; ok {
-		payload[mcpFilterDimVirtualKeys] = virtualKeysArray
-	}
-	if useCache && entry != nil {
-		h.mcpFilterDataCache.store(entry, payload)
-		released = true
-	}
-	SendJSON(ctx, payload)
-}
-
-// deleteMCPLogs handles DELETE /api/mcp-logs - Delete MCP tool logs by their IDs
-func (h *LoggingHandler) deleteMCPLogs(ctx *fasthttp.RequestCtx) {
-	var req struct {
-		IDs []string `json:"ids"`
-	}
-	if err := sonic.Unmarshal(ctx.PostBody(), &req); err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, "Invalid JSON")
-		return
-	}
-
-	if len(req.IDs) == 0 {
-		SendError(ctx, fasthttp.StatusBadRequest, "No log IDs provided")
-		return
-	}
-
-	if err := h.logManager.DeleteMCPToolLogs(ctx, req.IDs); err != nil {
-		logger.Error("failed to delete MCP tool logs: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, "Failed to delete MCP tool logs")
-		return
-	}
-
-	SendJSON(ctx, map[string]interface{}{
-		"message": "MCP tool logs deleted successfully",
-	})
-}
-
-// parseMCPHistogramFilters extracts time range and MCP-specific filters for histogram queries.
-func parseMCPHistogramFilters(ctx *fasthttp.RequestCtx) (*logstore.MCPToolLogSearchFilters, error) {
-	return parseMCPFilters(ctx)
-}
-
-// getMCPHistogram handles GET /api/mcp-logs/histogram - Get time-bucketed MCP tool call volume
-func (h *LoggingHandler) getMCPHistogram(ctx *fasthttp.RequestCtx) {
-	filters, err := parseMCPHistogramFilters(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
-
-	result, err := h.logManager.GetMCPHistogram(ctx, *filters, bucketSizeSeconds)
-	if err != nil {
-		logger.Error("failed to get MCP histogram: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("MCP histogram calculation failed: %v", err))
-		return
-	}
-
-	SendJSON(ctx, result)
-}
-
-// getMCPCostHistogram handles GET /api/mcp-logs/histogram/cost - Get time-bucketed MCP cost data
-func (h *LoggingHandler) getMCPCostHistogram(ctx *fasthttp.RequestCtx) {
-	filters, err := parseMCPHistogramFilters(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-	bucketSizeSeconds := calculateBucketSize(filters.StartTime, filters.EndTime)
-
-	result, err := h.logManager.GetMCPCostHistogram(ctx, *filters, bucketSizeSeconds)
-	if err != nil {
-		logger.Error("failed to get MCP cost histogram: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("MCP cost histogram calculation failed: %v", err))
-		return
-	}
-
-	SendJSON(ctx, result)
-}
-
-// getMCPTopTools handles GET /api/mcp-logs/histogram/top-tools - Get top 10 MCP tools by call count
-func (h *LoggingHandler) getMCPTopTools(ctx *fasthttp.RequestCtx) {
-	filters, err := parseMCPHistogramFilters(ctx)
-	if err != nil {
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
-
-	result, err := h.logManager.GetMCPTopTools(ctx, *filters, 10)
-	if err != nil {
-		logger.Error("failed to get MCP top tools: %v", err)
-		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("MCP top tools calculation failed: %v", err))
-		return
-	}
-
-	SendJSON(ctx, result)
 }

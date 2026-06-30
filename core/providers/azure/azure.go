@@ -185,7 +185,6 @@ func NewAzureProvider(config *schemas.ProviderConfig, logger schemas.Logger) (*A
 	}
 
 	// Configure proxy and retry policy
-	client = providerUtils.ConfigureProxy(client, config.ProxyConfig, logger)
 	client = providerUtils.ConfigureDialer(client, config.NetworkConfig.AllowPrivateNetwork)
 	client = providerUtils.ConfigureTLS(client, config.NetworkConfig, logger)
 	streamingClient := providerUtils.BuildStreamingClient(client)
@@ -1399,11 +1398,6 @@ func (provider *AzureProvider) ImageEditStream(ctx *schemas.BifrostContext, post
 		postHookSpanFinalizer,
 	)
 
-}
-
-// ImageVariation is not supported by the Azure provider.
-func (provider *AzureProvider) ImageVariation(ctx *schemas.BifrostContext, key schemas.Key, request *schemas.BifrostImageVariationRequest) (*schemas.BifrostImageGenerationResponse, *schemas.BifrostError) {
-	return nil, providerUtils.NewUnsupportedOperationError(schemas.ImageVariationRequest, provider.GetProviderKey())
 }
 
 // VideoGeneration creates a video using Azure's OpenAI-compatible Sora API.

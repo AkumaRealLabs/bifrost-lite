@@ -14,8 +14,6 @@ import (
 	"github.com/maximhq/bifrost/framework/streaming"
 )
 
-const realtimeMissingTranscriptText = "[Audio transcription unavailable]"
-
 // insertInitialLogEntry creates a new log entry in the database using GORM
 func (p *LoggerPlugin) insertInitialLogEntry(
 	ctx context.Context,
@@ -46,7 +44,6 @@ func (p *LoggerPlugin) insertInitialLogEntry(
 		OCRInputParsed:              data.OCRInput,
 		ImageGenerationInputParsed:  data.ImageGenerationInput,
 		ImageEditInputParsed:        data.ImageEditInput,
-		ImageVariationInputParsed:   data.ImageVariationInput,
 		RoutingEnginesUsed:          routingEnginesUsed,
 		MetadataParsed:              data.Metadata,
 		VideoGenerationInputParsed:  data.VideoGenerationInput,
@@ -351,6 +348,10 @@ func (p *LoggerPlugin) applyStreamingOutputToEntry(entry *logstore.Log, streamRe
 		latF := float64(streamResponse.Data.Latency)
 		entry.Latency = &latF
 	}
+	if streamResponse.Data.TimeToFirstToken > 0 {
+		ttfb := float64(streamResponse.Data.TimeToFirstToken)
+		entry.TTFBMs = &ttfb
+	}
 
 	// Update model and alias from resolved/requested model pair.
 	applyModelAlias(entry, streamResponse.RequestedModel, streamResponse.ResolvedModel)
@@ -585,359 +586,6 @@ func (p *LoggerPlugin) applyNonStreamingOutputToEntry(entry *logstore.Log, resul
 	}
 }
 
-func (p *LoggerPlugin) applyRealtimeOutputToEntry(entry *logstore.Log, result *schemas.BifrostResponse, shouldStoreRaw bool, contentLoggingEnabled bool) {
-	if result == nil || result.ResponsesResponse == nil {
-		return
-	}
-
-	// Stop reason - always persist regardless of content logging settings
-	if result.ResponsesResponse.StopReason != nil {
-		entry.StopReason = result.ResponsesResponse.StopReason
-	}
-
-	if usage := result.ResponsesResponse.Usage; usage != nil {
-		bifrostUsage := usage.ToBifrostLLMUsage()
-		entry.TokenUsageParsed = bifrostUsage
-		entry.PromptTokens = bifrostUsage.PromptTokens
-		entry.CompletionTokens = bifrostUsage.CompletionTokens
-		entry.TotalTokens = bifrostUsage.TotalTokens
-	}
-
-	if contentLoggingEnabled {
-		if outputMessage := extractRealtimeOutputMessage(result.ResponsesResponse.Output); outputMessage != nil {
-			entry.OutputMessageParsed = outputMessage
-		}
-	}
-
-	extraFields := result.GetExtraFields()
-	applyRealtimeRawRequestBackfill(entry, extraFields.RawRequest, contentLoggingEnabled, shouldStoreRaw)
-	if shouldStoreRaw && contentLoggingEnabled && extraFields.RawResponse != nil {
-		switch raw := extraFields.RawResponse.(type) {
-		case string:
-			entry.RawResponse = strings.TrimSpace(raw)
-		default:
-			if rawResponseBytes, err := sonic.Marshal(extraFields.RawResponse); err == nil {
-				entry.RawResponse = string(rawResponseBytes)
-			}
-		}
-	}
-}
-
-// applyRealtimeRawRequestBackfill writes RawRequest onto entry from an
-// ExtraFields.RawRequest value (string or marshalable) and rebuilds
-// InputHistoryParsed from any embedded realtime user/transcript events.
-// Used by both success and error paths so realtime turns that fail mid-stream
-// still surface their input transcript in logs.
-// shouldStoreRaw gates whether entry.RawRequest is populated; InputHistoryParsed
-// (parsed content) is always extracted when contentLoggingEnabled regardless.
-func applyRealtimeRawRequestBackfill(entry *logstore.Log, rawRequest any, contentLoggingEnabled bool, shouldStoreRaw bool) {
-	if !contentLoggingEnabled || rawRequest == nil {
-		return
-	}
-	var rawStr string
-	switch raw := rawRequest.(type) {
-	case string:
-		rawStr = strings.TrimSpace(raw)
-	default:
-		if rawRequestBytes, err := sonic.Marshal(rawRequest); err == nil {
-			rawStr = string(rawRequestBytes)
-		}
-	}
-	if rawStr == "" {
-		return
-	}
-	if shouldStoreRaw {
-		entry.RawRequest = rawStr
-	}
-	if inputHistory := extractRealtimeInputHistoryFromRawRequest(rawStr); len(inputHistory) > 0 {
-		entry.InputHistoryParsed = mergeRealtimeInputHistory(entry.InputHistoryParsed, inputHistory)
-	}
-}
-
-func extractRealtimeInputHistoryFromRawRequest(rawRequest string) []schemas.ChatMessage {
-	rawRequest = strings.TrimSpace(rawRequest)
-	if rawRequest == "" {
-		return nil
-	}
-
-	parts := strings.Split(rawRequest, "\n\n")
-	messages := make([]schemas.ChatMessage, 0, len(parts))
-	for _, part := range parts {
-		event, err := schemas.ParseRealtimeEvent([]byte(strings.TrimSpace(part)))
-		if err != nil || event == nil {
-			continue
-		}
-
-		switch {
-		case schemas.IsRealtimeInputTranscriptEvent(event):
-			if transcript := extractRealtimeTranscript(event); transcript != "" {
-				messages = append(messages, schemas.ChatMessage{
-					Role: schemas.ChatMessageRoleUser,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(transcript),
-					},
-				})
-			}
-		case schemas.IsRealtimeUserInputEvent(event):
-			if content := extractRealtimeRawItemContent(event.Item); content != "" {
-				messages = append(messages, schemas.ChatMessage{
-					Role: schemas.ChatMessageRoleUser,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(content),
-					},
-				})
-			}
-		case schemas.IsRealtimeToolOutputEvent(event):
-			if content := extractRealtimeRawItemContent(event.Item); content != "" {
-				messages = append(messages, schemas.ChatMessage{
-					Role: schemas.ChatMessageRoleTool,
-					Content: &schemas.ChatMessageContent{
-						ContentStr: schemas.Ptr(content),
-					},
-					ChatToolMessage: &schemas.ChatToolMessage{
-						ToolCallID: schemas.Ptr(event.Item.CallID),
-					},
-				})
-			}
-		}
-	}
-
-	if len(messages) == 0 {
-		return nil
-	}
-	return messages
-}
-
-func mergeRealtimeInputHistory(existing, backfill []schemas.ChatMessage) []schemas.ChatMessage {
-	if len(backfill) == 0 {
-		return existing
-	}
-
-	// Run dedupe even when existing is empty so duplicate events inside the
-	// same raw-event blob (same turn captured twice) collapse instead of
-	// getting written out verbatim.
-	merged := append([]schemas.ChatMessage(nil), existing...)
-	for _, candidate := range backfill {
-		if realtimeInputHistoryContainsEquivalent(merged, candidate) {
-			continue
-		}
-		if candidate.Role == schemas.ChatMessageRoleUser {
-			inserted := false
-			for idx, msg := range merged {
-				if msg.Role == schemas.ChatMessageRoleTool {
-					merged = append(merged[:idx], append([]schemas.ChatMessage{candidate}, merged[idx:]...)...)
-					inserted = true
-					break
-				}
-			}
-			if inserted {
-				continue
-			}
-		}
-		merged = append(merged, candidate)
-	}
-	return merged
-}
-
-func realtimeInputHistoryContainsEquivalent(history []schemas.ChatMessage, candidate schemas.ChatMessage) bool {
-	candidateContent := strings.TrimSpace(realtimeInputHistoryMessageContent(candidate))
-	candidateToolCallID := strings.TrimSpace(realtimeInputHistoryToolCallID(candidate))
-
-	for _, existing := range history {
-		if existing.Role != candidate.Role {
-			continue
-		}
-		if strings.TrimSpace(realtimeInputHistoryMessageContent(existing)) != candidateContent {
-			continue
-		}
-		if strings.TrimSpace(realtimeInputHistoryToolCallID(existing)) != candidateToolCallID {
-			continue
-		}
-		return true
-	}
-
-	return false
-}
-
-func realtimeInputHistoryMessageContent(message schemas.ChatMessage) string {
-	if message.Content == nil || message.Content.ContentStr == nil {
-		return ""
-	}
-	return *message.Content.ContentStr
-}
-
-func realtimeInputHistoryToolCallID(message schemas.ChatMessage) string {
-	if message.ChatToolMessage == nil || message.ChatToolMessage.ToolCallID == nil {
-		return ""
-	}
-	return *message.ChatToolMessage.ToolCallID
-}
-
-func extractRealtimeTranscript(event *schemas.BifrostRealtimeEvent) string {
-	if event == nil || event.ExtraParams == nil {
-		return realtimeMissingTranscriptText
-	}
-	raw, ok := event.ExtraParams["transcript"]
-	if !ok || len(raw) == 0 {
-		return realtimeMissingTranscriptText
-	}
-	var transcript string
-	if err := schemas.Unmarshal(raw, &transcript); err != nil {
-		return realtimeMissingTranscriptText
-	}
-	transcript = strings.TrimSpace(transcript)
-	if transcript == "" {
-		return realtimeMissingTranscriptText
-	}
-	return transcript
-}
-
-func extractRealtimeRawItemContent(item *schemas.RealtimeItem) string {
-	if item == nil {
-		return ""
-	}
-	if content := extractRealtimeRawContent(item.Content); content != "" {
-		return content
-	}
-	if item.Role == "user" && realtimeItemHasMissingAudioTranscript(item) {
-		return realtimeMissingTranscriptText
-	}
-	switch {
-	case strings.TrimSpace(item.Output) != "":
-		return strings.TrimSpace(item.Output)
-	case strings.TrimSpace(item.Arguments) != "":
-		return strings.TrimSpace(item.Arguments)
-	default:
-		return ""
-	}
-}
-
-func realtimeItemHasMissingAudioTranscript(item *schemas.RealtimeItem) bool {
-	if item == nil || len(item.Content) == 0 {
-		return false
-	}
-
-	var decoded []map[string]any
-	if err := sonic.Unmarshal(item.Content, &decoded); err != nil {
-		return false
-	}
-
-	for _, part := range decoded {
-		partType, _ := part["type"].(string)
-		if partType != "input_audio" {
-			continue
-		}
-		transcript, exists := part["transcript"]
-		if !exists || transcript == nil {
-			return true
-		}
-		if text, ok := transcript.(string); ok && strings.TrimSpace(text) == "" {
-			return true
-		}
-	}
-
-	return false
-}
-
-func extractRealtimeRawContent(raw []byte) string {
-	if len(raw) == 0 {
-		return ""
-	}
-
-	var decoded any
-	if err := sonic.Unmarshal(raw, &decoded); err != nil {
-		return strings.TrimSpace(string(raw))
-	}
-
-	var parts []string
-	collectRealtimeRawTextFragments(decoded, &parts)
-	return strings.TrimSpace(strings.Join(parts, " "))
-}
-
-func collectRealtimeRawTextFragments(value any, parts *[]string) {
-	switch v := value.(type) {
-	case map[string]any:
-		for key, field := range v {
-			switch key {
-			case "text", "transcript", "input_text", "output_text", "output", "arguments":
-				if text, ok := field.(string); ok {
-					text = strings.TrimSpace(text)
-					if text != "" {
-						*parts = append(*parts, text)
-					}
-					continue
-				}
-			}
-			collectRealtimeRawTextFragments(field, parts)
-		}
-	case []any:
-		for _, item := range v {
-			collectRealtimeRawTextFragments(item, parts)
-		}
-	}
-}
-
-func extractRealtimeOutputMessage(output []schemas.ResponsesMessage) *schemas.ChatMessage {
-	var contentParts []string
-	toolCalls := make([]schemas.ChatAssistantMessageToolCall, 0)
-	for _, item := range output {
-		if item.Type == nil {
-			continue
-		}
-		switch *item.Type {
-		case schemas.ResponsesMessageTypeMessage:
-			if item.Role == nil || *item.Role != schemas.ResponsesInputMessageRoleAssistant {
-				continue
-			}
-			if text := extractRealtimeResponsesContent(item.Content); text != "" {
-				contentParts = append(contentParts, text)
-			}
-		case schemas.ResponsesMessageTypeFunctionCall:
-			if item.ResponsesToolMessage == nil || item.ResponsesToolMessage.Name == nil {
-				continue
-			}
-			toolType := "function"
-			toolCall := schemas.ChatAssistantMessageToolCall{
-				Index: uint16(len(toolCalls)),
-				Type:  &toolType,
-				Function: schemas.ChatAssistantMessageToolCallFunction{
-					Name:      item.ResponsesToolMessage.Name,
-					Arguments: derefString(item.ResponsesToolMessage.Arguments),
-				},
-			}
-			if item.CallID != nil && strings.TrimSpace(*item.CallID) != "" {
-				toolCall.ID = schemas.Ptr(strings.TrimSpace(*item.CallID))
-			} else if item.ID != nil && strings.TrimSpace(*item.ID) != "" {
-				toolCall.ID = schemas.Ptr(strings.TrimSpace(*item.ID))
-			}
-			toolCalls = append(toolCalls, toolCall)
-		}
-	}
-
-	if len(contentParts) == 0 && len(toolCalls) == 0 {
-		return nil
-	}
-
-	message := &schemas.ChatMessage{Role: schemas.ChatMessageRoleAssistant}
-	if len(contentParts) > 0 {
-		content := strings.Join(contentParts, "\n")
-		message.Content = &schemas.ChatMessageContent{ContentStr: &content}
-	}
-	if len(toolCalls) > 0 {
-		message.ChatAssistantMessage = &schemas.ChatAssistantMessage{
-			ToolCalls: toolCalls,
-		}
-	}
-	return message
-}
-
-func derefString(value *string) string {
-	if value == nil {
-		return ""
-	}
-	return *value
-}
-
 // SearchLogs searches logs with filters and pagination using GORM
 func (p *LoggerPlugin) SearchLogs(ctx context.Context, filters logstore.SearchFilters, pagination logstore.PaginationOptions) (*logstore.SearchResult, error) {
 	// Set default pagination if not provided
@@ -978,11 +626,6 @@ func (p *LoggerPlugin) GetLog(ctx context.Context, id string) (*logstore.Log, er
 	return p.store.FindByID(ctx, id)
 }
 
-// GetMCPToolLog retrieves a single MCP tool log entry by ID.
-func (p *LoggerPlugin) GetMCPToolLog(ctx context.Context, id string) (*logstore.MCPToolLog, error) {
-	return p.store.FindMCPToolLog(ctx, id)
-}
-
 // GetStats calculates statistics for logs matching the given filters
 func (p *LoggerPlugin) GetStats(ctx context.Context, filters logstore.SearchFilters) (*logstore.SearchStats, error) {
 	return p.store.GetStats(ctx, filters)
@@ -1013,6 +656,11 @@ func (p *LoggerPlugin) GetLatencyHistogram(ctx context.Context, filters logstore
 	return p.store.GetLatencyHistogram(ctx, filters, bucketSizeSeconds)
 }
 
+// GetTTFBHistogram returns time-bucketed streaming TTFB percentiles for the given filters
+func (p *LoggerPlugin) GetTTFBHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	return p.store.GetTTFBHistogram(ctx, filters, bucketSizeSeconds)
+}
+
 // GetProviderCostHistogram returns time-bucketed cost data with provider breakdown for the given filters
 func (p *LoggerPlugin) GetProviderCostHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	return p.store.GetProviderCostHistogram(ctx, filters, bucketSizeSeconds)
@@ -1026,6 +674,16 @@ func (p *LoggerPlugin) GetProviderTokenHistogram(ctx context.Context, filters lo
 // GetProviderLatencyHistogram returns time-bucketed latency percentiles with provider breakdown for the given filters
 func (p *LoggerPlugin) GetProviderLatencyHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
 	return p.store.GetProviderLatencyHistogram(ctx, filters, bucketSizeSeconds)
+}
+
+// GetProviderTTFBHistogram returns time-bucketed streaming TTFB percentiles with provider breakdown for the given filters
+func (p *LoggerPlugin) GetProviderTTFBHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	return p.store.GetProviderTTFBHistogram(ctx, filters, bucketSizeSeconds)
+}
+
+// GetTTFBStats returns recent streaming TTFB stats by provider, model, and virtual key
+func (p *LoggerPlugin) GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
+	return p.store.GetTTFBStats(ctx, filters, window, minSamples)
 }
 
 func (p *LoggerPlugin) GetModelRankings(ctx context.Context, filters logstore.SearchFilters) (*logstore.ModelRankingResult, error) {
@@ -1163,40 +821,6 @@ func keyPairResultsToKeyPairs(results []logstore.KeyPairResult) []KeyPair {
 		pairs[i] = KeyPair{ID: r.ID, Name: r.Name}
 	}
 	return pairs
-}
-
-// GetAvailableMCPVirtualKeys returns all unique virtual key ID-Name pairs from MCP tool logs
-func (p *LoggerPlugin) GetAvailableMCPVirtualKeys(ctx context.Context, limit int, query string) ([]KeyPair, error) {
-	result, err := p.store.GetAvailableMCPVirtualKeys(ctx, limit, query)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get available virtual keys from MCP logs: %w", err)
-	}
-	return p.extractUniqueMCPKeyPairs(result, func(log *logstore.MCPToolLog) KeyPair {
-		if log.VirtualKeyID != nil && log.VirtualKeyName != nil {
-			return KeyPair{
-				ID:   *log.VirtualKeyID,
-				Name: *log.VirtualKeyName,
-			}
-		}
-		return KeyPair{}
-	}), nil
-}
-
-// extractUniqueMCPKeyPairs extracts unique non-empty key pairs from MCP logs using the provided extractor function
-func (p *LoggerPlugin) extractUniqueMCPKeyPairs(logs []logstore.MCPToolLog, extractor func(*logstore.MCPToolLog) KeyPair) []KeyPair {
-	uniqueSet := make(map[string]KeyPair)
-	for i := range logs {
-		pair := extractor(&logs[i])
-		if pair.ID != "" && pair.Name != "" {
-			uniqueSet[pair.ID] = pair
-		}
-	}
-
-	result := make([]KeyPair, 0, len(uniqueSet))
-	for _, pair := range uniqueSet {
-		result = append(result, pair)
-	}
-	return result
 }
 
 // RecalculateCosts recomputes cost for log entries that are missing cost values
@@ -1454,7 +1078,7 @@ func buildResponseForRequestType(requestType schemas.RequestType, usage *schemas
 			},
 		}
 	case schemas.ImageGenerationRequest, schemas.ImageGenerationStreamRequest,
-		schemas.ImageEditRequest, schemas.ImageEditStreamRequest, schemas.ImageVariationRequest:
+		schemas.ImageEditRequest, schemas.ImageEditStreamRequest:
 		// Log entries only store BifrostLLMUsage; convert to ImageUsage for proper routing
 		var imgUsage *schemas.ImageUsage
 		if usage != nil {

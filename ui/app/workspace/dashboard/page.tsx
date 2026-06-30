@@ -3,18 +3,15 @@ import { DateTimePickerWithRange } from "@/components/ui/datePickerWithRange";
 import { ScrollArea } from "@/components/ui/scrollArea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useTimezonePreference } from "@/lib/hooks/useTimezonePreference";
-import { useGetMCPAvailableFilterDataQuery } from "@/lib/store";
-import type { LogFilters, MCPToolLogFilters } from "@/lib/types/logs";
+import type { LogFilters } from "@/lib/types/logs";
 import { dateUtils } from "@/lib/types/logs";
 import { getRangeForPeriod, TIME_PERIODS } from "@/lib/utils/timeRange";
 import { useLocation } from "@tanstack/react-router";
 import { parseAsInteger, parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { type ChartType } from "./components/charts/chartTypeToggle";
-import { ModelFilterSelect } from "./components/charts/modelFilterSelect";
 import { ExportPopover } from "./components/exportPopover";
 import { type DimensionRankingsTabViewHandle, DimensionRankingsTabView } from "./components/tabViews/dimensionRankingsTabView";
-import { type MCPTabViewHandle, MCPTabView } from "./components/tabViews/mcpTabView";
 import { type ModelRankingsTabViewHandle, ModelRankingsTabView } from "./components/tabViews/modelRankingsTabView";
 import { type OverviewTabViewHandle, OverviewTabView } from "./components/tabViews/overviewTabView";
 import { type ProviderUsageTabViewHandle, ProviderUsageTabView } from "./components/tabViews/providerUsageTabView";
@@ -25,9 +22,6 @@ const toChartType = (value: string): ChartType => (value === "line" ? "line" : "
 const parseCsvParam = (value: string): string[] => (value ? value.split(",").filter(Boolean) : []);
 
 export default function DashboardPage() {
-	// MCP filter data
-	const { data: mcpFilterData } = useGetMCPAvailableFilterDataQuery();
-
 	const defaultTimeRange = useMemo(() => dateUtils.getDefaultTimeRange(), []);
 
 	const [timezone, setTimezone] = useTimezonePreference();
@@ -47,8 +41,6 @@ export default function DashboardPage() {
 			selected_key_ids: parseAsString.withDefault(""),
 			objects: parseAsString.withDefault(""),
 			status: parseAsString.withDefault(""),
-			routing_rule_ids: parseAsString.withDefault(""),
-			routing_engine_used: parseAsString.withDefault(""),
 			stop_reasons: parseAsString.withDefault(""),
 			missing_cost_only: parseAsString.withDefault("false"),
 			metadata_filters: parseAsString.withDefault(""),
@@ -65,15 +57,7 @@ export default function DashboardPage() {
 			provider_cost_provider: parseAsString.withDefault("all"),
 			provider_token_provider: parseAsString.withDefault("all"),
 			provider_latency_provider: parseAsString.withDefault("all"),
-			mcp_volume_chart: parseAsString.withDefault("bar"),
-			mcp_cost_chart: parseAsString.withDefault("bar"),
-			mcp_tool_names: parseAsString.withDefault(""),
-			mcp_server_labels: parseAsString.withDefault(""),
 			parent_request_id: parseAsString.withDefault(""),
-			user_ids: parseAsString.withDefault(""),
-			team_ids: parseAsString.withDefault(""),
-			customer_ids: parseAsString.withDefault(""),
-			business_unit_ids: parseAsString.withDefault(""),
 			aliases: parseAsString.withDefault(""),
 		},
 		{
@@ -89,8 +73,6 @@ export default function DashboardPage() {
 	const selectedVirtualKeyIds = useMemo(() => parseCsvParam(urlState.virtual_key_ids), [urlState.virtual_key_ids]);
 	const selectedTypes = useMemo(() => parseCsvParam(urlState.objects), [urlState.objects]);
 	const selectedStatuses = useMemo(() => parseCsvParam(urlState.status), [urlState.status]);
-	const selectedRoutingRuleIds = useMemo(() => parseCsvParam(urlState.routing_rule_ids), [urlState.routing_rule_ids]);
-	const selectedRoutingEngines = useMemo(() => parseCsvParam(urlState.routing_engine_used), [urlState.routing_engine_used]);
 	const selectedStopReasons = useMemo(() => parseCsvParam(urlState.stop_reasons), [urlState.stop_reasons]);
 	const missingCostOnly = useMemo(() => urlState.missing_cost_only === "true", [urlState.missing_cost_only]);
 	const metadataFilters = useMemo(() => {
@@ -102,13 +84,6 @@ export default function DashboardPage() {
 		}
 	}, [urlState.metadata_filters]);
 
-	const selectedMcpToolNames = useMemo(() => parseCsvParam(urlState.mcp_tool_names), [urlState.mcp_tool_names]);
-	const selectedMcpServerLabels = useMemo(() => parseCsvParam(urlState.mcp_server_labels), [urlState.mcp_server_labels]);
-
-	const selectedUserIds = useMemo(() => parseCsvParam(urlState.user_ids), [urlState.user_ids]);
-	const selectedTeamIds = useMemo(() => parseCsvParam(urlState.team_ids), [urlState.team_ids]);
-	const selectedCustomerIds = useMemo(() => parseCsvParam(urlState.customer_ids), [urlState.customer_ids]);
-	const selectedBusinessUnitIds = useMemo(() => parseCsvParam(urlState.business_unit_ids), [urlState.business_unit_ids]);
 	const selectedAliases = useMemo(() => parseCsvParam(urlState.aliases), [urlState.aliases]);
 
 	const filters: LogFilters = useMemo(
@@ -127,12 +102,6 @@ export default function DashboardPage() {
 			}),
 			...(selectedTypes.length > 0 && { objects: selectedTypes }),
 			...(selectedStatuses.length > 0 && { status: selectedStatuses }),
-			...(selectedRoutingRuleIds.length > 0 && {
-				routing_rule_ids: selectedRoutingRuleIds,
-			}),
-			...(selectedRoutingEngines.length > 0 && {
-				routing_engine_used: selectedRoutingEngines,
-			}),
 			...(selectedStopReasons.length > 0 && { stop_reasons: selectedStopReasons }),
 			...(missingCostOnly && { missing_cost_only: true }),
 			...(metadataFilters &&
@@ -140,10 +109,6 @@ export default function DashboardPage() {
 					metadata_filters: metadataFilters,
 				}),
 			...(urlState.parent_request_id && { parent_request_id: urlState.parent_request_id }),
-			...(selectedUserIds.length > 0 && { user_ids: selectedUserIds }),
-			...(selectedTeamIds.length > 0 && { team_ids: selectedTeamIds }),
-			...(selectedCustomerIds.length > 0 && { customer_ids: selectedCustomerIds }),
-			...(selectedBusinessUnitIds.length > 0 && { business_unit_ids: selectedBusinessUnitIds }),
 			...(selectedAliases.length > 0 && { aliases: selectedAliases }),
 		}),
 		[
@@ -157,71 +122,20 @@ export default function DashboardPage() {
 			selectedVirtualKeyIds,
 			selectedTypes,
 			selectedStatuses,
-			selectedRoutingRuleIds,
-			selectedRoutingEngines,
 			selectedStopReasons,
 			missingCostOnly,
 			metadataFilters,
-			selectedUserIds,
-			selectedTeamIds,
-			selectedCustomerIds,
-			selectedBusinessUnitIds,
 			selectedAliases,
-		],
-	);
-
-	const mcpFilters: MCPToolLogFilters = useMemo(
-		() => ({
-			...(urlState.period
-				? { period: urlState.period }
-				: {
-						start_time: dateUtils.toISOString(urlState.start_time),
-						end_time: dateUtils.toISOString(urlState.end_time),
-					}),
-			...(selectedMcpToolNames.length > 0 && {
-				tool_names: selectedMcpToolNames,
-			}),
-			...(selectedMcpServerLabels.length > 0 && {
-				server_labels: selectedMcpServerLabels,
-			}),
-			...(selectedStatuses.length > 0 && { status: selectedStatuses }),
-			...(selectedVirtualKeyIds.length > 0 && {
-				virtual_key_ids: selectedVirtualKeyIds,
-			}),
-		}),
-		[
-			urlState.period,
-			urlState.start_time,
-			urlState.end_time,
-			selectedMcpToolNames,
-			selectedMcpServerLabels,
-			selectedStatuses,
-			selectedVirtualKeyIds,
 		],
 	);
 
 	// Tab view refs for export data aggregation
 	const overviewRef = useRef<OverviewTabViewHandle>(null);
 	const providerRef = useRef<ProviderUsageTabViewHandle>(null);
-	const mcpRef = useRef<MCPTabViewHandle>(null);
 	const modelRankingsRef = useRef<ModelRankingsTabViewHandle>(null);
-	const teamRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
-	const customerRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
-	const buRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
-	const userRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
 	const virtualKeyRankingsRef = useRef<DimensionRankingsTabViewHandle>(null);
 
-	const allRefs = [
-		overviewRef,
-		providerRef,
-		mcpRef,
-		modelRankingsRef,
-		teamRankingsRef,
-		customerRankingsRef,
-		buRankingsRef,
-		userRankingsRef,
-		virtualKeyRankingsRef,
-	];
+	const allRefs = [overviewRef, providerRef, modelRankingsRef, virtualKeyRankingsRef];
 
 	const getDashboardData = useCallback((): DashboardData => {
 		const merged: Partial<DashboardData> = {};
@@ -234,18 +148,13 @@ export default function DashboardPage() {
 			costData: null,
 			modelData: null,
 			latencyData: null,
+			ttfbData: null,
 			providerCostData: null,
 			providerTokenData: null,
 			providerLatencyData: null,
+			providerTTFBData: null,
 			rankingsData: null,
-			teamRankingsData: null,
-			customerRankingsData: null,
-			buRankingsData: null,
-			userRankingsData: null,
 			virtualKeyRankingsData: null,
-			mcpHistogramData: null,
-			mcpCostData: null,
-			mcpTopToolsData: null,
 			...merged,
 		};
 	}, []);
@@ -271,8 +180,6 @@ export default function DashboardPage() {
 	const handleProviderCostChartToggle = useCallback((type: ChartType) => setUrlState({ provider_cost_chart: type }), [setUrlState]);
 	const handleProviderTokenChartToggle = useCallback((type: ChartType) => setUrlState({ provider_token_chart: type }), [setUrlState]);
 	const handleProviderLatencyChartToggle = useCallback((type: ChartType) => setUrlState({ provider_latency_chart: type }), [setUrlState]);
-	const handleMcpVolumeChartToggle = useCallback((type: ChartType) => setUrlState({ mcp_volume_chart: type }), [setUrlState]);
-	const handleMcpCostChartToggle = useCallback((type: ChartType) => setUrlState({ mcp_cost_chart: type }), [setUrlState]);
 
 	// Model / provider filter changes
 	const handleCostModelChange = useCallback((model: string) => setUrlState({ cost_model: model }), [setUrlState]);
@@ -307,8 +214,6 @@ export default function DashboardPage() {
 				virtual_key_ids: (newFilters.virtual_key_ids || []).join(","),
 				objects: (newFilters.objects || []).join(","),
 				status: (newFilters.status || []).join(","),
-				routing_rule_ids: (newFilters.routing_rule_ids || []).join(","),
-				routing_engine_used: (newFilters.routing_engine_used || []).join(","),
 				stop_reasons: (newFilters.stop_reasons || []).join(","),
 				missing_cost_only: String(newFilters.missing_cost_only ?? false),
 				metadata_filters:
@@ -316,10 +221,6 @@ export default function DashboardPage() {
 						? JSON.stringify(newFilters.metadata_filters)
 						: "",
 				parent_request_id: newFilters.parent_request_id || "",
-				user_ids: (newFilters.user_ids || []).join(","),
-				team_ids: (newFilters.team_ids || []).join(","),
-				customer_ids: (newFilters.customer_ids || []).join(","),
-				business_unit_ids: (newFilters.business_unit_ids || []).join(","),
 				aliases: (newFilters.aliases || []).join(","),
 			});
 		},
@@ -399,11 +300,6 @@ export default function DashboardPage() {
 			"dashboard-section-overview",
 			"dashboard-section-provider-usage",
 			"dashboard-section-rankings",
-			"dashboard-section-mcp",
-			"dashboard-section-team-rankings",
-			"dashboard-section-customer-rankings",
-			"dashboard-section-bu-rankings",
-			"dashboard-section-user-rankings",
 			"dashboard-section-virtual-key-rankings",
 		];
 		return ids.map((id) => document.getElementById(id)).filter(Boolean) as HTMLElement[];
@@ -436,7 +332,7 @@ export default function DashboardPage() {
 				{/* Header */}
 				<div className="flex items-center justify-between p-4">
 					<div className="flex items-center gap-2">
-						<h1 className="text-lg font-semibold">Dashboard</h1>
+						<h1 className="text-lg font-semibold">看板</h1>
 					</div>
 					<div className="flex items-center gap-2">
 						<ExportPopover
@@ -445,40 +341,6 @@ export default function DashboardPage() {
 							onPdfExport={handlePdfExport}
 							onPdfExportDone={handlePdfExportDone}
 						/>
-						{activeTab === "mcp" && mcpFilterData && (
-							<div className="flex items-center gap-1">
-								{(mcpFilterData.tool_names?.length ?? 0) > 0 && (
-									<ModelFilterSelect
-										models={mcpFilterData.tool_names ?? []}
-										selectedModel={selectedMcpToolNames.length === 1 ? selectedMcpToolNames[0] : "all"}
-										onModelChange={(value) => {
-											if (value === "all") {
-												setUrlState({ mcp_tool_names: "" });
-											} else {
-												setUrlState({ mcp_tool_names: value });
-											}
-										}}
-										placeholder="All Tools"
-										data-testid="dashboard-mcp-tool-filter"
-									/>
-								)}
-								{(mcpFilterData.server_labels?.length ?? 0) > 0 && (
-									<ModelFilterSelect
-										models={mcpFilterData.server_labels ?? []}
-										selectedModel={selectedMcpServerLabels.length === 1 ? selectedMcpServerLabels[0] : "all"}
-										onModelChange={(value) => {
-											if (value === "all") {
-												setUrlState({ mcp_server_labels: "" });
-											} else {
-												setUrlState({ mcp_server_labels: value });
-											}
-										}}
-										placeholder="All Servers"
-										data-testid="dashboard-mcp-server-filter"
-									/>
-								)}
-							</div>
-						)}
 						<DateTimePickerWithRange
 							dateTime={dateRange}
 							onDateTimeUpdate={handleDateRangeChange}
@@ -500,31 +362,16 @@ export default function DashboardPage() {
 						<div className="mb-2 max-w-full overflow-x-auto">
 							<TabsList className="w-max min-w-max">
 								<TabsTrigger className="shrink-0" value="overview" data-testid="dashboard-tab-overview">
-									Overview
+									总览
 								</TabsTrigger>
 								<TabsTrigger className="shrink-0" value="provider-usage" data-testid="dashboard-tab-provider-usage">
-									Provider Usage
+									Provider 用量
 								</TabsTrigger>
 								<TabsTrigger className="shrink-0" value="rankings" data-testid="dashboard-tab-rankings">
-									Model Rankings
-								</TabsTrigger>
-								<TabsTrigger className="shrink-0" value="mcp" data-testid="dashboard-tab-mcp">
-									MCP usage
-								</TabsTrigger>
-								<TabsTrigger className="shrink-0" value="team-rankings" data-testid="dashboard-tab-team-rankings">
-									Team Rankings
-								</TabsTrigger>
-								<TabsTrigger className="shrink-0" value="user-rankings" data-testid="dashboard-tab-user-rankings">
-									User Rankings
+									模型排行
 								</TabsTrigger>
 								<TabsTrigger className="shrink-0" value="virtual-key-rankings" data-testid="dashboard-tab-virtual-key-rankings">
-									Virtual Key Rankings
-								</TabsTrigger>
-								<TabsTrigger className="shrink-0" value="customer-rankings" data-testid="dashboard-tab-customer-rankings">
-									Customer Rankings
-								</TabsTrigger>
-								<TabsTrigger className="shrink-0" value="bu-rankings" data-testid="dashboard-tab-bu-rankings">
-									BU Rankings
+									虚拟 Key 排行
 								</TabsTrigger>
 							</TabsList>
 						</div>
@@ -594,83 +441,6 @@ export default function DashboardPage() {
 							</div>
 						</TabsContent>
 
-						{/* MCP Tab */}
-						<TabsContent value="mcp" {...(pdfMode && { forceMount: true })}>
-							<div id="dashboard-section-mcp">
-								<MCPTabView
-									ref={mcpRef}
-									filters={mcpFilters}
-									active={activeTab === "mcp" || pdfMode}
-									startTime={urlState.start_time}
-									endTime={urlState.end_time}
-									mcpVolumeChartType={toChartType(urlState.mcp_volume_chart)}
-									mcpCostChartType={toChartType(urlState.mcp_cost_chart)}
-									onMcpVolumeChartToggle={handleMcpVolumeChartToggle}
-									onMcpCostChartToggle={handleMcpCostChartToggle}
-								/>
-							</div>
-						</TabsContent>
-
-						{/* Team Rankings Tab */}
-						<TabsContent value="team-rankings" {...(pdfMode && { forceMount: true })}>
-							<div id="dashboard-section-team-rankings">
-								<DimensionRankingsTabView
-									ref={teamRankingsRef}
-									filters={filters}
-									active={activeTab === "team-rankings" || pdfMode}
-									dimension="team"
-									dimensionLabel="Team"
-									testIdPrefix="dashboard-team-rankings"
-									dataKey="teamRankingsData"
-								/>
-							</div>
-						</TabsContent>
-
-						{/* Customer Rankings Tab */}
-						<TabsContent value="customer-rankings" {...(pdfMode && { forceMount: true })}>
-							<div id="dashboard-section-customer-rankings">
-								<DimensionRankingsTabView
-									ref={customerRankingsRef}
-									filters={filters}
-									active={activeTab === "customer-rankings" || pdfMode}
-									dimension="customer"
-									dimensionLabel="Customer"
-									testIdPrefix="dashboard-customer-rankings"
-									dataKey="customerRankingsData"
-								/>
-							</div>
-						</TabsContent>
-
-						{/* Business Unit Rankings Tab */}
-						<TabsContent value="bu-rankings" {...(pdfMode && { forceMount: true })}>
-							<div id="dashboard-section-bu-rankings">
-								<DimensionRankingsTabView
-									ref={buRankingsRef}
-									filters={filters}
-									active={activeTab === "bu-rankings" || pdfMode}
-									dimension="business_unit"
-									dimensionLabel="Business Unit"
-									testIdPrefix="dashboard-bu-rankings"
-									dataKey="buRankingsData"
-								/>
-							</div>
-						</TabsContent>
-
-						{/* User Rankings Tab */}
-						<TabsContent value="user-rankings" {...(pdfMode && { forceMount: true })}>
-							<div id="dashboard-section-user-rankings">
-								<DimensionRankingsTabView
-									ref={userRankingsRef}
-									filters={filters}
-									active={activeTab === "user-rankings" || pdfMode}
-									dimension="user"
-									dimensionLabel="User"
-									testIdPrefix="dashboard-user-rankings"
-									dataKey="userRankingsData"
-								/>
-							</div>
-						</TabsContent>
-
 						{/* Virtual Key Rankings Tab */}
 						<TabsContent value="virtual-key-rankings" {...(pdfMode && { forceMount: true })}>
 							<div id="dashboard-section-virtual-key-rankings">
@@ -679,7 +449,7 @@ export default function DashboardPage() {
 									filters={filters}
 									active={activeTab === "virtual-key-rankings" || pdfMode}
 									dimension="virtual_key"
-									dimensionLabel="Virtual Key"
+									dimensionLabel="虚拟 Key"
 									testIdPrefix="dashboard-virtual-key-rankings"
 									dataKey="virtualKeyRankingsData"
 								/>

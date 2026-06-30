@@ -56,8 +56,6 @@ type TestScenarios struct {
 	ImageGenerationStream        bool // Streaming image generation functionality
 	ImageEdit                    bool // Image edit functionality
 	ImageEditStream              bool // Streaming image edit functionality
-	ImageVariation               bool // Image variation functionality
-	ImageVariationStream         bool // Streaming image variation functionality (if supported)
 	VideoGeneration              bool // Video generation functionality
 	VideoRetrieve                bool // Video retrieve functionality
 	VideoRemix                   bool // Video remix functionality (OpenAI only)
@@ -91,8 +89,6 @@ type TestScenarios struct {
 	PassThroughExtraParams       bool // Pass through extra params functionality
 	Rerank                       bool // Rerank functionality
 	PassthroughAPI               bool // Raw HTTP passthrough API (Passthrough + PassthroughStream)
-	WebSocketResponses           bool // WebSocket Responses API mode
-	Realtime                     bool // Realtime API (bidirectional audio/text)
 	Compaction                   bool // Server-side compaction (context management)
 	ExternalCompaction           bool // OpenAI /v1/responses/compact endpoint
 	InterleavedThinking          bool // Interleaved thinking between tool calls (beta)
@@ -126,8 +122,6 @@ type ComprehensiveTestConfig struct {
 	ImageGenerationFallbacks []schemas.Fallback         // Fallbacks for image generation
 	ImageEditModel           string                     // Model for image editing
 	ImageEditFallbacks       []schemas.Fallback         // Fallbacks for image editing
-	ImageVariationModel      string                     // Model for image variation
-	ImageVariationFallbacks  []schemas.Fallback         // Fallbacks for image variation
 	VideoGenerationModel     string                     // Model for video generation
 	ExternalTTSProvider      schemas.ModelProvider      // External TTS provider to use for testing
 	ExternalTTSModel         string                     // External TTS model to use for testing
@@ -142,7 +136,6 @@ type ComprehensiveTestConfig struct {
 	ExternalCompactionModel  string                     // Model for external compaction tests; defaults to gpt-4o
 	InterleavedThinkingModel string                     // Model for interleaved thinking tests; defaults to claude-opus-4-5
 	FastModeModel            string                     // Model for fast mode tests; defaults to claude-opus-4-6
-	RealtimeModel            string                     // Model for Realtime API (e.g., "gpt-4o-realtime-preview")
 }
 
 // ComprehensiveTestAccount provides a test implementation of the Account interface for comprehensive testing.
@@ -897,7 +890,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 		SpeechSynthesisModel: "tts-1",
 		ImageGenerationModel: "gpt-image-1",
 		ImageEditModel:       "dall-e-2",
-		ImageVariationModel:  "dall-e-2",
 		ChatAudioModel:       "gpt-4o-mini-audio-preview",
 		Scenarios: TestScenarios{
 			TextCompletion:             false, // Not supported
@@ -915,16 +907,14 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageBase64:                true,
 			MultipleImages:             true,
 			CompleteEnd2End:            true,
-			SpeechSynthesis:            true,  // OpenAI supports TTS
-			SpeechSynthesisStream:      true,  // OpenAI supports streaming TTS
-			Transcription:              true,  // OpenAI supports STT with Whisper
-			TranscriptionStream:        true,  // OpenAI supports streaming STT
-			ImageGeneration:            true,  // OpenAI supports image generation with DALL-E
-			ImageGenerationStream:      true,  // OpenAI supports streaming image generation
-			ImageEdit:                  true,  // OpenAI supports image editing
-			ImageEditStream:            true,  // OpenAI supports streaming image editing
-			ImageVariation:             true,  // OpenAI supports image variation
-			ImageVariationStream:       false, // OpenAI does not support streaming image variation
+			SpeechSynthesis:            true, // OpenAI supports TTS
+			SpeechSynthesisStream:      true, // OpenAI supports streaming TTS
+			Transcription:              true, // OpenAI supports STT with Whisper
+			TranscriptionStream:        true, // OpenAI supports streaming STT
+			ImageGeneration:            true, // OpenAI supports image generation with DALL-E
+			ImageGenerationStream:      true, // OpenAI supports streaming image generation
+			ImageEdit:                  true, // OpenAI supports image editing
+			ImageEditStream:            true, // OpenAI supports streaming image editing
 			Embedding:                  true,
 			Reasoning:                  true, // OpenAI supports reasoning via o1 models
 			ListModels:                 true,
@@ -982,8 +972,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // Anthropic does not support image editing
 			ImageEditStream:            false, // Anthropic does not support streaming image editing
-			ImageVariation:             false, // Anthropic does not support image variation
-			ImageVariationStream:       false, // Anthropic does not support streaming image variation
 			ListModels:                 true,
 			BatchCreate:                true, // Anthropic supports batch API
 			BatchList:                  true, // Anthropic supports batch API
@@ -996,11 +984,10 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 		},
 	},
 	{
-		Provider:            schemas.Bedrock,
-		ChatModel:           "anthropic.claude-3-sonnet-20240229-v1:0",
-		TextModel:           "", // Bedrock Claude doesn't support text completion
-		ImageEditModel:      "amazon.titan-image-generator-v1",
-		ImageVariationModel: "amazon.titan-image-generator-v1",
+		Provider:       schemas.Bedrock,
+		ChatModel:      "anthropic.claude-3-sonnet-20240229-v1:0",
+		TextModel:      "", // Bedrock Claude doesn't support text completion
+		ImageEditModel: "amazon.titan-image-generator-v1",
 		Scenarios: TestScenarios{
 			TextCompletion:             false, // Not supported for Claude
 			SimpleChat:                 true,
@@ -1026,8 +1013,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  true,  // Bedrock supports image editing
 			ImageEditStream:            false, // Bedrock does not support streaming image editing
-			ImageVariation:             true,  // Bedrock supports image variation
-			ImageVariationStream:       false, // Bedrock does not support streaming image variation
 			ListModels:                 true,
 			BatchCreate:                true, // Bedrock supports batch via Model Invocation Jobs (requires S3 config)
 			BatchList:                  true, // Bedrock supports listing batch jobs
@@ -1067,8 +1052,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // Cohere does not support image editing
 			ImageEditStream:            false, // Cohere does not support streaming image editing
-			ImageVariation:             false, // Cohere does not support image variation
-			ImageVariationStream:       false, // Cohere does not support streaming image variation
 			SpeechSynthesis:            false, // Not supported
 			SpeechSynthesisStream:      false, // Not supported
 			Transcription:              false, // Not supported
@@ -1113,8 +1096,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false, // Skipped for Azure
 			ImageEdit:                  true,  // Azure supports image editing
 			ImageEditStream:            true,  // Azure supports streaming image editing
-			ImageVariation:             false, // Azure does not support image variation
-			ImageVariationStream:       false, // Azure does not support streaming image variation
 			ListModels:                 true,
 			BatchCreate:                true,  // Azure supports batch API
 			BatchList:                  true,  // Azure supports batch API
@@ -1167,8 +1148,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  true,  // Vertex supports image editing
 			ImageEditStream:            false, // Vertex does not support streaming image editing
-			ImageVariation:             false, // Vertex does not support image variation
-			ImageVariationStream:       false, // Vertex does not support streaming image variation
 			SpeechSynthesis:            false, // Not supported
 			SpeechSynthesisStream:      false, // Not supported
 			Transcription:              false, // Not supported
@@ -1208,8 +1187,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // Mistral does not support image editing
 			ImageEditStream:            false, // Mistral does not support streaming image editing
-			ImageVariation:             false, // Mistral does not support image variation
-			ImageVariationStream:       false, // Mistral does not support streaming image variation
 			ListModels:                 true,
 		},
 		Fallbacks: []schemas.Fallback{
@@ -1244,8 +1221,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // Ollama does not support image editing
 			ImageEditStream:            false, // Ollama does not support streaming image editing
-			ImageVariation:             false, // Ollama does not support image variation
-			ImageVariationStream:       false, // Ollama does not support streaming image variation
 			ListModels:                 true,
 		},
 		Fallbacks: []schemas.Fallback{
@@ -1280,8 +1255,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // Groq does not support image editing
 			ImageEditStream:            false, // Groq does not support streaming image editing
-			ImageVariation:             false, // Groq does not support image variation
-			ImageVariationStream:       false, // Groq does not support streaming image variation
 			ListModels:                 true,
 		},
 		Fallbacks: []schemas.Fallback{
@@ -1346,8 +1319,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false, // ProviderOpenAICustom does not support streaming image generation
 			ImageEdit:                  false, // ProviderOpenAICustom does not support image editing
 			ImageEditStream:            false, // ProviderOpenAICustom does not support streaming image editing
-			ImageVariation:             false, // ProviderOpenAICustom does not support image variation
-			ImageVariationStream:       false, // ProviderOpenAICustom does not support streaming image variation
 			ListModels:                 true,
 		},
 		Fallbacks: []schemas.Fallback{
@@ -1387,8 +1358,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  true,  // Gemini supports image editing
 			ImageEditStream:            false, // Gemini does not support streaming image editing
-			ImageVariation:             false, // Gemini does not support image variation
-			ImageVariationStream:       false, // Gemini does not support streaming image variation
 			ListModels:                 true,
 			BatchCreate:                true,
 			BatchList:                  true,
@@ -1428,8 +1397,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // OpenRouter does not support image editing
 			ImageEditStream:            false, // OpenRouter does not support streaming image editing
-			ImageVariation:             false, // OpenRouter does not support image variation
-			ImageVariationStream:       false, // OpenRouter does not support streaming image variation
 			SpeechSynthesis:            false,
 			SpeechSynthesisStream:      false,
 			Transcription:              false,
@@ -1468,10 +1435,8 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			Embedding:             true,
 			ImageGeneration:       true,
 			ImageGenerationStream: true,
-			ImageEdit:             true,  // HuggingFace (fal-ai) supports image editing
-			ImageEditStream:       true,  // HuggingFace (fal-ai) supports streaming image editing
-			ImageVariation:        false, // HuggingFace does not support image variation
-			ImageVariationStream:  false, // HuggingFace does not support streaming image variation
+			ImageEdit:             true, // HuggingFace (fal-ai) supports image editing
+			ImageEditStream:       true, // HuggingFace (fal-ai) supports streaming image editing
 			Transcription:         true,
 			TranscriptionStream:   false,
 			SpeechSynthesis:       true,
@@ -1512,8 +1477,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // XAI does not support image editing
 			ImageEditStream:            false, // XAI does not support streaming image editing
-			ImageVariation:             false, // XAI does not support image variation
-			ImageVariationStream:       false, // XAI does not support streaming image variation
 			ListModels:                 true,
 		},
 	},
@@ -1563,8 +1526,6 @@ var AllProviderConfigs = []ComprehensiveTestConfig{
 			ImageGenerationStream:      false,
 			ImageEdit:                  false, // VLLM does not support image editing
 			ImageEditStream:            false, // VLLM does not support streaming image editing
-			ImageVariation:             false, // VLLM does not support image variation
-			ImageVariationStream:       false, // VLLM does not support streaming image variation
 			ListModels:                 true,
 			TextCompletion:             true,
 			TextCompletionStream:       true,
