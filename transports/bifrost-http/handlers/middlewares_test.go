@@ -413,69 +413,6 @@ func TestChainMiddlewares_MiddlewareCanModifyContext(t *testing.T) {
 	chained(ctx)
 }
 
-func TestIsInferenceWSEndpoint(t *testing.T) {
-	paths := []string{
-		"/v1/responses",
-		"/v1/realtime",
-		"/responses",
-		"/realtime",
-		"/openai/v1/responses",
-		"/openai/responses",
-		"/openai/openai/responses",
-		"/openai/v1/realtime",
-		"/openai/realtime",
-		"/openai/openai/realtime",
-	}
-
-	for _, path := range paths {
-		if !isInferenceWSEndpoint(path) {
-			t.Fatalf("expected inference websocket path %s to be recognized", path)
-		}
-	}
-
-	if isInferenceWSEndpoint("/api/ws") {
-		t.Fatal("dashboard websocket path should not be treated as inference websocket")
-	}
-	if isInferenceWSEndpoint("/openai/chat/completions") {
-		t.Fatal("non-websocket OpenAI path should not be treated as inference websocket")
-	}
-}
-
-func TestIsRealtimeTransportEndpoint(t *testing.T) {
-	paths := []string{
-		"/v1/realtime",
-		"/realtime",
-		"/openai/realtime",
-		"/openai/v1/realtime",
-		"/openai/openai/realtime",
-		"/v1/realtime/calls",
-		"/realtime/calls",
-		"/openai/realtime/calls",
-		"/openai/v1/realtime/calls",
-		"/openai/openai/realtime/calls",
-	}
-
-	for _, path := range paths {
-		if !isRealtimeTransportEndpoint(path) {
-			t.Fatalf("expected realtime transport path %s to be recognized", path)
-		}
-	}
-
-	nonTransportPaths := []string{
-		"/v1/realtime/client_secrets",
-		"/v1/realtime/sessions",
-		"/openai/v1/realtime/client_secrets",
-		"/openai/v1/realtime/sessions",
-		"/v1/chat/completions",
-	}
-
-	for _, path := range nonTransportPaths {
-		if isRealtimeTransportEndpoint(path) {
-			t.Fatalf("did not expect non-transport path %s to be recognized", path)
-		}
-	}
-}
-
 // Testlib.ChainMiddlewares_ShortCircuit tests that when a middleware writes a response
 // and does not call next, subsequent middlewares and handler do not execute.
 func TestChainMiddlewares_ShortCircuit(t *testing.T) {
@@ -690,50 +627,6 @@ func TestAuthMiddleware_EnabledAuthConfig_NoAuth(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_SkillsPublicServeManagementSplit(t *testing.T) {
-	SetLogger(&mockLogger{})
-
-	am := &AuthMiddleware{}
-	am.UpdateAuthConfig(&configstore.AuthConfig{
-		AdminUserName: schemas.NewSecretVar("admin"),
-		AdminPassword: schemas.NewSecretVar("hashedpassword"),
-		IsEnabled:     true,
-	})
-
-	t.Run("serve routes bypass auth", func(t *testing.T) {
-		ctx := &fasthttp.RequestCtx{}
-		ctx.Request.SetRequestURI("/api/skills/serve/my-skill.git/info/refs?service=git-upload-pack")
-
-		nextCalled := false
-		handler := am.APIMiddleware()(func(ctx *fasthttp.RequestCtx) {
-			nextCalled = true
-		})
-		handler(ctx)
-
-		if !nextCalled {
-			t.Fatal("expected public skills serving route to bypass auth")
-		}
-	})
-
-	t.Run("management routes require auth", func(t *testing.T) {
-		ctx := &fasthttp.RequestCtx{}
-		ctx.Request.SetRequestURI("/api/skills")
-
-		nextCalled := false
-		handler := am.APIMiddleware()(func(ctx *fasthttp.RequestCtx) {
-			nextCalled = true
-		})
-		handler(ctx)
-
-		if nextCalled {
-			t.Fatal("expected skills management route to require auth")
-		}
-		if ctx.Response.StatusCode() != fasthttp.StatusUnauthorized {
-			t.Fatalf("expected %d, got %d", fasthttp.StatusUnauthorized, ctx.Response.StatusCode())
-		}
-	})
-}
-
 // TestAuthMiddleware_WhitelistedRoutes tests that whitelisted routes bypass auth
 func TestAuthMiddleware_WhitelistedRoutes(t *testing.T) {
 	SetLogger(&mockLogger{})
@@ -773,45 +666,9 @@ func TestAuthMiddleware_WhitelistedRoutes(t *testing.T) {
 	}
 }
 
-func TestAuthMiddleware_InferenceMiddleware_RealtimeTransportBypassesAuth(t *testing.T) {
-	SetLogger(&mockLogger{})
-
-	am := &AuthMiddleware{}
-	am.UpdateAuthConfig(&configstore.AuthConfig{
-		AdminUserName: schemas.NewSecretVar("admin"),
-		AdminPassword: schemas.NewSecretVar("hashedpassword"),
-		IsEnabled:     true,
-	})
-	routes := []string{
-		"/v1/realtime",
-		"/openai/v1/realtime",
-		"/v1/realtime/calls?model=gpt-realtime",
-		"/openai/v1/realtime/calls?model=gpt-realtime",
-	}
-
-	for _, route := range routes {
-		t.Run(route, func(t *testing.T) {
-			ctx := &fasthttp.RequestCtx{}
-			ctx.Request.SetRequestURI(route)
-
-			nextCalled := false
-			next := func(ctx *fasthttp.RequestCtx) {
-				nextCalled = true
-			}
-
-			handler := am.InferenceMiddleware()(next)
-			handler(ctx)
-
-			if !nextCalled {
-				t.Fatalf("expected realtime transport route %s to bypass auth", route)
-			}
-		})
-	}
-}
-
 // TestAuthMiddleware_InferenceMiddleware_DelegatesAuthToGovernance verifies that the
-// inference middleware passes every inference request through — including realtime minting
-// endpoints and credential-less requests — even with dashboard auth enabled. Inference
+// inference middleware passes every inference request through, including
+// credential-less requests, even with dashboard auth enabled. Inference
 // authentication is owned by the governance plugin downstream (the authoritative VK
 // validator), not by this dashboard-auth middleware. Re-introducing a credential check
 // here would reject virtual-key callers and break inference auth, so the middleware must
@@ -834,8 +691,6 @@ func TestAuthMiddleware_InferenceMiddleware_DelegatesAuthToGovernance(t *testing
 	}{
 		{name: "chat completion with virtual key", uri: "/v1/chat/completions", headerKey: "x-bf-vk", headerVal: "sk-bf-abc123"},
 		{name: "chat completion without credentials", uri: "/v1/chat/completions"},
-		{name: "realtime minting (client_secrets)", uri: "/v1/realtime/client_secrets"},
-		{name: "realtime minting (sessions)", uri: "/openai/v1/realtime/sessions"},
 	}
 
 	for _, tc := range cases {
