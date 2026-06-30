@@ -310,7 +310,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	currentConfig := h.store.ClientConfig
 	updatedConfig := currentConfig
 	ttfbRoutingChanged := !ttfbRoutingConfigEqual(payload.ClientConfig.TTFBRouting, currentConfig.TTFBRouting)
-		providerScoringChanged := !providerScoringConfigEqual(payload.ClientConfig.ProviderScoring, currentConfig.ProviderScoring)
+	providerScoringChanged := !providerScoringConfigEqual(payload.ClientConfig.ProviderScoring, currentConfig.ProviderScoring)
 
 	var restartReasons []string
 
@@ -426,7 +426,7 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		updatedConfig.RoutingChainMaxDepth = payload.ClientConfig.RoutingChainMaxDepth
 	}
 	updatedConfig.TTFBRouting = payload.ClientConfig.TTFBRouting
-		updatedConfig.ProviderScoring = payload.ClientConfig.ProviderScoring
+	updatedConfig.ProviderScoring = payload.ClientConfig.ProviderScoring
 
 	// Handle HeaderFilterConfig changes
 	if !headerFilterConfigEqual(payload.ClientConfig.HeaderFilterConfig, currentConfig.HeaderFilterConfig) {
@@ -877,7 +877,6 @@ func checkURLAccessibility(rawURL string) error {
 	}
 	return nil
 }
-
 
 func providerScoringConfigEqual(a, b *configstore.ProviderScoringConfig) bool {
 	if a == nil && b == nil {

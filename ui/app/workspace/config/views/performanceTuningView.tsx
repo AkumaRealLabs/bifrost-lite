@@ -104,18 +104,20 @@ export default function PerformanceTuningView() {
 			localConfig.initial_pool_size !== config.initial_pool_size ||
 			localConfig.max_request_body_size_mb !== config.max_request_body_size_mb ||
 			!ttfbRoutingEqual(localConfig.ttfb_routing, config.ttfb_routing) ||
-			(providerScoringTouched &&
-				(localConfig.provider_scoring?.enabled ?? false) !== (config.provider_scoring?.enabled ?? false))
+			(providerScoringTouched && (localConfig.provider_scoring?.enabled ?? false) !== (config.provider_scoring?.enabled ?? false))
 		);
 	}, [config, localConfig, providerScoringTouched]);
 
-	const handleProviderScoringToggle = useCallback((checked: boolean) => {
-		setProviderScoringTouched(true);
-		setLocalConfig((prev) => ({
-			...prev,
-			provider_scoring: { ...normalizeProviderScoring(prev.provider_scoring ?? config?.provider_scoring), enabled: checked },
-		}));
-	}, [config?.provider_scoring]);
+	const handleProviderScoringToggle = useCallback(
+		(checked: boolean) => {
+			setProviderScoringTouched(true);
+			setLocalConfig((prev) => ({
+				...prev,
+				provider_scoring: { ...normalizeProviderScoring(prev.provider_scoring ?? config?.provider_scoring), enabled: checked },
+			}));
+		},
+		[config?.provider_scoring],
+	);
 
 	const handlePoolSizeChange = useCallback((value: string) => {
 		setLocalValues((prev) => ({ ...prev, initial_pool_size: value }));
