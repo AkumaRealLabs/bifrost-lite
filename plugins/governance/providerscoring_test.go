@@ -74,7 +74,7 @@ func scoringPlugin(t *testing.T, rel fakeReliabilityStats, store *fakeCooldownCo
 			Weights:                      &configstore.ProviderScoringWeights{Availability: 0.70, TTFT: 0.20, Cost: 0.10},
 		},
 		reliabilityStats: rel,
-		ttftStats: fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+		ttftStats: &fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
 			Stats: []logstore.TTFTStatsEntry{
 				{Provider: "fast", Model: "gpt-4o", SampleCount: 10, P95TTFTMs: 800, HasMinSamples: true},
 				{Provider: "slow", Model: "gpt-4o", SampleCount: 10, P95TTFTMs: 4000, HasMinSamples: true},
@@ -196,6 +196,60 @@ func TestApplyProviderScoring_SystemPoolFailClosedWhenAllCooled(t *testing.T) {
 	require.True(t, ok)
 	require.NotNil(t, err.StatusCode)
 	assert.Equal(t, 503, *err.StatusCode)
+}
+
+func TestApplyProviderScoring_CoolsSlowTTFTProvider(t *testing.T) {
+	wFast, wSlow := 1.0, 1.0
+	configs := []configstoreTables.TableVirtualKeyProviderConfig{
+		{Provider: "fast", Weight: &wFast},
+		{Provider: "slow", Weight: &wSlow},
+	}
+	store := &fakeCooldownConfigStore{}
+	rel := fakeReliabilityStats{result: &logstore.ProviderReliabilityStatsResult{
+		Stats: []logstore.ProviderReliabilityStatsEntry{
+			{Provider: "fast", SampleCount: 10, ErrorRate: 0, HasMinSamples: true},
+			{Provider: "slow", SampleCount: 10, ErrorRate: 0, HasMinSamples: true},
+		},
+	}}
+	p := scoringPlugin(t, rel, store, nil)
+	p.ttftStats = &fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+		Stats: []logstore.TTFTStatsEntry{
+			{Provider: "fast", Model: "gpt-4o", SampleCount: 5, P95TTFTMs: 1000, HasMinSamples: true},
+			{Provider: "slow", Model: "gpt-4o", SampleCount: 5, P95TTFTMs: 12000, HasMinSamples: true},
+		},
+	}}
+	weighted := []weightedProviderConfig{
+		{config: configs[0], originalWeight: 1, effectiveWeight: 1, penaltyFactor: 1},
+		{config: configs[1], originalWeight: 1, effectiveWeight: 1, penaltyFactor: 1},
+	}
+	got := p.applyProviderScoring(schemas.NewBifrostContext(context.Background(), schemas.NoDeadline), configs, nil, "gpt-4o", weighted)
+	require.Len(t, got, 1)
+	assert.Equal(t, "fast", got[0].config.Provider)
+	require.Len(t, store.upserts, 1)
+	assert.Equal(t, "slow", store.upserts[0].Provider)
+	assert.Equal(t, "ttft_threshold", store.upserts[0].Reason)
+}
+
+func TestApplyProviderScoring_TTFTStatsAreProviderWideAcrossVirtualKeys(t *testing.T) {
+	w := 1.0
+	configs := []configstoreTables.TableVirtualKeyProviderConfig{{Provider: "fast", Weight: &w}}
+	stats := &fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+		Stats: []logstore.TTFTStatsEntry{
+			{Provider: "fast", Model: "gpt-4o", VirtualKeyID: "vk-1", SampleCount: 10, P95TTFTMs: 1000},
+			{Provider: "fast", Model: "gpt-4o", VirtualKeyID: "vk-2", SampleCount: 1, P95TTFTMs: 5000},
+		},
+	}}
+	p := scoringPlugin(t, fakeReliabilityStats{result: &logstore.ProviderReliabilityStatsResult{}}, &fakeCooldownConfigStore{}, nil)
+	p.ttftStats = stats
+	weighted := []weightedProviderConfig{{config: configs[0], originalWeight: 1, effectiveWeight: 1, penaltyFactor: 1}}
+	vk := &configstoreTables.TableVirtualKey{ID: "vk-1", Name: SystemPoolLow}
+
+	got := p.applyProviderScoring(schemas.NewBifrostContext(context.Background(), schemas.NoDeadline), configs, vk, "gpt-4o", weighted)
+	require.Len(t, got, 1)
+	require.Len(t, stats.calls, 1)
+	assert.Empty(t, stats.calls[0].VirtualKeyIDs)
+	assert.Equal(t, []string{"gpt-4o"}, stats.calls[0].Models)
+	assert.InDelta(t, 0.455, got[0].penaltyFactor, 0.0001)
 }
 
 func TestPostLLMHook_CoolsProviderOnAccountConcurrencyLimit(t *testing.T) {

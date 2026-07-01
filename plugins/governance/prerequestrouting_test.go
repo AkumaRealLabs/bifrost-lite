@@ -16,9 +16,11 @@ import (
 type fakeTTFTStatsProvider struct {
 	result *logstore.TTFTStatsResult
 	err    error
+	calls  []logstore.SearchFilters
 }
 
-func (f fakeTTFTStatsProvider) GetTTFTStats(context.Context, logstore.SearchFilters, time.Duration, int) (*logstore.TTFTStatsResult, error) {
+func (f *fakeTTFTStatsProvider) GetTTFTStats(_ context.Context, filters logstore.SearchFilters, _ time.Duration, _ int) (*logstore.TTFTStatsResult, error) {
+	f.calls = append(f.calls, filters)
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -96,7 +98,7 @@ func TestBuildEffectiveProviderWeights_ProviderScoringDisabledPreservesOriginalW
 	}
 	p := &GovernancePlugin{
 		logger: NewMockLogger(),
-		ttftStats: fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+		ttftStats: &fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
 			Stats: []logstore.TTFTStatsEntry{
 				{Provider: "openai", Model: "gpt-4o", SampleCount: 100, P95TTFTMs: 6000, HasMinSamples: true},
 			},

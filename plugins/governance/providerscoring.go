@@ -25,6 +25,8 @@ type ProviderReliabilityStatsProvider interface {
 	GetProviderReliabilityStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.ProviderReliabilityStatsResult, error)
 }
 
+const ttftCooldownMultiplier = 4.0
+
 func parseProviderPriceRMBPerDao(description string) (float64, bool) {
 	description = strings.TrimSpace(description)
 	if description == "" {
@@ -170,9 +172,6 @@ func (p *GovernancePlugin) applyProviderScoring(
 	ttftByProvider := map[string]logstore.TTFTStatsEntry{}
 	if p.ttftStats != nil {
 		filters := logstore.SearchFilters{Models: []string{model}}
-		if virtualKey != nil && virtualKey.ID != "" {
-			filters.VirtualKeyIDs = []string{virtualKey.ID}
-		}
 		stats, err := p.ttftStats.GetTTFTStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
 		if err == nil {
 			for _, entry := range stats.Stats {
@@ -180,8 +179,20 @@ func (p *GovernancePlugin) applyProviderScoring(
 					continue
 				}
 				current, ok := ttftByProvider[entry.Provider]
-				if !ok || entry.SampleCount > current.SampleCount {
+				if !ok || entry.P95TTFTMs > current.P95TTFTMs {
 					ttftByProvider[entry.Provider] = entry
+				}
+				if !cooled[entry.Provider] && entry.HasMinSamples && entry.P95TTFTMs >= ttftThresholdMs*ttftCooldownMultiplier {
+					until := now.Add(time.Duration(cooldownSeconds) * time.Second)
+					_ = upsertCooldown(configstore.ProviderCooldownState{
+						Provider:      entry.Provider,
+						CooldownUntil: until,
+						Reason:        "ttft_threshold",
+						WindowSeconds: windowSeconds,
+						UpdatedAt:     now,
+					})
+					cooled[entry.Provider] = true
+					ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Provider scoring: provider %s cooled down until %s (p95 ttft %.0fms)", entry.Provider, until.Format(time.RFC3339), entry.P95TTFTMs))
 				}
 			}
 		}
@@ -224,7 +235,7 @@ func (p *GovernancePlugin) applyProviderScoring(
 		}
 
 		var ttftScore float64 = neutralTTFT
-		if entry, ok := ttftByProvider[provider]; ok && entry.HasMinSamples && entry.P95TTFTMs > 0 {
+		if entry, ok := ttftByProvider[provider]; ok && entry.P95TTFTMs > 0 {
 			ttftScore = clampScore(ttftThresholdMs/entry.P95TTFTMs, 0.05, 1.0)
 		}
 

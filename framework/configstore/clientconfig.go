@@ -122,7 +122,7 @@ func (c *ProviderScoringConfig) UnmarshalJSON(data []byte) error {
 // NormalizeProviderScoringConfig fills defaults for provider scoring.
 func NormalizeProviderScoringConfig(config *ProviderScoringConfig) ProviderScoringConfig {
 	resolved := ProviderScoringConfig{Enabled: false}
-	windowSeconds := 120
+	windowSeconds := 600
 	minSamples := 5
 	errorRateThreshold := 0.30
 	consecutiveFailuresThreshold := 3

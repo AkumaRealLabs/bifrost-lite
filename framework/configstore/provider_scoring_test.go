@@ -11,7 +11,7 @@ func TestNormalizeProviderScoringConfigDefaults(t *testing.T) {
 	got := NormalizeProviderScoringConfig(nil)
 	assert.False(t, got.Enabled)
 	require.NotNil(t, got.WindowSeconds)
-	assert.Equal(t, 120, *got.WindowSeconds)
+	assert.Equal(t, 600, *got.WindowSeconds)
 	require.NotNil(t, got.MinSamples)
 	assert.Equal(t, 5, *got.MinSamples)
 	require.NotNil(t, got.ErrorRateThreshold)
