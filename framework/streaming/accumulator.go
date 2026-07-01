@@ -19,6 +19,13 @@ func getAccumulatorID(ctx *schemas.BifrostContext) (string, bool) {
 	return "", false
 }
 
+func calculateMs(start, end time.Time) int64 {
+	if start.IsZero() || end.IsZero() {
+		return 0
+	}
+	return end.Sub(start).Nanoseconds() / 1e6
+}
+
 // Accumulator manages accumulation of streaming chunks
 type Accumulator struct {
 	logger schemas.Logger
@@ -227,8 +234,7 @@ func (a *Accumulator) addChatStreamChunk(requestID string, streamType StreamType
 	if accumulator.StartTimestamp.IsZero() {
 		accumulator.StartTimestamp = chunk.Timestamp
 	}
-	// Track first chunk timestamp for TTFT calculation
-	if accumulator.FirstChunkTimestamp.IsZero() {
+	if accumulator.FirstChunkTimestamp.IsZero() && chatDeltaHasVisibleOutput(chunk.Delta) {
 		accumulator.FirstChunkTimestamp = chunk.Timestamp
 	}
 	// De-dup check - only add if not seen (handles out-of-order arrival and multiple plugins)
@@ -258,8 +264,7 @@ func (a *Accumulator) addTranscriptionStreamChunk(requestID string, chunk *Trans
 	if accumulator.StartTimestamp.IsZero() {
 		accumulator.StartTimestamp = chunk.Timestamp
 	}
-	// Track first chunk timestamp for TTFT calculation
-	if accumulator.FirstChunkTimestamp.IsZero() {
+	if accumulator.FirstChunkTimestamp.IsZero() && transcriptionDeltaHasVisibleOutput(chunk.Delta) {
 		accumulator.FirstChunkTimestamp = chunk.Timestamp
 	}
 	if _, seen := accumulator.TranscriptionChunksSeen[chunk.ChunkIndex]; !seen {
@@ -288,8 +293,7 @@ func (a *Accumulator) addAudioStreamChunk(requestID string, chunk *AudioStreamCh
 	if accumulator.StartTimestamp.IsZero() {
 		accumulator.StartTimestamp = chunk.Timestamp
 	}
-	// Track first chunk timestamp for TTFT calculation
-	if accumulator.FirstChunkTimestamp.IsZero() {
+	if accumulator.FirstChunkTimestamp.IsZero() && audioDeltaHasVisibleOutput(chunk.Delta) {
 		accumulator.FirstChunkTimestamp = chunk.Timestamp
 	}
 	if _, seen := accumulator.AudioChunksSeen[chunk.ChunkIndex]; !seen {
@@ -318,8 +322,7 @@ func (a *Accumulator) addResponsesStreamChunk(requestID string, chunk *Responses
 	if accumulator.StartTimestamp.IsZero() {
 		accumulator.StartTimestamp = chunk.Timestamp
 	}
-	// Track first chunk timestamp for TTFT calculation
-	if accumulator.FirstChunkTimestamp.IsZero() {
+	if accumulator.FirstChunkTimestamp.IsZero() && responsesStreamResponseHasVisibleOutput(chunk.StreamResponse) {
 		accumulator.FirstChunkTimestamp = chunk.Timestamp
 	}
 	if _, seen := accumulator.ResponsesChunksSeen[chunk.ChunkIndex]; !seen {
@@ -353,7 +356,7 @@ func (a *Accumulator) addImageStreamChunk(requestID string, chunk *ImageStreamCh
 	if acc.StartTimestamp.IsZero() {
 		acc.StartTimestamp = chunk.Timestamp
 	}
-	if acc.FirstChunkTimestamp.IsZero() {
+	if acc.FirstChunkTimestamp.IsZero() && chunk.Delta != nil && (chunk.Delta.B64JSON != "" || chunk.Delta.URL != "") {
 		acc.FirstChunkTimestamp = chunk.Timestamp
 	}
 
@@ -505,6 +508,18 @@ func (a *Accumulator) CreateStreamAccumulator(requestID string, startTimestamp t
 	sc.StartTimestamp = startTimestamp
 	sc.mu.Unlock()
 	return sc
+}
+
+func (a *Accumulator) MarkFirstByte(requestID string, ts time.Time) {
+	if requestID == "" || ts.IsZero() {
+		return
+	}
+	sc := a.getOrCreateStreamAccumulator(requestID)
+	sc.mu.Lock()
+	if sc.FirstByteTimestamp.IsZero() {
+		sc.FirstByteTimestamp = ts
+	}
+	sc.mu.Unlock()
 }
 
 // CleanupStreamAccumulator decrements the reference counter for a stream accumulator.

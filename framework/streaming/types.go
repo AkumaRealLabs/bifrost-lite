@@ -27,6 +27,7 @@ type AccumulatedData struct {
 	Status                string
 	Stream                bool
 	Latency               int64 // in milliseconds
+	TimeToFirstByte       int64 // Time to first raw SSE/data payload in milliseconds (streaming only)
 	TimeToFirstToken      int64 // Time to first token in milliseconds (streaming only)
 	StartTimestamp        time.Time
 	EndTimestamp          time.Time
@@ -117,6 +118,7 @@ type ImageStreamChunk struct {
 type StreamAccumulator struct {
 	RequestID                 string
 	StartTimestamp            time.Time
+	FirstByteTimestamp        time.Time // Timestamp when the first raw SSE/data payload was received (for TTFB)
 	FirstChunkTimestamp       time.Time // Timestamp when the first chunk was received (for TTFT calculation)
 	ChatStreamChunks          []*ChatStreamChunk
 	chatStreamType            StreamType // Chat and text completions share ChatStreamChunks; guarded by mu

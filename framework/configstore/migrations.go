@@ -108,7 +108,13 @@ func RunSingleMigration(ctx context.Context, options *migrator.Options, db *gorm
 }
 
 func triggerMigrations(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
-	pending, err := migrator.PendingIDs(ctx, db, migrator.DefaultOptions, []string{"lite_schema_init"})
+	migrations := liteSchemaMigrations(ctx, db, logger)
+	ids := make([]string, 0, len(migrations))
+	for _, migration := range migrations {
+		ids = append(ids, migration.ID)
+	}
+
+	pending, err := migrator.PendingIDs(ctx, db, migrator.DefaultOptions, ids)
 	if err != nil {
 		logger.Warn("[configstore] migration preflight failed; acquiring migration lock and running migrations: %v", err)
 	} else if len(pending) == 0 {
@@ -122,7 +128,7 @@ func triggerMigrations(ctx context.Context, db *gorm.DB, logger schemas.Logger) 
 	}
 	defer lock.release(ctx)
 
-	pending, err = migrator.PendingIDs(ctx, db, migrator.DefaultOptions, []string{"lite_schema_init"})
+	pending, err = migrator.PendingIDs(ctx, db, migrator.DefaultOptions, ids)
 	if err == nil && len(pending) == 0 {
 		logger.Info("[configstore] migrations completed by another node; skipping migration run")
 		return nil
@@ -131,23 +137,32 @@ func triggerMigrations(ctx context.Context, db *gorm.DB, logger schemas.Logger) 
 		logger.Warn("[configstore] migration preflight after lock failed; running migrations: %v", err)
 	}
 
-	return migrationInitLite(ctx, db, logger)
+	logger.Info("[configstore] starting migrations")
+	defer logger.Info("[configstore] finished migrations")
+
+	return migrator.New(db.WithContext(ctx), migrator.DefaultOptions, migrations).Migrate()
 }
 
-func migrationInitLite(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
-	logger.Info("[configstore] starting migration lite_schema_init")
-	defer logger.Info("[configstore] finished migration lite_schema_init")
-
-	return RunSingleMigration(ctx, nil, db, logger, &migrator.Migration{
-		ID: "lite_schema_init",
-		Migrate: func(tx *gorm.DB) error {
-			tx = tx.WithContext(ctx)
-			if err := tx.SetupJoinTable(&tables.TableVirtualKeyProviderConfig{}, "Keys", &tables.TableVirtualKeyProviderConfigKey{}); err != nil {
-				return err
-			}
-			return tx.AutoMigrate(liteSchemaModels()...)
+func liteSchemaMigrations(ctx context.Context, db *gorm.DB, logger schemas.Logger) []*migrator.Migration {
+	return []*migrator.Migration{
+		{
+			ID: "lite_schema_init",
+			Migrate: func(tx *gorm.DB) error {
+				tx = tx.WithContext(ctx)
+				if err := tx.SetupJoinTable(&tables.TableVirtualKeyProviderConfig{}, "Keys", &tables.TableVirtualKeyProviderConfigKey{}); err != nil {
+					return err
+				}
+				return tx.AutoMigrate(liteSchemaModels()...)
+			},
 		},
-	})
+		{
+			ID: "remove_ttfb_routing_config",
+			Migrate: func(tx *gorm.DB) error {
+				tx = tx.WithContext(ctx)
+				return migrator.DropColumnIfExists(tx, logger, &tables.TableClientConfig{}, "ttfb_routing_json")
+			},
+		},
+	}
 }
 
 func liteSchemaModels() []interface{} {

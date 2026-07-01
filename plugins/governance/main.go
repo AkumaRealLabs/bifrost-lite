@@ -41,14 +41,11 @@ type Config struct {
 	IsEnterprise          bool                               `json:"is_enterprise"`
 	DisableAutoToolInject *bool                              `json:"disable_auto_tool_inject"`
 	RoutingChainMaxDepth  *int                               `json:"routing_chain_max_depth"` // Pointer to live config value; changes are reflected immediately without restart
-	TTFBRouting           *TTFBRoutingConfig                 `json:"ttfb_routing"`
 	ProviderScoring       *configstore.ProviderScoringConfig `json:"provider_scoring"`
 }
 
-type TTFBRoutingConfig = configstore.TTFBRoutingConfig
-
-type TTFBStatsProvider interface {
-	GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error)
+type TTFTStatsProvider interface {
+	GetTTFTStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFTStatsResult, error)
 }
 
 type weightedProviderConfig struct {
@@ -56,36 +53,6 @@ type weightedProviderConfig struct {
 	originalWeight  float64
 	effectiveWeight float64
 	penaltyFactor   float64
-}
-
-func normalizeTTFBRoutingConfig(config *TTFBRoutingConfig) TTFBRoutingConfig {
-	resolved := TTFBRoutingConfig{
-		Enabled: false,
-	}
-	windowSeconds := 900
-	minSamples := 20
-	thresholdMs := 2500.0
-	minPenaltyFactor := 0.2
-	if config != nil {
-		resolved.Enabled = config.Enabled
-		if config.WindowSeconds != nil && *config.WindowSeconds > 0 {
-			windowSeconds = *config.WindowSeconds
-		}
-		if config.MinSamples != nil && *config.MinSamples > 0 {
-			minSamples = *config.MinSamples
-		}
-		if config.ThresholdMs != nil && *config.ThresholdMs > 0 {
-			thresholdMs = *config.ThresholdMs
-		}
-		if config.MinPenaltyFactor != nil && *config.MinPenaltyFactor > 0 && *config.MinPenaltyFactor <= 1 {
-			minPenaltyFactor = *config.MinPenaltyFactor
-		}
-	}
-	resolved.WindowSeconds = &windowSeconds
-	resolved.MinSamples = &minSamples
-	resolved.ThresholdMs = &thresholdMs
-	resolved.MinPenaltyFactor = &minPenaltyFactor
-	return resolved
 }
 
 type InMemoryStore interface {
@@ -123,7 +90,7 @@ type GovernancePlugin struct {
 
 	// Transport dependencies
 	inMemoryStore         InMemoryStore
-	ttfbStats             TTFBStatsProvider
+	ttftStats             TTFTStatsProvider
 	reliabilityStats      ProviderReliabilityStatsProvider
 	providerPriceOverride func(providerName string) (float64, bool) // tests only
 	testCooldownGet       func(context.Context, time.Time) ([]configstore.ProviderCooldownState, error)
@@ -135,7 +102,6 @@ type GovernancePlugin struct {
 	requiredHeaders       *[]string // pointer to live config slice; lowercased at check time
 	isEnterprise          bool
 	disableAutoToolInject *bool
-	ttfbRouting           TTFBRoutingConfig
 	providerScoring       providerScoringConfig
 
 	complexityAnalyzer atomic.Pointer[complexity.ComplexityAnalyzer]
@@ -188,7 +154,7 @@ func Init(
 	governanceConfig *configstore.GovernanceConfig,
 	modelCatalog *modelcatalog.ModelCatalog,
 	inMemoryStore InMemoryStore,
-	ttfbStatsProviders ...TTFBStatsProvider,
+	ttftStatsProviders ...TTFTStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
@@ -196,11 +162,11 @@ func Init(
 	if modelCatalog == nil {
 		logger.Warn("governance plugin requires model catalog to calculate cost, all LLM cost calculations will be skipped.")
 	}
-	var ttfbStats TTFBStatsProvider
+	var ttftStats TTFTStatsProvider
 	var reliabilityStats ProviderReliabilityStatsProvider
-	if len(ttfbStatsProviders) > 0 {
-		ttfbStats = ttfbStatsProviders[0]
-		if rs, ok := ttfbStats.(ProviderReliabilityStatsProvider); ok {
+	if len(ttftStatsProviders) > 0 {
+		ttftStats = ttftStatsProviders[0]
+		if rs, ok := ttftStats.(ProviderReliabilityStatsProvider); ok {
 			reliabilityStats = rs
 		}
 	}
@@ -216,10 +182,8 @@ func Init(
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
 	}
-	ttfbRouting := normalizeTTFBRoutingConfig(nil)
 	providerScoring := normalizeProviderScoringConfig(nil)
 	if config != nil {
-		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 		providerScoring = normalizeProviderScoringConfig(config.ProviderScoring)
 	}
 	if routingChainMaxDepth == nil {
@@ -296,9 +260,8 @@ func Init(
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
 		inMemoryStore:         inMemoryStore,
-		ttfbStats:             ttfbStats,
+		ttftStats:             ttftStats,
 		reliabilityStats:      reliabilityStats,
-		ttfbRouting:           ttfbRouting,
 		providerScoring:       providerScoring,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, governanceConfig))
@@ -325,7 +288,7 @@ func InitFromStore(
 	configStore configstore.ConfigStore,
 	modelCatalog *modelcatalog.ModelCatalog,
 	inMemoryStore InMemoryStore,
-	ttfbStatsProviders ...TTFBStatsProvider,
+	ttftStatsProviders ...TTFTStatsProvider,
 ) (*GovernancePlugin, error) {
 	if configStore == nil {
 		logger.Warn("governance plugin requires config store to persist data, running in memory only mode")
@@ -336,11 +299,11 @@ func InitFromStore(
 	if governanceStore == nil {
 		return nil, fmt.Errorf("governance store is nil")
 	}
-	var ttfbStats TTFBStatsProvider
+	var ttftStats TTFTStatsProvider
 	var reliabilityStats ProviderReliabilityStatsProvider
-	if len(ttfbStatsProviders) > 0 {
-		ttfbStats = ttfbStatsProviders[0]
-		if rs, ok := ttfbStats.(ProviderReliabilityStatsProvider); ok {
+	if len(ttftStatsProviders) > 0 {
+		ttftStats = ttftStatsProviders[0]
+		if rs, ok := ttftStats.(ProviderReliabilityStatsProvider); ok {
 			reliabilityStats = rs
 		}
 	}
@@ -355,10 +318,8 @@ func InitFromStore(
 		disableAutoToolInject = config.DisableAutoToolInject
 		routingChainMaxDepth = config.RoutingChainMaxDepth
 	}
-	ttfbRouting := normalizeTTFBRoutingConfig(nil)
 	providerScoring := normalizeProviderScoringConfig(nil)
 	if config != nil {
-		ttfbRouting = normalizeTTFBRoutingConfig(config.TTFBRouting)
 		providerScoring = normalizeProviderScoringConfig(config.ProviderScoring)
 	}
 	if routingChainMaxDepth == nil {
@@ -405,9 +366,8 @@ func InitFromStore(
 		requiredHeaders:       requiredHeaders,
 		isEnterprise:          config != nil && config.IsEnterprise,
 		disableAutoToolInject: disableAutoToolInject,
-		ttfbStats:             ttfbStats,
+		ttftStats:             ttftStats,
 		reliabilityStats:      reliabilityStats,
-		ttfbRouting:           ttfbRouting,
 		providerScoring:       providerScoring,
 	}
 	plugin.storeComplexityAnalyzerConfig(resolveAnalyzerConfigFromStoreOrArg(ctx, logger, configStore, nil))
@@ -740,78 +700,6 @@ func (p *GovernancePlugin) buildEffectiveProviderWeights(ctx *schemas.BifrostCon
 	if p.providerScoring.Enabled {
 		return p.applyProviderScoring(ctx, configs, virtualKey, model, weighted)
 	}
-	if !p.ttfbRouting.Enabled {
-		return weighted
-	}
-	if p.ttfbStats == nil {
-		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, "TTFB routing enabled but logstore stats provider is unavailable; using original provider weights")
-		return weighted
-	}
-
-	windowSeconds := 900
-	if p.ttfbRouting.WindowSeconds != nil && *p.ttfbRouting.WindowSeconds > 0 {
-		windowSeconds = *p.ttfbRouting.WindowSeconds
-	}
-	minSamples := 20
-	if p.ttfbRouting.MinSamples != nil && *p.ttfbRouting.MinSamples > 0 {
-		minSamples = *p.ttfbRouting.MinSamples
-	}
-	thresholdMs := 2500.0
-	if p.ttfbRouting.ThresholdMs != nil && *p.ttfbRouting.ThresholdMs > 0 {
-		thresholdMs = *p.ttfbRouting.ThresholdMs
-	}
-	minFactor := 0.2
-	if p.ttfbRouting.MinPenaltyFactor != nil && *p.ttfbRouting.MinPenaltyFactor > 0 && *p.ttfbRouting.MinPenaltyFactor <= 1 {
-		minFactor = *p.ttfbRouting.MinPenaltyFactor
-	}
-
-	filters := logstore.SearchFilters{Models: []string{model}}
-	if virtualKey != nil && virtualKey.ID != "" {
-		filters.VirtualKeyIDs = []string{virtualKey.ID}
-	}
-	stats, err := p.ttfbStats.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
-	if err != nil {
-		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("TTFB routing stats unavailable for model %s: %v; using original provider weights", model, err))
-		return weighted
-	}
-
-	statsByProvider := make(map[string]logstore.TTFBStatsEntry, len(stats.Stats))
-	for _, entry := range stats.Stats {
-		if entry.Model != model {
-			continue
-		}
-		current, exists := statsByProvider[entry.Provider]
-		if !exists || entry.SampleCount > current.SampleCount {
-			statsByProvider[entry.Provider] = entry
-		}
-	}
-
-	for i := range weighted {
-		entry, ok := statsByProvider[weighted[i].config.Provider]
-		if !ok {
-			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: no TTFB samples; using original weight %.2f", weighted[i].config.Provider, model, weighted[i].originalWeight))
-			continue
-		}
-		if !entry.HasMinSamples {
-			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing fallback for provider %s model %s: %d samples below minimum %d; using original weight %.2f", weighted[i].config.Provider, model, entry.SampleCount, minSamples, weighted[i].originalWeight))
-			continue
-		}
-		if entry.P95TTFBMs <= thresholdMs {
-			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing kept provider %s model %s at original weight %.2f: p95 %.0fms <= %.0fms", weighted[i].config.Provider, model, weighted[i].originalWeight, entry.P95TTFBMs, thresholdMs))
-			continue
-		}
-		factor := thresholdMs / entry.P95TTFBMs
-		if factor < minFactor {
-			factor = minFactor
-		}
-		if factor > 1 {
-			factor = 1
-		}
-		weighted[i].penaltyFactor = factor
-		weighted[i].effectiveWeight = weighted[i].originalWeight * factor
-		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("TTFB routing penalized provider %s model %s: p95 %.0fms > %.0fms, weight %.2f -> %.2f", weighted[i].config.Provider, model, entry.P95TTFBMs, thresholdMs, weighted[i].originalWeight, weighted[i].effectiveWeight))
-	}
-
 	return weighted
 }
 

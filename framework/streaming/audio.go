@@ -11,6 +11,10 @@ import (
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 )
 
+func audioDeltaHasVisibleOutput(delta *schemas.BifrostSpeechStreamResponse) bool {
+	return delta != nil && len(delta.Audio) > 0
+}
+
 // buildCompleteMessageFromAudioStreamChunks builds a complete message from accumulated audio chunks
 func (a *Accumulator) buildCompleteMessageFromAudioStreamChunks(chunks []*AudioStreamChunk) *schemas.BifrostSpeechResponse {
 	completeMessage := &schemas.BifrostSpeechResponse{}
@@ -34,11 +38,8 @@ func (a *Accumulator) processAccumulatedAudioStreamingChunks(requestID string, b
 	// Note: Cleanup is handled by CleanupStreamAccumulator when refcount reaches 0
 	// This is called from completeDeferredSpan after streaming ends
 
-	// Calculate Time to First Token (TTFT) in milliseconds
-	var ttft int64
-	if !accumulator.StartTimestamp.IsZero() && !accumulator.FirstChunkTimestamp.IsZero() {
-		ttft = accumulator.FirstChunkTimestamp.Sub(accumulator.StartTimestamp).Nanoseconds() / 1e6
-	}
+	ttfb := calculateMs(accumulator.StartTimestamp, accumulator.FirstByteTimestamp)
+	ttft := calculateMs(accumulator.StartTimestamp, accumulator.FirstChunkTimestamp)
 
 	data := &AccumulatedData{
 		RequestID:        requestID,
@@ -47,6 +48,7 @@ func (a *Accumulator) processAccumulatedAudioStreamingChunks(requestID string, b
 		StartTimestamp:   accumulator.StartTimestamp,
 		EndTimestamp:     accumulator.FinalTimestamp,
 		Latency:          0,
+		TimeToFirstByte:  ttfb,
 		TimeToFirstToken: ttft,
 		OutputMessage:    nil,
 		ToolCalls:        nil,

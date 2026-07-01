@@ -1286,20 +1286,18 @@ func TestUpdateClientConfig(t *testing.T) {
 	ctx := context.Background()
 	windowSeconds := 300
 	minSamples := 12
-	thresholdMs := 1800.0
-	minPenaltyFactor := 0.35
+	ttftThresholdMs := 1800.0
 
 	config := &ClientConfig{
 		EnableLogging:        new(true),
 		InitialPoolSize:      100,
 		LogRetentionDays:     30,
 		MaxRequestBodySizeMB: 50,
-		TTFBRouting: &TTFBRoutingConfig{
-			Enabled:          true,
-			WindowSeconds:    &windowSeconds,
-			MinSamples:       &minSamples,
-			ThresholdMs:      &thresholdMs,
-			MinPenaltyFactor: &minPenaltyFactor,
+		ProviderScoring: &ProviderScoringConfig{
+			Enabled:         true,
+			WindowSeconds:   &windowSeconds,
+			MinSamples:      &minSamples,
+			TTFTThresholdMs: &ttftThresholdMs,
 		},
 	}
 
@@ -1310,12 +1308,11 @@ func TestUpdateClientConfig(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, result.EnableLogging != nil && *result.EnableLogging)
 	assert.Equal(t, 100, result.InitialPoolSize)
-	require.NotNil(t, result.TTFBRouting)
-	assert.True(t, result.TTFBRouting.Enabled)
-	assert.Equal(t, windowSeconds, *result.TTFBRouting.WindowSeconds)
-	assert.Equal(t, minSamples, *result.TTFBRouting.MinSamples)
-	assert.Equal(t, thresholdMs, *result.TTFBRouting.ThresholdMs)
-	assert.Equal(t, minPenaltyFactor, *result.TTFBRouting.MinPenaltyFactor)
+	require.NotNil(t, result.ProviderScoring)
+	assert.True(t, result.ProviderScoring.Enabled)
+	assert.Equal(t, windowSeconds, *result.ProviderScoring.WindowSeconds)
+	assert.Equal(t, minSamples, *result.ProviderScoring.MinSamples)
+	assert.Equal(t, ttftThresholdMs, *result.ProviderScoring.TTFTThresholdMs)
 }
 
 func TestUpdateClientMetadata(t *testing.T) {

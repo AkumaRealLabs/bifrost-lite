@@ -60,7 +60,7 @@ func scoringPlugin(t *testing.T, rel fakeReliabilityStats, store *fakeCooldownCo
 	errThreshold := 0.30
 	consec := 3
 	cooldown := 300
-	ttfbMs := 2500.0
+	ttftMs := 2500.0
 	p := &GovernancePlugin{
 		logger: NewMockLogger(),
 		providerScoring: providerScoringConfig{
@@ -70,14 +70,14 @@ func scoringPlugin(t *testing.T, rel fakeReliabilityStats, store *fakeCooldownCo
 			ErrorRateThreshold:           &errThreshold,
 			ConsecutiveFailuresThreshold: &consec,
 			CooldownSeconds:              &cooldown,
-			TTFBThresholdMs:              &ttfbMs,
-			Weights:                      &configstore.ProviderScoringWeights{Availability: 0.70, TTFB: 0.20, Cost: 0.10},
+			TTFTThresholdMs:              &ttftMs,
+			Weights:                      &configstore.ProviderScoringWeights{Availability: 0.70, TTFT: 0.20, Cost: 0.10},
 		},
 		reliabilityStats: rel,
-		ttfbStats: fakeTTFBStatsProvider{result: &logstore.TTFBStatsResult{
-			Stats: []logstore.TTFBStatsEntry{
-				{Provider: "fast", Model: "gpt-4o", SampleCount: 10, P95TTFBMs: 800, HasMinSamples: true},
-				{Provider: "slow", Model: "gpt-4o", SampleCount: 10, P95TTFBMs: 4000, HasMinSamples: true},
+		ttftStats: fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+			Stats: []logstore.TTFTStatsEntry{
+				{Provider: "fast", Model: "gpt-4o", SampleCount: 10, P95TTFTMs: 800, HasMinSamples: true},
+				{Provider: "slow", Model: "gpt-4o", SampleCount: 10, P95TTFTMs: 4000, HasMinSamples: true},
 			},
 		}},
 	}
@@ -96,7 +96,7 @@ func scoringPlugin(t *testing.T, rel fakeReliabilityStats, store *fakeCooldownCo
 	return p
 }
 
-func TestApplyProviderScoring_TTFBBeatsCost(t *testing.T) {
+func TestApplyProviderScoring_TTFTBeatsCost(t *testing.T) {
 	wFast, wSlow := 1.0, 1.0
 	configs := []configstoreTables.TableVirtualKeyProviderConfig{
 		{Provider: "fast", Weight: &wFast},

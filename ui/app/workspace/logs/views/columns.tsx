@@ -260,6 +260,23 @@ export const createColumns = (
 			},
 		},
 		{
+			accessorKey: "ttft_ms",
+			header: ({ column }) => (
+				<Button variant="ghost" data-testid="logs-ttft-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>
+					TTFT
+					<ArrowUpDown className="ml-2 h-4 w-4" />
+				</Button>
+			),
+			size: 120,
+			cell: ({ row }) => {
+				const ttft = row.original.ttft_ms;
+				if (ttft === undefined || ttft === null) {
+					return <div className="pl-4 font-mono text-xs">-</div>;
+				}
+				return <div className="pl-4 font-mono text-[12px] tabular-nums">{formatLatency(ttft)}</div>;
+			},
+		},
+		{
 			accessorKey: "tokens",
 			header: ({ column }) => (
 				<Button variant="ghost" data-testid="logs-tokens-sort-btn" onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}>

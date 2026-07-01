@@ -2,7 +2,7 @@ export type ProviderScoringRow = {
 	provider: string;
 	model: string;
 	availabilityScore: number;
-	ttfbScore: number;
+	ttftScore: number;
 	costScore: number;
 	finalMultiplier: number;
 	baseWeight: number;
@@ -19,7 +19,7 @@ export type ProviderScoringSummary = {
 
 const numberPattern = "[-+]?\\d*\\.?\\d+";
 const scorePattern = new RegExp(
-	`Provider scoring (\\S+) model (\\S+): avail=(${numberPattern}) ttfb=(${numberPattern}) cost=(${numberPattern}) final=(${numberPattern}) weight (${numberPattern}) -> (${numberPattern})`,
+	`Provider scoring (\\S+) model (\\S+): avail=(${numberPattern}) ttft=(${numberPattern}) cost=(${numberPattern}) final=(${numberPattern}) weight (${numberPattern}) -> (${numberPattern})`,
 );
 
 const messageFromRoutingLine = (line: string) => {
@@ -45,7 +45,7 @@ export function parseProviderScoringLogs(logs: string): ProviderScoringSummary {
 				provider: score[1],
 				model: score[2],
 				availabilityScore: Number(score[3]),
-				ttfbScore: Number(score[4]),
+				ttftScore: Number(score[4]),
 				costScore: Number(score[5]),
 				finalMultiplier: Number(score[6]),
 				baseWeight: Number(score[7]),

@@ -32,6 +32,7 @@ const (
 	SortByTimestamp SortBy = "timestamp"
 	SortByLatency   SortBy = "latency"
 	SortByTTFB      SortBy = "ttfb_ms"
+	SortByTTFT      SortBy = "ttft_ms"
 	SortByTokens    SortBy = "tokens"
 	SortByCost      SortBy = "cost"
 )
@@ -66,6 +67,8 @@ type SearchFilters struct {
 	MaxLatency        *float64          `json:"max_latency,omitempty"`
 	MinTTFBMs         *float64          `json:"min_ttfb_ms,omitempty"`
 	MaxTTFBMs         *float64          `json:"max_ttfb_ms,omitempty"`
+	MinTTFTMs         *float64          `json:"min_ttft_ms,omitempty"`
+	MaxTTFTMs         *float64          `json:"max_ttft_ms,omitempty"`
 	MinTokens         *int              `json:"min_tokens,omitempty"`
 	MaxTokens         *int              `json:"max_tokens,omitempty"`
 	MinCost           *float64          `json:"min_cost,omitempty"`
@@ -193,6 +196,7 @@ type Log struct {
 	CacheDebug              string    `gorm:"type:text" json:"-"` // JSON serialized *schemas.BifrostCacheDebug
 	Latency                 *float64  `gorm:"index:idx_logs_latency" json:"latency,omitempty"`
 	TTFBMs                  *float64  `gorm:"column:ttfb_ms;index:idx_logs_ttfb_ms" json:"ttfb_ms,omitempty"`
+	TTFTMs                  *float64  `gorm:"column:ttft_ms;index:idx_logs_ttft_ms" json:"ttft_ms,omitempty"`
 	TokenUsage              string    `gorm:"type:text" json:"-"`                                                                         // JSON serialized *schemas.LLMUsage
 	Cost                    *float64  `gorm:"index" json:"cost,omitempty"`                                                                // Cost in dollars (total cost of the request - includes cache lookup cost)
 	Status                  string    `gorm:"type:varchar(50);index;index:idx_logs_ts_provider_status,priority:3;not null" json:"status"` // "processing", "success", or "error"
@@ -1422,6 +1426,7 @@ type DashboardOverview struct {
 	Models   *ModelHistogramResult   `json:"models"`   // Per-model usage over time
 	Latency  *LatencyHistogramResult `json:"latency"`  // Latency percentiles over time
 	TTFB     *LatencyHistogramResult `json:"ttfb"`     // Streaming TTFB percentiles over time
+	TTFT     *LatencyHistogramResult `json:"ttft"`     // Streaming TTFT percentiles over time
 }
 
 // DashboardProviderUsage holds the Provider Usage tab metrics.
@@ -1430,6 +1435,7 @@ type DashboardProviderUsage struct {
 	Tokens  *ProviderTokenHistogramResult   `json:"tokens"`
 	Latency *ProviderLatencyHistogramResult `json:"latency"`
 	TTFB    *ProviderLatencyHistogramResult `json:"ttfb"`
+	TTFT    *ProviderLatencyHistogramResult `json:"ttft"`
 }
 
 // DashboardModelRankings holds the Model Rankings tab data.
@@ -1465,6 +1471,24 @@ type TTFBStatsResult struct {
 	WindowSeconds int64            `json:"window_seconds"`
 	MinSamples    int              `json:"min_samples"`
 	Stats         []TTFBStatsEntry `json:"stats"`
+}
+
+type TTFTStatsEntry struct {
+	Provider      string  `json:"provider"`
+	Model         string  `json:"model"`
+	VirtualKeyID  string  `json:"virtual_key_id,omitempty"`
+	SampleCount   int64   `json:"sample_count"`
+	AvgTTFTMs     float64 `json:"avg_ttft_ms"`
+	P90TTFTMs     float64 `json:"p90_ttft_ms"`
+	P95TTFTMs     float64 `json:"p95_ttft_ms"`
+	P99TTFTMs     float64 `json:"p99_ttft_ms"`
+	HasMinSamples bool    `json:"has_min_samples"`
+}
+
+type TTFTStatsResult struct {
+	WindowSeconds int64            `json:"window_seconds"`
+	MinSamples    int              `json:"min_samples"`
+	Stats         []TTFTStatsEntry `json:"stats"`
 }
 
 // ProviderReliabilityStatsEntry aggregates success/error counts for a provider in a window.

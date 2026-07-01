@@ -34,6 +34,12 @@ type OpenAIProvider struct {
 	disableStore         bool                          // Whether to force store=false on outgoing requests
 }
 
+func markFirstStreamByte(ctx *schemas.BifrostContext) {
+	if ctx != nil && ctx.Value(schemas.BifrostContextKeyStreamFirstByteTime) == nil {
+		ctx.SetValue(schemas.BifrostContextKeyStreamFirstByteTime, time.Now())
+	}
+}
+
 func newOpenAIEmptyResponseError() *schemas.BifrostError {
 	return providerUtils.NewBifrostUpstreamConnectionError(schemas.ErrProviderResponseEmpty, errors.New(schemas.ErrProviderResponseEmpty))
 }
@@ -815,6 +821,7 @@ func HandleOpenAITextCompletionStreaming(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 			var response schemas.BifrostTextCompletionResponse
 			if customResponseHandler != nil {
@@ -1381,6 +1388,7 @@ func HandleOpenAIChatCompletionStreaming(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 
 			// Quick check for error field (allocation-free using sonic.GetFromString)
@@ -2037,6 +2045,7 @@ func HandleOpenAIResponsesStreaming(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 
 			// Parse into bifrost response
@@ -2673,6 +2682,7 @@ func HandleOpenAISpeechStreamRequest(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 
 			// Quick check for error field (allocation-free using sonic.GetFromString)
@@ -3116,6 +3126,7 @@ func HandleOpenAITranscriptionStreamRequest(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 			// TODo fix this
 			response := &schemas.BifrostTranscriptionStreamResponse{}
@@ -3559,6 +3570,7 @@ func HandleOpenAIImageGenerationStreaming(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 
 			// Quick check for error field (allocation-free using sonic.GetFromString)
@@ -4926,6 +4938,7 @@ func HandleOpenAIImageEditStreamRequest(
 				}
 				break
 			}
+			markFirstStreamByte(ctx)
 			jsonData := string(data)
 
 			// Quick check for error field (allocation-free using sonic.GetFromString)

@@ -421,7 +421,7 @@ function ProviderScoringTable({ rows, failOpen }: { rows: ProviderScoringRow[]; 
 							<th className="px-3 py-2 text-left font-medium">Provider</th>
 							<th className="px-3 py-2 text-left font-medium">Model</th>
 							<th className="px-3 py-2 text-right font-medium">Availability</th>
-							<th className="px-3 py-2 text-right font-medium">TTFB</th>
+							<th className="px-3 py-2 text-right font-medium">TTFT</th>
 							<th className="px-3 py-2 text-right font-medium">Cost</th>
 							<th className="px-3 py-2 text-right font-medium">Final</th>
 							<th className="px-3 py-2 text-right font-medium">Base Weight</th>
@@ -435,7 +435,7 @@ function ProviderScoringTable({ rows, failOpen }: { rows: ProviderScoringRow[]; 
 								<td className="px-3 py-2 font-mono">{row.provider}</td>
 								<td className="px-3 py-2 font-mono">{row.model}</td>
 								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.availabilityScore)}</td>
-								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.ttfbScore)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.ttftScore)}</td>
 								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.costScore)}</td>
 								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.finalMultiplier)}</td>
 								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.baseWeight)}</td>
@@ -732,7 +732,7 @@ export function LogDetailView({
 						<span className="uppercase">{log.provider}</span>
 					</div>
 				</div>
-				<div className="border-border grid grid-cols-2 border-t md:grid-cols-6">
+				<div className="border-border grid grid-cols-2 border-t md:grid-cols-7">
 					<HeroStat
 						label="Latency"
 						valueClass="text-primary"
@@ -750,7 +750,13 @@ export function LogDetailView({
 					<HeroStat
 						label="TTFB"
 						value={log.ttfb_ms == null || isNaN(log.ttfb_ms) ? "—" : formatLatency(log.ttfb_ms)}
-						sub={log.stream ? "首个 chunk" : "非流式"}
+						sub={log.stream ? "首个原始数据" : "非流式"}
+						hasRightBorder
+					/>
+					<HeroStat
+						label="TTFT"
+						value={log.ttft_ms == null || isNaN(log.ttft_ms) ? "—" : formatLatency(log.ttft_ms)}
+						sub={log.stream ? "首个可见输出" : "非流式"}
 						hasRightBorder
 					/>
 					<HeroStat
@@ -834,6 +840,11 @@ export function LogDetailView({
 								className="w-full"
 								label="TTFB"
 								value={log.ttfb_ms == null || isNaN(log.ttfb_ms) ? "-" : <div>{log.ttfb_ms.toFixed(2)}ms</div>}
+							/>
+							<LogEntryDetailsView
+								className="w-full"
+								label="TTFT"
+								value={log.ttft_ms == null || isNaN(log.ttft_ms) ? "-" : <div>{log.ttft_ms.toFixed(2)}ms</div>}
 							/>
 						</div>
 					</div>

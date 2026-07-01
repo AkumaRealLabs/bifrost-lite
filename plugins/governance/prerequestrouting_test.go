@@ -13,12 +13,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type fakeTTFBStatsProvider struct {
-	result *logstore.TTFBStatsResult
+type fakeTTFTStatsProvider struct {
+	result *logstore.TTFTStatsResult
 	err    error
 }
 
-func (f fakeTTFBStatsProvider) GetTTFBStats(context.Context, logstore.SearchFilters, time.Duration, int) (*logstore.TTFBStatsResult, error) {
+func (f fakeTTFTStatsProvider) GetTTFTStats(context.Context, logstore.SearchFilters, time.Duration, int) (*logstore.TTFTStatsResult, error) {
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -87,90 +87,18 @@ func TestRunPreRequestRouting_UnknownPrefixIsTreatedAsModelNamespace(t *testing.
 	assert.Equal(t, "groq/meta-llama/llama-3.1-8b-instant", got)
 }
 
-func TestBuildEffectiveProviderWeights_TTFBRoutingDisabledPreservesOriginalWeights(t *testing.T) {
+func TestBuildEffectiveProviderWeights_ProviderScoringDisabledPreservesOriginalWeights(t *testing.T) {
 	openaiWeight := 0.7
 	anthropicWeight := 0.3
 	configs := []configstoreTables.TableVirtualKeyProviderConfig{
 		{Provider: "openai", Weight: &openaiWeight},
 		{Provider: "anthropic", Weight: &anthropicWeight},
 	}
-	p := &GovernancePlugin{
-		logger:      NewMockLogger(),
-		ttfbRouting: normalizeTTFBRoutingConfig(nil),
-		ttfbStats: fakeTTFBStatsProvider{result: &logstore.TTFBStatsResult{
-			Stats: []logstore.TTFBStatsEntry{
-				{Provider: "openai", Model: "gpt-4o", SampleCount: 100, P95TTFBMs: 6000, HasMinSamples: true},
-			},
-		}},
-	}
-
-	got := p.buildEffectiveProviderWeights(schemas.NewBifrostContext(context.Background(), schemas.NoDeadline), configs, nil, "gpt-4o")
-
-	require.Len(t, got, 2)
-	assert.Equal(t, openaiWeight, got[0].effectiveWeight)
-	assert.Equal(t, anthropicWeight, got[1].effectiveWeight)
-	assert.Equal(t, 1.0, got[0].penaltyFactor)
-	assert.Equal(t, 1.0, got[1].penaltyFactor)
-}
-
-func TestBuildEffectiveProviderWeights_TTFBRoutingPenalizesOnlySlowProviders(t *testing.T) {
-	openaiWeight := 0.7
-	anthropicWeight := 0.3
-	configs := []configstoreTables.TableVirtualKeyProviderConfig{
-		{Provider: "openai", Weight: &openaiWeight},
-		{Provider: "anthropic", Weight: &anthropicWeight},
-	}
-	minSamples := 20
-	threshold := 2500.0
-	minFactor := 0.2
 	p := &GovernancePlugin{
 		logger: NewMockLogger(),
-		ttfbRouting: TTFBRoutingConfig{
-			Enabled:          true,
-			WindowSeconds:    schemas.Ptr(900),
-			MinSamples:       &minSamples,
-			ThresholdMs:      &threshold,
-			MinPenaltyFactor: &minFactor,
-		},
-		ttfbStats: fakeTTFBStatsProvider{result: &logstore.TTFBStatsResult{
-			Stats: []logstore.TTFBStatsEntry{
-				{Provider: "openai", Model: "gpt-4o", SampleCount: 100, P95TTFBMs: 5000, HasMinSamples: true},
-				{Provider: "anthropic", Model: "gpt-4o", SampleCount: 100, P95TTFBMs: 1200, HasMinSamples: true},
-			},
-		}},
-	}
-
-	got := p.buildEffectiveProviderWeights(schemas.NewBifrostContext(context.Background(), schemas.NoDeadline), configs, nil, "gpt-4o")
-
-	require.Len(t, got, 2)
-	assert.InDelta(t, 0.35, got[0].effectiveWeight, 0.0001)
-	assert.InDelta(t, 0.5, got[0].penaltyFactor, 0.0001)
-	assert.Equal(t, anthropicWeight, got[1].effectiveWeight)
-	assert.Equal(t, 1.0, got[1].penaltyFactor)
-}
-
-func TestBuildEffectiveProviderWeights_TTFBRoutingSampleShortfallFallsBack(t *testing.T) {
-	openaiWeight := 0.7
-	anthropicWeight := 0.3
-	configs := []configstoreTables.TableVirtualKeyProviderConfig{
-		{Provider: "openai", Weight: &openaiWeight},
-		{Provider: "anthropic", Weight: &anthropicWeight},
-	}
-	minSamples := 20
-	threshold := 2500.0
-	minFactor := 0.2
-	p := &GovernancePlugin{
-		logger: NewMockLogger(),
-		ttfbRouting: TTFBRoutingConfig{
-			Enabled:          true,
-			WindowSeconds:    schemas.Ptr(900),
-			MinSamples:       &minSamples,
-			ThresholdMs:      &threshold,
-			MinPenaltyFactor: &minFactor,
-		},
-		ttfbStats: fakeTTFBStatsProvider{result: &logstore.TTFBStatsResult{
-			Stats: []logstore.TTFBStatsEntry{
-				{Provider: "openai", Model: "gpt-4o", SampleCount: 5, P95TTFBMs: 7000, HasMinSamples: false},
+		ttftStats: fakeTTFTStatsProvider{result: &logstore.TTFTStatsResult{
+			Stats: []logstore.TTFTStatsEntry{
+				{Provider: "openai", Model: "gpt-4o", SampleCount: 100, P95TTFTMs: 6000, HasMinSamples: true},
 			},
 		}},
 	}

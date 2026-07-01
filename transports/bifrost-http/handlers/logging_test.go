@@ -171,6 +171,9 @@ func (m *dashboardLogManager) GetLatencyHistogram(ctx context.Context, filters *
 func (m *dashboardLogManager) GetTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
 	return &logstore.LatencyHistogramResult{}, nil
 }
+func (m *dashboardLogManager) GetTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	return &logstore.LatencyHistogramResult{}, nil
+}
 func (m *dashboardLogManager) GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	return &logstore.ProviderCostHistogramResult{}, nil
 }
@@ -183,8 +186,14 @@ func (m *dashboardLogManager) GetProviderLatencyHistogram(ctx context.Context, f
 func (m *dashboardLogManager) GetProviderTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
 	return &logstore.ProviderLatencyHistogramResult{}, nil
 }
+func (m *dashboardLogManager) GetProviderTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	return &logstore.ProviderLatencyHistogramResult{}, nil
+}
 func (m *dashboardLogManager) GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
 	return &logstore.TTFBStatsResult{}, nil
+}
+func (m *dashboardLogManager) GetTTFTStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFTStatsResult, error) {
+	return &logstore.TTFTStatsResult{}, nil
 }
 func (m *dashboardLogManager) GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error) {
 	return &logstore.ModelRankingResult{}, nil

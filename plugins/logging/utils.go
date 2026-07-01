@@ -54,6 +54,9 @@ type LogManager interface {
 	// GetTTFBHistogram returns time-bucketed streaming TTFB percentiles for the given filters
 	GetTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error)
 
+	// GetTTFTHistogram returns time-bucketed streaming TTFT percentiles for the given filters
+	GetTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error)
+
 	// GetProviderCostHistogram returns time-bucketed cost data with provider breakdown for the given filters
 	GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error)
 
@@ -66,8 +69,14 @@ type LogManager interface {
 	// GetProviderTTFBHistogram returns time-bucketed streaming TTFB percentiles with provider breakdown for the given filters
 	GetProviderTTFBHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error)
 
+	// GetProviderTTFTHistogram returns time-bucketed streaming TTFT percentiles with provider breakdown for the given filters
+	GetProviderTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error)
+
 	// GetTTFBStats returns recent streaming TTFB stats by provider, model, and virtual key
 	GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error)
+
+	// GetTTFTStats returns recent streaming TTFT stats by provider, model, and virtual key
+	GetTTFTStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFTStatsResult, error)
 
 	// GetModelRankings returns models ranked by usage with trend comparison
 	GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error)
@@ -215,6 +224,13 @@ func (p *PluginLogManager) GetTTFBHistogram(ctx context.Context, filters *logsto
 	return p.plugin.GetTTFBHistogram(ctx, *filters, bucketSizeSeconds)
 }
 
+func (p *PluginLogManager) GetTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetTTFTHistogram(ctx, *filters, bucketSizeSeconds)
+}
+
 func (p *PluginLogManager) GetProviderCostHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	if filters == nil {
 		return nil, fmt.Errorf("filters cannot be nil")
@@ -243,11 +259,25 @@ func (p *PluginLogManager) GetProviderTTFBHistogram(ctx context.Context, filters
 	return p.plugin.GetProviderTTFBHistogram(ctx, *filters, bucketSizeSeconds)
 }
 
+func (p *PluginLogManager) GetProviderTTFTHistogram(ctx context.Context, filters *logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetProviderTTFTHistogram(ctx, *filters, bucketSizeSeconds)
+}
+
 func (p *PluginLogManager) GetTTFBStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
 	if filters == nil {
 		return nil, fmt.Errorf("filters cannot be nil")
 	}
 	return p.plugin.GetTTFBStats(ctx, *filters, window, minSamples)
+}
+
+func (p *PluginLogManager) GetTTFTStats(ctx context.Context, filters *logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFTStatsResult, error) {
+	if filters == nil {
+		return nil, fmt.Errorf("filters cannot be nil")
+	}
+	return p.plugin.GetTTFTStats(ctx, *filters, window, minSamples)
 }
 
 func (p *PluginLogManager) GetModelRankings(ctx context.Context, filters *logstore.SearchFilters) (*logstore.ModelRankingResult, error) {
@@ -523,6 +553,7 @@ func convertToProcessedStreamResponse(result *schemas.StreamAccumulatorResult, r
 		Status:                result.Status,
 		Stream:                true,
 		Latency:               result.Latency,
+		TimeToFirstByte:       result.TimeToFirstByte,
 		TimeToFirstToken:      result.TimeToFirstToken,
 		OutputMessage:         result.OutputMessage,
 		OutputMessages:        result.OutputMessages,

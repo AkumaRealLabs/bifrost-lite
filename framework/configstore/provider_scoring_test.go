@@ -20,12 +20,22 @@ func TestNormalizeProviderScoringConfigDefaults(t *testing.T) {
 	assert.Equal(t, 3, *got.ConsecutiveFailuresThreshold)
 	require.NotNil(t, got.CooldownSeconds)
 	assert.Equal(t, 300, *got.CooldownSeconds)
-	require.NotNil(t, got.TTFBThresholdMs)
-	assert.InDelta(t, 2500, *got.TTFBThresholdMs, 0.01)
+	require.NotNil(t, got.TTFTThresholdMs)
+	assert.InDelta(t, 2500, *got.TTFTThresholdMs, 0.01)
 	require.NotNil(t, got.Weights)
 	assert.InDelta(t, 0.70, got.Weights.Availability, 0.0001)
-	assert.InDelta(t, 0.20, got.Weights.TTFB, 0.0001)
+	assert.InDelta(t, 0.20, got.Weights.TTFT, 0.0001)
 	assert.InDelta(t, 0.10, got.Weights.Cost, 0.0001)
+}
+
+func TestProviderScoringConfigReadsLegacyTTFBFields(t *testing.T) {
+	var got ProviderScoringConfig
+	err := got.UnmarshalJSON([]byte(`{"ttfb_threshold_ms":1800,"weights":{"availability":0.6,"ttfb":0.3,"cost":0.1}}`))
+	require.NoError(t, err)
+	require.NotNil(t, got.TTFTThresholdMs)
+	assert.InDelta(t, 1800, *got.TTFTThresholdMs, 0.01)
+	require.NotNil(t, got.Weights)
+	assert.InDelta(t, 0.3, got.Weights.TTFT, 0.0001)
 }
 
 func TestGenerateClientConfigHashIncludesProviderScoring(t *testing.T) {
@@ -48,9 +58,9 @@ func TestGenerateClientConfigHashIncludesProviderScoring(t *testing.T) {
 func TestNormalizeProviderScoringConfigZeroSecondaryWeights(t *testing.T) {
 	zero := 0.0
 	got := NormalizeProviderScoringConfig(&ProviderScoringConfig{
-		Weights: &ProviderScoringWeights{Availability: 1.0, TTFB: zero, Cost: zero},
+		Weights: &ProviderScoringWeights{Availability: 1.0, TTFT: zero, Cost: zero},
 	})
 	require.NotNil(t, got.Weights)
-	assert.InDelta(t, 0, got.Weights.TTFB, 0.0001)
+	assert.InDelta(t, 0, got.Weights.TTFT, 0.0001)
 	assert.InDelta(t, 0, got.Weights.Cost, 0.0001)
 }

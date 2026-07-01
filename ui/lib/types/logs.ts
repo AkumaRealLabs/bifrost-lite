@@ -565,6 +565,7 @@ export interface LogEntry {
 	tool_calls?: ToolCall[];
 	latency?: number;
 	ttfb_ms?: number | null;
+	ttft_ms?: number | null;
 	token_usage?: LLMUsage;
 	cache_debug?: CacheDebug;
 	cost?: number; // Cost in dollars (total cost of the request - includes cache lookup cost)
@@ -599,6 +600,8 @@ export interface LogFilters {
 	max_latency?: number;
 	min_ttfb_ms?: number;
 	max_ttfb_ms?: number;
+	min_ttft_ms?: number;
+	max_ttft_ms?: number;
 	min_tokens?: number;
 	max_tokens?: number;
 	missing_cost_only?: boolean;
@@ -610,7 +613,7 @@ export interface LogFilters {
 export interface Pagination {
 	limit: number;
 	offset: number;
-	sort_by: "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost";
+	sort_by: "timestamp" | "latency" | "ttfb_ms" | "ttft_ms" | "tokens" | "cost";
 	order: "asc" | "desc";
 }
 
@@ -784,6 +787,24 @@ export interface TTFBStatsResponse {
 	window_seconds: number;
 	min_samples: number;
 	stats: TTFBStatsEntry[];
+}
+
+export interface TTFTStatsEntry {
+	provider: string;
+	model: string;
+	virtual_key_id?: string;
+	sample_count: number;
+	avg_ttft_ms: number;
+	p90_ttft_ms: number;
+	p95_ttft_ms: number;
+	p99_ttft_ms: number;
+	has_min_samples: boolean;
+}
+
+export interface TTFTStatsResponse {
+	window_seconds: number;
+	min_samples: number;
+	stats: TTFTStatsEntry[];
 }
 
 export interface LogsResponse {

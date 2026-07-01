@@ -269,6 +269,12 @@ func (s *RDBLogStore) applyFilters(baseQuery *gorm.DB, filters SearchFilters) *g
 	if filters.MaxTTFBMs != nil {
 		baseQuery = baseQuery.Where("ttfb_ms <= ?", *filters.MaxTTFBMs)
 	}
+	if filters.MinTTFTMs != nil {
+		baseQuery = baseQuery.Where("ttft_ms >= ?", *filters.MinTTFTMs)
+	}
+	if filters.MaxTTFTMs != nil {
+		baseQuery = baseQuery.Where("ttft_ms <= ?", *filters.MaxTTFTMs)
+	}
 	if filters.MinTokens != nil {
 		baseQuery = baseQuery.Where("total_tokens >= ?", *filters.MinTokens)
 	}
@@ -627,6 +633,8 @@ func (s *RDBLogStore) SearchLogs(ctx context.Context, filters SearchFilters, pag
 		orderClause = "latency " + direction
 	case "ttfb_ms":
 		orderClause = "ttfb_ms " + direction
+	case "ttft_ms":
+		orderClause = "ttft_ms " + direction
 	case "tokens":
 		orderClause = "total_tokens " + direction
 	case "cost":
@@ -871,7 +879,7 @@ func (s *RDBLogStore) listSelectColumns() string {
 		"user_id", "team_id", "team_name", "customer_id", "customer_name",
 		"business_unit_id", "business_unit_name",
 		"speech_input", "transcription_input", "image_generation_input", "video_generation_input",
-		"latency", "ttfb_ms", "token_usage", "cost", "status", "error_details", "stream",
+		"latency", "ttfb_ms", "ttft_ms", "token_usage", "cost", "status", "error_details", "stream",
 		fmt.Sprintf("substr(content_summary, 1, %d) AS content_summary", maxContentSummaryBytes),
 		"metadata", "cache_debug",
 		"is_large_payload_request", "is_large_payload_response",
@@ -1701,6 +1709,10 @@ func (s *RDBLogStore) GetLatencyHistogram(ctx context.Context, filters SearchFil
 
 func (s *RDBLogStore) GetTTFBHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
 	return s.getNumericLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttfb_ms", "TTFB")
+}
+
+func (s *RDBLogStore) GetTTFTHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*LatencyHistogramResult, error) {
+	return s.getNumericLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttft_ms", "TTFT")
 }
 
 func (s *RDBLogStore) getNumericLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64, column string, label string) (*LatencyHistogramResult, error) {
@@ -2612,6 +2624,10 @@ func (s *RDBLogStore) GetProviderTTFBHistogram(ctx context.Context, filters Sear
 	return s.getNumericProviderLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttfb_ms", "provider TTFB", false)
 }
 
+func (s *RDBLogStore) GetProviderTTFTHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64) (*ProviderLatencyHistogramResult, error) {
+	return s.getNumericProviderLatencyHistogram(ctx, filters, bucketSizeSeconds, "ttft_ms", "provider TTFT", false)
+}
+
 func (s *RDBLogStore) getNumericProviderLatencyHistogram(ctx context.Context, filters SearchFilters, bucketSizeSeconds int64, column string, label string, allowMatView bool) (*ProviderLatencyHistogramResult, error) {
 	if bucketSizeSeconds <= 0 {
 		bucketSizeSeconds = 3600
@@ -2846,7 +2862,19 @@ func (s *RDBLogStore) getProviderLatencyHistogramMySQL(ctx context.Context, base
 	return s.buildProviderLatencyHistogramResult(computedBuckets, orderedBuckets, providers, filters, bucketSizeSeconds)
 }
 
-func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*TTFBStatsResult, error) {
+type timingStatsEntry struct {
+	Provider      string
+	Model         string
+	VirtualKeyID  string
+	SampleCount   int64
+	AvgMs         float64
+	P90Ms         float64
+	P95Ms         float64
+	P99Ms         float64
+	HasMinSamples bool
+}
+
+func (s *RDBLogStore) getTimingStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int, column string, label string) (int64, int, []timingStatsEntry, error) {
 	if window <= 0 {
 		window = 15 * time.Minute
 	}
@@ -2869,15 +2897,9 @@ func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, w
 	query := s.ScopedDB(ctx).Model(&Log{})
 	query = s.applyFilters(query, filters)
 	query = query.Where("status IN ?", []string{"success", "error"})
-	query = query.Where("ttfb_ms IS NOT NULL")
+	query = query.Where(column + " IS NOT NULL")
 	query = query.Where("provider IS NOT NULL AND provider != ''")
 	query = query.Where("model IS NOT NULL AND model != ''")
-
-	result := &TTFBStatsResult{
-		WindowSeconds: int64(window.Seconds()),
-		MinSamples:    minSamples,
-		Stats:         []TTFBStatsEntry{},
-	}
 
 	switch s.db.Dialector.Name() {
 	case "postgres":
@@ -2886,55 +2908,55 @@ func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, w
 			Model        string          `gorm:"column:model"`
 			VirtualKeyID string          `gorm:"column:virtual_key_id"`
 			SampleCount  int64           `gorm:"column:sample_count"`
-			AvgTTFBMs    sql.NullFloat64 `gorm:"column:avg_ttfb_ms"`
-			P90TTFBMs    sql.NullFloat64 `gorm:"column:p90_ttfb_ms"`
-			P95TTFBMs    sql.NullFloat64 `gorm:"column:p95_ttfb_ms"`
-			P99TTFBMs    sql.NullFloat64 `gorm:"column:p99_ttfb_ms"`
+			AvgMs        sql.NullFloat64 `gorm:"column:avg_ms"`
+			P90Ms        sql.NullFloat64 `gorm:"column:p90_ms"`
+			P95Ms        sql.NullFloat64 `gorm:"column:p95_ms"`
+			P99Ms        sql.NullFloat64 `gorm:"column:p99_ms"`
 		}
-		selectClause := `
+		selectClause := fmt.Sprintf(`
 			provider,
 			model,
 			COALESCE(virtual_key_id, '') as virtual_key_id,
 			COUNT(*) as sample_count,
-			AVG(ttfb_ms) as avg_ttfb_ms,
-			percentile_cont(0.90) WITHIN GROUP (ORDER BY ttfb_ms) as p90_ttfb_ms,
-			percentile_cont(0.95) WITHIN GROUP (ORDER BY ttfb_ms) as p95_ttfb_ms,
-			percentile_cont(0.99) WITHIN GROUP (ORDER BY ttfb_ms) as p99_ttfb_ms
-		`
+			AVG(%[1]s) as avg_ms,
+			percentile_cont(0.90) WITHIN GROUP (ORDER BY %[1]s) as p90_ms,
+			percentile_cont(0.95) WITHIN GROUP (ORDER BY %[1]s) as p95_ms,
+			percentile_cont(0.99) WITHIN GROUP (ORDER BY %[1]s) as p99_ms
+		`, column)
 		if err := query.
 			Select(selectClause).
 			Group("provider, model, COALESCE(virtual_key_id, '')").
 			Order("sample_count DESC, provider ASC, model ASC").
 			Find(&rows).Error; err != nil {
-			return nil, fmt.Errorf("failed to get TTFB stats: %w", err)
+			return 0, 0, nil, fmt.Errorf("failed to get %s stats: %w", label, err)
 		}
-		result.Stats = make([]TTFBStatsEntry, 0, len(rows))
+		stats := make([]timingStatsEntry, 0, len(rows))
 		for _, row := range rows {
-			result.Stats = append(result.Stats, TTFBStatsEntry{
+			stats = append(stats, timingStatsEntry{
 				Provider:      row.Provider,
 				Model:         row.Model,
 				VirtualKeyID:  row.VirtualKeyID,
 				SampleCount:   row.SampleCount,
-				AvgTTFBMs:     row.AvgTTFBMs.Float64,
-				P90TTFBMs:     row.P90TTFBMs.Float64,
-				P95TTFBMs:     row.P95TTFBMs.Float64,
-				P99TTFBMs:     row.P99TTFBMs.Float64,
+				AvgMs:         row.AvgMs.Float64,
+				P90Ms:         row.P90Ms.Float64,
+				P95Ms:         row.P95Ms.Float64,
+				P99Ms:         row.P99Ms.Float64,
 				HasMinSamples: row.SampleCount >= int64(minSamples),
 			})
 		}
-		return result, nil
+		return int64(window.Seconds()), minSamples, stats, nil
 	default:
 		var rows []struct {
 			Provider     string  `gorm:"column:provider"`
 			Model        string  `gorm:"column:model"`
 			VirtualKeyID string  `gorm:"column:virtual_key_id"`
-			TTFBMs       float64 `gorm:"column:ttfb_ms"`
+			ValueMs      float64 `gorm:"column:value_ms"`
 		}
 		if err := query.
-			Select("provider, model, COALESCE(virtual_key_id, '') as virtual_key_id, ttfb_ms").
-			Order("provider ASC, model ASC, virtual_key_id ASC, ttfb_ms ASC").
+			Select(fmt.Sprintf("provider, model, COALESCE(virtual_key_id, '') as virtual_key_id, %s as value_ms", column)).
+			Order(fmt.Sprintf("provider ASC, model ASC, virtual_key_id ASC, %s ASC", column)).
 			Find(&rows).Error; err != nil {
-			return nil, fmt.Errorf("failed to get TTFB stats: %w", err)
+			return 0, 0, nil, fmt.Errorf("failed to get %s stats: %w", label, err)
 		}
 		type statsKey struct {
 			provider     string
@@ -2944,41 +2966,85 @@ func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, w
 		grouped := make(map[statsKey][]float64)
 		for _, row := range rows {
 			key := statsKey{provider: row.Provider, model: row.Model, virtualKeyID: row.VirtualKeyID}
-			grouped[key] = append(grouped[key], row.TTFBMs)
+			grouped[key] = append(grouped[key], row.ValueMs)
 		}
-		result.Stats = make([]TTFBStatsEntry, 0, len(grouped))
+		stats := make([]timingStatsEntry, 0, len(grouped))
 		for key, values := range grouped {
 			var sum float64
 			for _, v := range values {
 				sum += v
 			}
 			sampleCount := int64(len(values))
-			result.Stats = append(result.Stats, TTFBStatsEntry{
+			stats = append(stats, timingStatsEntry{
 				Provider:      key.provider,
 				Model:         key.model,
 				VirtualKeyID:  key.virtualKeyID,
 				SampleCount:   sampleCount,
-				AvgTTFBMs:     sum / float64(sampleCount),
-				P90TTFBMs:     computePercentile(values, 0.90),
-				P95TTFBMs:     computePercentile(values, 0.95),
-				P99TTFBMs:     computePercentile(values, 0.99),
+				AvgMs:         sum / float64(sampleCount),
+				P90Ms:         computePercentile(values, 0.90),
+				P95Ms:         computePercentile(values, 0.95),
+				P99Ms:         computePercentile(values, 0.99),
 				HasMinSamples: sampleCount >= int64(minSamples),
 			})
 		}
-		sort.Slice(result.Stats, func(i, j int) bool {
-			if result.Stats[i].SampleCount != result.Stats[j].SampleCount {
-				return result.Stats[i].SampleCount > result.Stats[j].SampleCount
+		sort.Slice(stats, func(i, j int) bool {
+			if stats[i].SampleCount != stats[j].SampleCount {
+				return stats[i].SampleCount > stats[j].SampleCount
 			}
-			if result.Stats[i].Provider != result.Stats[j].Provider {
-				return result.Stats[i].Provider < result.Stats[j].Provider
+			if stats[i].Provider != stats[j].Provider {
+				return stats[i].Provider < stats[j].Provider
 			}
-			if result.Stats[i].Model != result.Stats[j].Model {
-				return result.Stats[i].Model < result.Stats[j].Model
+			if stats[i].Model != stats[j].Model {
+				return stats[i].Model < stats[j].Model
 			}
-			return result.Stats[i].VirtualKeyID < result.Stats[j].VirtualKeyID
+			return stats[i].VirtualKeyID < stats[j].VirtualKeyID
 		})
-		return result, nil
+		return int64(window.Seconds()), minSamples, stats, nil
 	}
+}
+
+func (s *RDBLogStore) GetTTFBStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*TTFBStatsResult, error) {
+	windowSeconds, minSamples, stats, err := s.getTimingStats(ctx, filters, window, minSamples, "ttfb_ms", "TTFB")
+	if err != nil {
+		return nil, err
+	}
+	result := &TTFBStatsResult{WindowSeconds: windowSeconds, MinSamples: minSamples, Stats: make([]TTFBStatsEntry, 0, len(stats))}
+	for _, entry := range stats {
+		result.Stats = append(result.Stats, TTFBStatsEntry{
+			Provider:      entry.Provider,
+			Model:         entry.Model,
+			VirtualKeyID:  entry.VirtualKeyID,
+			SampleCount:   entry.SampleCount,
+			AvgTTFBMs:     entry.AvgMs,
+			P90TTFBMs:     entry.P90Ms,
+			P95TTFBMs:     entry.P95Ms,
+			P99TTFBMs:     entry.P99Ms,
+			HasMinSamples: entry.HasMinSamples,
+		})
+	}
+	return result, nil
+}
+
+func (s *RDBLogStore) GetTTFTStats(ctx context.Context, filters SearchFilters, window time.Duration, minSamples int) (*TTFTStatsResult, error) {
+	windowSeconds, minSamples, stats, err := s.getTimingStats(ctx, filters, window, minSamples, "ttft_ms", "TTFT")
+	if err != nil {
+		return nil, err
+	}
+	result := &TTFTStatsResult{WindowSeconds: windowSeconds, MinSamples: minSamples, Stats: make([]TTFTStatsEntry, 0, len(stats))}
+	for _, entry := range stats {
+		result.Stats = append(result.Stats, TTFTStatsEntry{
+			Provider:      entry.Provider,
+			Model:         entry.Model,
+			VirtualKeyID:  entry.VirtualKeyID,
+			SampleCount:   entry.SampleCount,
+			AvgTTFTMs:     entry.AvgMs,
+			P90TTFTMs:     entry.P90Ms,
+			P95TTFTMs:     entry.P95Ms,
+			P99TTFTMs:     entry.P99Ms,
+			HasMinSamples: entry.HasMinSamples,
+		})
+	}
+	return result, nil
 }
 
 // buildProviderLatencyHistogramResult fills in bucket timestamps and returns the result.

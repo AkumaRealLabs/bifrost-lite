@@ -95,7 +95,7 @@ func (p *GovernancePlugin) applyProviderScoring(
 	errorRateThreshold := *cfg.ErrorRateThreshold
 	consecutiveThreshold := *cfg.ConsecutiveFailuresThreshold
 	cooldownSeconds := *cfg.CooldownSeconds
-	ttfbThresholdMs := *cfg.TTFBThresholdMs
+	ttftThresholdMs := *cfg.TTFTThresholdMs
 	weights := *cfg.Weights
 
 	now := time.Now().UTC()
@@ -167,21 +167,21 @@ func (p *GovernancePlugin) applyProviderScoring(
 		}
 	}
 
-	ttfbByProvider := map[string]logstore.TTFBStatsEntry{}
-	if p.ttfbStats != nil {
+	ttftByProvider := map[string]logstore.TTFTStatsEntry{}
+	if p.ttftStats != nil {
 		filters := logstore.SearchFilters{Models: []string{model}}
 		if virtualKey != nil && virtualKey.ID != "" {
 			filters.VirtualKeyIDs = []string{virtualKey.ID}
 		}
-		stats, err := p.ttfbStats.GetTTFBStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
+		stats, err := p.ttftStats.GetTTFTStats(ctx, filters, time.Duration(windowSeconds)*time.Second, minSamples)
 		if err == nil {
 			for _, entry := range stats.Stats {
 				if entry.Model != model {
 					continue
 				}
-				current, ok := ttfbByProvider[entry.Provider]
+				current, ok := ttftByProvider[entry.Provider]
 				if !ok || entry.SampleCount > current.SampleCount {
-					ttfbByProvider[entry.Provider] = entry
+					ttftByProvider[entry.Provider] = entry
 				}
 			}
 		}
@@ -211,7 +211,7 @@ func (p *GovernancePlugin) applyProviderScoring(
 	}
 	scores := make([]scored, 0, len(weighted))
 	neutralAvailability := 0.5
-	neutralTTFB := 0.5
+	neutralTTFT := 0.5
 	minCostScore := 0.05
 
 	for i, w := range weighted {
@@ -223,9 +223,9 @@ func (p *GovernancePlugin) applyProviderScoring(
 			availabilityScore = clampScore(availabilityScore, 0.05, 1.0)
 		}
 
-		var ttfbScore float64 = neutralTTFB
-		if entry, ok := ttfbByProvider[provider]; ok && entry.HasMinSamples && entry.P95TTFBMs > 0 {
-			ttfbScore = clampScore(ttfbThresholdMs/entry.P95TTFBMs, 0.05, 1.0)
+		var ttftScore float64 = neutralTTFT
+		if entry, ok := ttftByProvider[provider]; ok && entry.HasMinSamples && entry.P95TTFTMs > 0 {
+			ttftScore = clampScore(ttftThresholdMs/entry.P95TTFTMs, 0.05, 1.0)
 		}
 
 		var costScore float64 = minCostScore
@@ -233,13 +233,13 @@ func (p *GovernancePlugin) applyProviderScoring(
 			costScore = clampScore(cheapest/price, minCostScore, 1.0)
 		}
 
-		final := availabilityScore*weights.Availability + ttfbScore*weights.TTFB + costScore*weights.Cost
+		final := availabilityScore*weights.Availability + ttftScore*weights.TTFT + costScore*weights.Cost
 		weighted[i].effectiveWeight = w.originalWeight * final
 		weighted[i].penaltyFactor = final
 		scores = append(scores, scored{idx: i, score: final})
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf(
-			"Provider scoring %s model %s: avail=%.2f ttfb=%.2f cost=%.2f final=%.2f weight %.2f -> %.2f",
-			provider, model, availabilityScore, ttfbScore, costScore, final, w.originalWeight, weighted[i].effectiveWeight,
+			"Provider scoring %s model %s: avail=%.2f ttft=%.2f cost=%.2f final=%.2f weight %.2f -> %.2f",
+			provider, model, availabilityScore, ttftScore, costScore, final, w.originalWeight, weighted[i].effectiveWeight,
 		))
 	}
 

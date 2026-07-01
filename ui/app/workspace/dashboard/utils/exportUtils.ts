@@ -167,11 +167,13 @@ export interface DashboardData {
 	modelData: ModelHistogramResponse | null;
 	latencyData: LatencyHistogramResponse | null;
 	ttfbData: LatencyHistogramResponse | null;
+	ttftData: LatencyHistogramResponse | null;
 	// Provider Usage
 	providerCostData: ProviderCostHistogramResponse | null;
 	providerTokenData: ProviderTokenHistogramResponse | null;
 	providerLatencyData: ProviderLatencyHistogramResponse | null;
 	providerTTFBData: ProviderLatencyHistogramResponse | null;
+	providerTTFTData: ProviderLatencyHistogramResponse | null;
 	// Rankings
 	rankingsData: ModelRankingsResponse | null;
 	virtualKeyRankingsData: DimensionRankingsResponse | null;
@@ -191,6 +193,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "overview-model-usage", csv: overviewModelUsageToCSV(data.modelData) },
 			{ name: "overview-latency", csv: overviewLatencyToCSV(data.latencyData) },
 			{ name: "overview-ttfb", csv: overviewLatencyToCSV(data.ttfbData, "TTFB") },
+			{ name: "overview-ttft", csv: overviewLatencyToCSV(data.ttftData, "TTFT") },
 		);
 	}
 
@@ -200,6 +203,7 @@ export function getCSVSections(data: DashboardData, tab: ExportTab): { name: str
 			{ name: "provider-tokens", csv: providerTokensToCSV(data.providerTokenData) },
 			{ name: "provider-latency", csv: providerLatencyToCSV(data.providerLatencyData) },
 			{ name: "provider-ttfb", csv: providerLatencyToCSV(data.providerTTFBData) },
+			{ name: "provider-ttft", csv: providerLatencyToCSV(data.providerTTFTData) },
 		);
 	}
 

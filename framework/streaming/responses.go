@@ -826,6 +826,78 @@ func createNewMessage() schemas.ResponsesMessage {
 	}
 }
 
+func responsesContentBlockHasVisibleOutput(block schemas.ResponsesMessageContentBlock) bool {
+	switch block.Type {
+	case schemas.ResponsesOutputMessageContentTypeText, schemas.ResponsesOutputMessageContentTypeReasoning:
+		return block.Text != nil && strings.TrimSpace(*block.Text) != ""
+	case schemas.ResponsesOutputMessageContentTypeRefusal:
+		if block.ResponsesOutputMessageContentRefusal != nil && strings.TrimSpace(block.Refusal) != "" {
+			return true
+		}
+		return block.Text != nil && strings.TrimSpace(*block.Text) != ""
+	default:
+		return false
+	}
+}
+
+func responsesMessageHasVisibleOutput(message schemas.ResponsesMessage) bool {
+	if message.ResponsesToolMessage != nil {
+		return true
+	}
+	if message.Content == nil {
+		return false
+	}
+	if message.Content.ContentStr != nil && strings.TrimSpace(*message.Content.ContentStr) != "" {
+		return true
+	}
+	for _, block := range message.Content.ContentBlocks {
+		if responsesContentBlockHasVisibleOutput(block) {
+			return true
+		}
+	}
+	return false
+}
+
+func responsesStreamResponseHasVisibleOutput(response *schemas.BifrostResponsesStreamResponse) bool {
+	if response == nil {
+		return false
+	}
+	switch response.Type {
+	case schemas.ResponsesStreamResponseTypeOutputTextDelta,
+		schemas.ResponsesStreamResponseTypeReasoningSummaryTextDelta:
+		return response.Delta != nil && strings.TrimSpace(*response.Delta) != ""
+	case schemas.ResponsesStreamResponseTypeOutputTextDone:
+		return response.Text != nil && strings.TrimSpace(*response.Text) != ""
+	case schemas.ResponsesStreamResponseTypeRefusalDelta,
+		schemas.ResponsesStreamResponseTypeRefusalDone:
+		return response.Refusal != nil && strings.TrimSpace(*response.Refusal) != ""
+	case schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDelta,
+		schemas.ResponsesStreamResponseTypeFunctionCallArgumentsDone,
+		schemas.ResponsesStreamResponseTypeCustomToolCallInputDelta,
+		schemas.ResponsesStreamResponseTypeCustomToolCallInputDone:
+		return true
+	case schemas.ResponsesStreamResponseTypeOutputItemAdded,
+		schemas.ResponsesStreamResponseTypeOutputItemDone:
+		return response.Item != nil && responsesMessageHasVisibleOutput(*response.Item)
+	case schemas.ResponsesStreamResponseTypeContentPartAdded,
+		schemas.ResponsesStreamResponseTypeContentPartDone:
+		return response.Part != nil && responsesContentBlockHasVisibleOutput(*response.Part)
+	case schemas.ResponsesStreamResponseTypeCompleted,
+		schemas.ResponsesStreamResponseTypeIncomplete:
+		if response.Response == nil {
+			return false
+		}
+		for _, message := range response.Response.Output {
+			if responsesMessageHasVisibleOutput(message) {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // processAccumulatedResponsesStreamingChunks processes all accumulated responses streaming chunks in order
 func (a *Accumulator) processAccumulatedResponsesStreamingChunks(requestID string, respErr *schemas.BifrostError, isFinalChunk bool) (*AccumulatedData, error) {
 	accumulator := a.getOrCreateStreamAccumulator(requestID)
@@ -835,11 +907,8 @@ func (a *Accumulator) processAccumulatedResponsesStreamingChunks(requestID strin
 	// Note: Cleanup is handled by CleanupStreamAccumulator when refcount reaches 0
 	// This is called from completeDeferredSpan after streaming ends
 
-	// Calculate Time to First Token (TTFT) in milliseconds
-	var ttft int64
-	if !accumulator.StartTimestamp.IsZero() && !accumulator.FirstChunkTimestamp.IsZero() {
-		ttft = accumulator.FirstChunkTimestamp.Sub(accumulator.StartTimestamp).Nanoseconds() / 1e6
-	}
+	ttfb := calculateMs(accumulator.StartTimestamp, accumulator.FirstByteTimestamp)
+	ttft := calculateMs(accumulator.StartTimestamp, accumulator.FirstChunkTimestamp)
 
 	// Initialize accumulated data
 	data := &AccumulatedData{
@@ -849,6 +918,7 @@ func (a *Accumulator) processAccumulatedResponsesStreamingChunks(requestID strin
 		StartTimestamp:   accumulator.StartTimestamp,
 		EndTimestamp:     accumulator.FinalTimestamp,
 		Latency:          0,
+		TimeToFirstByte:  ttfb,
 		TimeToFirstToken: ttft,
 		OutputMessages:   nil,
 		ToolCalls:        nil,

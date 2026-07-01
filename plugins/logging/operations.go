@@ -348,9 +348,13 @@ func (p *LoggerPlugin) applyStreamingOutputToEntry(entry *logstore.Log, streamRe
 		latF := float64(streamResponse.Data.Latency)
 		entry.Latency = &latF
 	}
-	if streamResponse.Data.TimeToFirstToken > 0 {
-		ttfb := float64(streamResponse.Data.TimeToFirstToken)
+	if streamResponse.Data.TimeToFirstByte > 0 {
+		ttfb := float64(streamResponse.Data.TimeToFirstByte)
 		entry.TTFBMs = &ttfb
+	}
+	if streamResponse.Data.TimeToFirstToken > 0 {
+		ttft := float64(streamResponse.Data.TimeToFirstToken)
+		entry.TTFTMs = &ttft
 	}
 
 	// Update model and alias from resolved/requested model pair.
@@ -661,6 +665,10 @@ func (p *LoggerPlugin) GetTTFBHistogram(ctx context.Context, filters logstore.Se
 	return p.store.GetTTFBHistogram(ctx, filters, bucketSizeSeconds)
 }
 
+func (p *LoggerPlugin) GetTTFTHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.LatencyHistogramResult, error) {
+	return p.store.GetTTFTHistogram(ctx, filters, bucketSizeSeconds)
+}
+
 // GetProviderCostHistogram returns time-bucketed cost data with provider breakdown for the given filters
 func (p *LoggerPlugin) GetProviderCostHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderCostHistogramResult, error) {
 	return p.store.GetProviderCostHistogram(ctx, filters, bucketSizeSeconds)
@@ -681,9 +689,17 @@ func (p *LoggerPlugin) GetProviderTTFBHistogram(ctx context.Context, filters log
 	return p.store.GetProviderTTFBHistogram(ctx, filters, bucketSizeSeconds)
 }
 
+func (p *LoggerPlugin) GetProviderTTFTHistogram(ctx context.Context, filters logstore.SearchFilters, bucketSizeSeconds int64) (*logstore.ProviderLatencyHistogramResult, error) {
+	return p.store.GetProviderTTFTHistogram(ctx, filters, bucketSizeSeconds)
+}
+
 // GetTTFBStats returns recent streaming TTFB stats by provider, model, and virtual key
 func (p *LoggerPlugin) GetTTFBStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFBStatsResult, error) {
 	return p.store.GetTTFBStats(ctx, filters, window, minSamples)
+}
+
+func (p *LoggerPlugin) GetTTFTStats(ctx context.Context, filters logstore.SearchFilters, window time.Duration, minSamples int) (*logstore.TTFTStatsResult, error) {
+	return p.store.GetTTFTStats(ctx, filters, window, minSamples)
 }
 
 func (p *LoggerPlugin) GetModelRankings(ctx context.Context, filters logstore.SearchFilters) (*logstore.ModelRankingResult, error) {

@@ -272,11 +272,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusBadRequest, fmt.Sprintf("Invalid request format: %v", err))
 		return
 	}
-	if err := validateTTFBRoutingConfig(payload.ClientConfig.TTFBRouting); err != nil {
-		logger.Warn("invalid ttfb routing config: %v", err)
-		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
-		return
-	}
 	if err := validateProviderScoringConfig(payload.ClientConfig.ProviderScoring); err != nil {
 		logger.Warn("invalid provider scoring config: %v", err)
 		SendError(ctx, fasthttp.StatusBadRequest, err.Error())
@@ -309,7 +304,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	// Get current config with proper locking
 	currentConfig := h.store.ClientConfig
 	updatedConfig := currentConfig
-	ttfbRoutingChanged := !ttfbRoutingConfigEqual(payload.ClientConfig.TTFBRouting, currentConfig.TTFBRouting)
 	providerScoringChanged := !providerScoringConfigEqual(payload.ClientConfig.ProviderScoring, currentConfig.ProviderScoring)
 
 	var restartReasons []string
@@ -425,7 +419,6 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 	if payload.ClientConfig.RoutingChainMaxDepth > 0 {
 		updatedConfig.RoutingChainMaxDepth = payload.ClientConfig.RoutingChainMaxDepth
 	}
-	updatedConfig.TTFBRouting = payload.ClientConfig.TTFBRouting
 	updatedConfig.ProviderScoring = payload.ClientConfig.ProviderScoring
 
 	// Handle HeaderFilterConfig changes
@@ -466,14 +459,13 @@ func (h *ConfigHandler) updateConfig(ctx *fasthttp.RequestCtx) {
 		SendError(ctx, fasthttp.StatusInternalServerError, fmt.Sprintf("failed to reload client config from config store: %v", err))
 		return
 	}
-	if ttfbRoutingChanged || providerScoringChanged {
+	if providerScoringChanged {
 		builtinPlacement := schemas.PluginPlacementBuiltin
 		builtinOrder := 2
 		governanceCfg := &governance.Config{
 			IsVkMandatory:        &h.store.ClientConfig.EnforceAuthOnInference,
 			RequiredHeaders:      &h.store.ClientConfig.RequiredHeaders,
 			RoutingChainMaxDepth: &h.store.ClientConfig.RoutingChainMaxDepth,
-			TTFBRouting:          h.store.ClientConfig.TTFBRouting,
 			ProviderScoring:      h.store.ClientConfig.ProviderScoring,
 		}
 		if err := h.configManager.ReloadPlugin(ctx, governance.PluginName, nil, governanceCfg, &builtinPlacement, &builtinOrder); err != nil {
@@ -720,20 +712,6 @@ func headerFilterConfigEqual(a, b *configstoreTables.GlobalHeaderFilterConfig) b
 	return slices.Equal(a.Allowlist, b.Allowlist) && slices.Equal(a.Denylist, b.Denylist)
 }
 
-func ttfbRoutingConfigEqual(a, b *configstore.TTFBRoutingConfig) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.Enabled == b.Enabled &&
-		intPtrEqual(a.WindowSeconds, b.WindowSeconds) &&
-		intPtrEqual(a.MinSamples, b.MinSamples) &&
-		float64PtrEqual(a.ThresholdMs, b.ThresholdMs) &&
-		float64PtrEqual(a.MinPenaltyFactor, b.MinPenaltyFactor)
-}
-
 func intPtrEqual(a, b *int) bool {
 	if a == nil && b == nil {
 		return true
@@ -752,25 +730,6 @@ func float64PtrEqual(a, b *float64) bool {
 		return false
 	}
 	return *a == *b
-}
-
-func validateTTFBRoutingConfig(config *configstore.TTFBRoutingConfig) error {
-	if config == nil {
-		return nil
-	}
-	if config.WindowSeconds != nil && *config.WindowSeconds <= 0 {
-		return fmt.Errorf("ttfb_routing.window_seconds must be greater than 0")
-	}
-	if config.MinSamples != nil && *config.MinSamples <= 0 {
-		return fmt.Errorf("ttfb_routing.min_samples must be greater than 0")
-	}
-	if config.ThresholdMs != nil && *config.ThresholdMs <= 0 {
-		return fmt.Errorf("ttfb_routing.threshold_ms must be greater than 0")
-	}
-	if config.MinPenaltyFactor != nil && (*config.MinPenaltyFactor <= 0 || *config.MinPenaltyFactor > 1) {
-		return fmt.Errorf("ttfb_routing.min_penalty_factor must be greater than 0 and less than or equal to 1")
-	}
-	return nil
 }
 
 // validateHeaderFilterConfig validates that no exact security header names are in the allowlist or denylist
@@ -895,7 +854,7 @@ func providerScoringConfigEqual(a, b *configstore.ProviderScoringConfig) bool {
 		return false
 	}
 	if !float64PtrEqual(a.ErrorRateThreshold, b.ErrorRateThreshold) ||
-		!float64PtrEqual(a.TTFBThresholdMs, b.TTFBThresholdMs) {
+		!float64PtrEqual(a.TTFTThresholdMs, b.TTFTThresholdMs) {
 		return false
 	}
 	if (a.Weights == nil) != (b.Weights == nil) {
@@ -903,7 +862,7 @@ func providerScoringConfigEqual(a, b *configstore.ProviderScoringConfig) bool {
 	}
 	if a.Weights != nil && b.Weights != nil {
 		if !float64PtrEqual(&a.Weights.Availability, &b.Weights.Availability) ||
-			!float64PtrEqual(&a.Weights.TTFB, &b.Weights.TTFB) ||
+			!float64PtrEqual(&a.Weights.TTFT, &b.Weights.TTFT) ||
 			!float64PtrEqual(&a.Weights.Cost, &b.Weights.Cost) {
 			return false
 		}
@@ -930,13 +889,13 @@ func validateProviderScoringConfig(config *configstore.ProviderScoringConfig) er
 	if config.CooldownSeconds != nil && *config.CooldownSeconds <= 0 {
 		return fmt.Errorf("provider_scoring.cooldown_seconds must be greater than 0")
 	}
-	if config.TTFBThresholdMs != nil && *config.TTFBThresholdMs <= 0 {
-		return fmt.Errorf("provider_scoring.ttfb_threshold_ms must be greater than 0")
+	if config.TTFTThresholdMs != nil && *config.TTFTThresholdMs <= 0 {
+		return fmt.Errorf("provider_scoring.ttft_threshold_ms must be greater than 0")
 	}
 	if config.Weights != nil {
-		sum := config.Weights.Availability + config.Weights.TTFB + config.Weights.Cost
-		if config.Weights.Availability <= 0 || config.Weights.TTFB < 0 || config.Weights.Cost < 0 || sum <= 0 {
-			return fmt.Errorf("provider_scoring.weights: availability must be > 0, ttfb and cost must be >= 0, and sum must be > 0")
+		sum := config.Weights.Availability + config.Weights.TTFT + config.Weights.Cost
+		if config.Weights.Availability <= 0 || config.Weights.TTFT < 0 || config.Weights.Cost < 0 || sum <= 0 {
+			return fmt.Errorf("provider_scoring.weights: availability must be > 0, ttft and cost must be >= 0, and sum must be > 0")
 		}
 	}
 	return nil
