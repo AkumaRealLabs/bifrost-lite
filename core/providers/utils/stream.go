@@ -6,19 +6,20 @@ import (
 	schemas "github.com/maximhq/bifrost/core/schemas"
 )
 
-// CheckFirstStreamChunkForError reads the first chunk from a streaming channel to detect
-// errors returned inside HTTP 200 SSE streams (e.g., providers that send rate limit
-// errors as SSE events instead of HTTP 429).
+// CheckFirstStreamChunkForError reads initial non-output chunks from a streaming channel
+// to detect errors returned inside HTTP 200 SSE streams (e.g., providers that send rate
+// limit errors as SSE events instead of HTTP 429).
 //
-// If the first chunk is an error, it drains the source channel in the background
-// (so the provider goroutine can exit cleanly) and returns the error for synchronous
-// handling, enabling retries and fallbacks. The returned drainDone channel is closed
-// once the drain completes — callers must wait on it before releasing any resources
-// (e.g., plugin pipelines) that the provider goroutine's postHookRunner may still reference.
+// If an error arrives before visible output, it drains the source channel in the
+// background (so the provider goroutine can exit cleanly) and returns the error for
+// synchronous handling, enabling retries and fallbacks. The returned drainDone channel
+// is closed once the drain completes — callers must wait on it before releasing any
+// resources (e.g., plugin pipelines) that the provider goroutine's postHookRunner may
+// still reference.
 //
-// If the first chunk is valid data, it returns a wrapped channel that re-emits
-// the first chunk followed by all remaining chunks from the source. drainDone is
-// closed when the wrapper goroutine finishes forwarding the source stream.
+// If visible output starts first, it returns a wrapped channel that re-emits buffered
+// initial chunks followed by all remaining chunks from the source. drainDone is closed
+// when the wrapper goroutine finishes forwarding the source stream.
 //
 // If the source channel is closed immediately (empty stream), it returns a
 // nil channel with nil error. drainDone is already closed.
@@ -39,23 +40,35 @@ func CheckFirstStreamChunkForError(
 		return nil, done, nil
 	}
 
-	// Check if first chunk is an error
-	if firstChunk.BifrostError != nil && firstChunk.BifrostError.Error != nil &&
-		(firstChunk.BifrostError.Error.Message != "" || firstChunk.BifrostError.Error.Code != nil || firstChunk.BifrostError.Error.Type != nil) {
-		// Drain source channel to let the provider goroutine exit cleanly
-		done := make(chan struct{})
-		go func() {
-			defer close(done)
-			for range stream {
+	buffered := []*schemas.BifrostStreamChunk{firstChunk}
+	for {
+		if streamChunkError(buffered[len(buffered)-1]) != nil {
+			done := drainStream(stream)
+			return nil, done, buffered[len(buffered)-1].BifrostError
+		}
+		if streamChunkStartsOutput(buffered[len(buffered)-1]) {
+			break
+		}
+		next, ok := <-stream
+		if !ok {
+			done := make(chan struct{})
+			wrapped := make(chan *schemas.BifrostStreamChunk, len(buffered))
+			for _, chunk := range buffered {
+				wrapped <- chunk
 			}
-		}()
-		return nil, done, firstChunk.BifrostError
+			close(wrapped)
+			close(done)
+			return wrapped, done, nil
+		}
+		buffered = append(buffered, next)
 	}
 
-	// First chunk is valid data — wrap channel to re-inject it
+	// First output is valid data — wrap channel to re-inject buffered pre-output chunks.
 	done := make(chan struct{})
-	wrapped := make(chan *schemas.BifrostStreamChunk, max(cap(stream), 1))
-	wrapped <- firstChunk
+	wrapped := make(chan *schemas.BifrostStreamChunk, max(cap(stream), len(buffered), 1))
+	for _, chunk := range buffered {
+		wrapped <- chunk
+	}
 	go func() {
 		defer close(done)
 		defer close(wrapped)
@@ -72,4 +85,39 @@ func CheckFirstStreamChunkForError(
 		}
 	}()
 	return wrapped, done, nil
+}
+
+func streamChunkError(chunk *schemas.BifrostStreamChunk) *schemas.BifrostError {
+	if chunk == nil || chunk.BifrostError == nil || chunk.BifrostError.Error == nil {
+		return nil
+	}
+	if chunk.BifrostError.Error.Message != "" || chunk.BifrostError.Error.Code != nil || chunk.BifrostError.Error.Type != nil {
+		return chunk.BifrostError
+	}
+	return nil
+}
+
+func streamChunkStartsOutput(chunk *schemas.BifrostStreamChunk) bool {
+	if chunk == nil {
+		return false
+	}
+	if response := chunk.BifrostResponsesStreamResponse; response != nil {
+		switch response.Type {
+		case schemas.ResponsesStreamResponseTypePing,
+			schemas.ResponsesStreamResponseTypeCreated,
+			schemas.ResponsesStreamResponseTypeInProgress:
+			return false
+		}
+	}
+	return true
+}
+
+func drainStream(stream chan *schemas.BifrostStreamChunk) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range stream {
+		}
+	}()
+	return done
 }

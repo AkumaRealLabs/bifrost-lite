@@ -168,6 +168,36 @@ func TestApplyProviderScoring_FailOpenWhenAllCooled(t *testing.T) {
 	assert.Len(t, got, 2)
 }
 
+func TestApplyProviderScoring_SystemPoolFailClosedWhenAllCooled(t *testing.T) {
+	wA, wB := 1.0, 1.0
+	configs := []configstoreTables.TableVirtualKeyProviderConfig{
+		{Provider: "a", Weight: &wA},
+		{Provider: "b", Weight: &wB},
+	}
+	until := time.Now().Add(5 * time.Minute)
+	store := &fakeCooldownConfigStore{
+		cooldowns: []configstore.ProviderCooldownState{
+			{Provider: "a", CooldownUntil: until},
+			{Provider: "b", CooldownUntil: until},
+		},
+	}
+	rel := fakeReliabilityStats{result: &logstore.ProviderReliabilityStatsResult{Stats: []logstore.ProviderReliabilityStatsEntry{}}}
+	p := scoringPlugin(t, rel, store, nil)
+	weighted := []weightedProviderConfig{
+		{config: configs[0], originalWeight: 1, effectiveWeight: 0.2, penaltyFactor: 0.2},
+		{config: configs[1], originalWeight: 1, effectiveWeight: 0.8, penaltyFactor: 0.8},
+	}
+	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+	vk := &configstoreTables.TableVirtualKey{Name: SystemPoolLow}
+
+	got := p.applyProviderScoring(ctx, configs, vk, "gpt-4o", weighted)
+	assert.Empty(t, got)
+	err, ok := ctx.Value(schemas.BifrostContextKeyPreRequestShortCircuitError).(*schemas.BifrostError)
+	require.True(t, ok)
+	require.NotNil(t, err.StatusCode)
+	assert.Equal(t, 503, *err.StatusCode)
+}
+
 func TestPostLLMHook_CoolsProviderOnAccountConcurrencyLimit(t *testing.T) {
 	tests := []struct {
 		name     string

@@ -133,6 +133,65 @@ func TestCheckFirstStreamChunk_ErrorInSecondChunk(t *testing.T) {
 	}
 }
 
+func TestCheckFirstStreamChunk_ResponseErrorBeforeOutput(t *testing.T) {
+	stream := make(chan *schemas.BifrostStreamChunk, 3)
+	stream <- &schemas.BifrostStreamChunk{
+		BifrostResponsesStreamResponse: &schemas.BifrostResponsesStreamResponse{
+			Type: schemas.ResponsesStreamResponseTypeCreated,
+		},
+	}
+	stream <- &schemas.BifrostStreamChunk{
+		BifrostError: &schemas.BifrostError{
+			Error: &schemas.ErrorField{
+				Code:    schemas.Ptr("rate_limit_exceeded"),
+				Message: "Concurrency limit exceeded for account, please retry later",
+			},
+		},
+	}
+	close(stream)
+
+	_, drainDone, err := CheckFirstStreamChunkForError(context.Background(), stream)
+	if err == nil {
+		t.Fatal("expected pre-output response stream error, got nil")
+	}
+	<-drainDone
+	if err.Error.Code == nil || *err.Error.Code != "rate_limit_exceeded" {
+		t.Errorf("unexpected error code: %v", err.Error.Code)
+	}
+}
+
+func TestCheckFirstStreamChunk_ResponseOutputThenError(t *testing.T) {
+	text := "hello"
+	stream := make(chan *schemas.BifrostStreamChunk, 3)
+	stream <- &schemas.BifrostStreamChunk{
+		BifrostResponsesStreamResponse: &schemas.BifrostResponsesStreamResponse{
+			Type:  schemas.ResponsesStreamResponseTypeOutputTextDelta,
+			Delta: &text,
+		},
+	}
+	stream <- &schemas.BifrostStreamChunk{
+		BifrostError: &schemas.BifrostError{
+			Error: &schemas.ErrorField{
+				Message: "some error after output",
+			},
+		},
+	}
+	close(stream)
+
+	wrapped, _, err := CheckFirstStreamChunkForError(context.Background(), stream)
+	if err != nil {
+		t.Fatalf("unexpected retry error after output started: %v", err)
+	}
+	got1 := <-wrapped
+	if got1.BifrostResponsesStreamResponse == nil || got1.BifrostResponsesStreamResponse.Delta == nil || *got1.BifrostResponsesStreamResponse.Delta != text {
+		t.Fatal("first response output chunk not re-emitted")
+	}
+	got2 := <-wrapped
+	if got2.BifrostError == nil {
+		t.Fatal("expected post-output error to remain in stream")
+	}
+}
+
 func TestCheckFirstStreamChunk_ErrorDrainsSource(t *testing.T) {
 	stream := make(chan *schemas.BifrostStreamChunk, 5)
 	stream <- &schemas.BifrostStreamChunk{
