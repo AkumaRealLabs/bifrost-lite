@@ -825,13 +825,14 @@ func TestApplyNonStreamingOutputToEntryContentLoggingDisabled(t *testing.T) {
 	}
 }
 
-func TestApplyStreamingOutputToEntryStoresTTFB(t *testing.T) {
+func TestApplyStreamingOutputToEntryStoresTTFBAndTTFT(t *testing.T) {
 	plugin := &LoggerPlugin{}
 	entry := &logstore.Log{}
 
 	plugin.applyStreamingOutputToEntry(entry, &streaming.ProcessedStreamResponse{
 		Data: &streaming.AccumulatedData{
 			Latency:          4200,
+			TimeToFirstByte:  321,
 			TimeToFirstToken: 1234,
 		},
 	}, false, true)
@@ -839,8 +840,14 @@ func TestApplyStreamingOutputToEntryStoresTTFB(t *testing.T) {
 	if entry.TTFBMs == nil {
 		t.Fatal("expected streaming response to set TTFBMs")
 	}
-	if *entry.TTFBMs != 1234 {
-		t.Fatalf("TTFBMs = %v, want 1234", *entry.TTFBMs)
+	if *entry.TTFBMs != 321 {
+		t.Fatalf("TTFBMs = %v, want 321", *entry.TTFBMs)
+	}
+	if entry.TTFTMs == nil {
+		t.Fatal("expected streaming response to set TTFTMs")
+	}
+	if *entry.TTFTMs != 1234 {
+		t.Fatalf("TTFTMs = %v, want 1234", *entry.TTFTMs)
 	}
 }
 

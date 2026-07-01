@@ -428,6 +428,13 @@ func (t *Tracer) CreateStreamAccumulator(traceID string, startTime time.Time) {
 	t.accumulator.CreateStreamAccumulator(traceID, startTime)
 }
 
+func (t *Tracer) MarkStreamFirstByte(traceID string, timestamp time.Time) {
+	if traceID == "" || t.accumulator == nil {
+		return
+	}
+	t.accumulator.MarkFirstByte(traceID, timestamp)
+}
+
 // PauseStream marks the active streaming response identified by traceID as paused.
 // While paused, post-processed chunks are buffered (not delivered to the client) but
 // PostLLMHooks continue to fire. Idempotent. No-op if no accumulator is associated.
@@ -571,6 +578,9 @@ func (t *Tracer) ProcessStreamingChunk(ctx *schemas.BifrostContext, traceID stri
 	if ctx != nil {
 		accumCtx.SetValue(schemas.BifrostContextKeySelectedKeyID, ctx.Value(schemas.BifrostContextKeySelectedKeyID))
 		accumCtx.SetValue(schemas.BifrostContextKeyGovernanceVirtualKeyID, ctx.Value(schemas.BifrostContextKeyGovernanceVirtualKeyID))
+		if firstByte, ok := ctx.Value(schemas.BifrostContextKeyStreamFirstByteTime).(time.Time); ok {
+			t.MarkStreamFirstByte(traceID, firstByte)
+		}
 	}
 
 	processedResp, processErr := t.accumulator.ProcessStreamingResponse(accumCtx, result, err)
@@ -603,6 +613,7 @@ func (t *Tracer) ProcessStreamingChunk(ctx *schemas.BifrostContext, traceID stri
 	if processedResp.Data != nil {
 		accResult.Status = processedResp.Data.Status
 		accResult.Latency = processedResp.Data.Latency
+		accResult.TimeToFirstByte = processedResp.Data.TimeToFirstByte
 		accResult.TimeToFirstToken = processedResp.Data.TimeToFirstToken
 		accResult.OutputMessage = processedResp.Data.OutputMessage
 		accResult.OutputMessages = processedResp.Data.OutputMessages

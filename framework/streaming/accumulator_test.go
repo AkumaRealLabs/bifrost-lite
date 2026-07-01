@@ -9,6 +9,8 @@ import (
 
 	bifrost "github.com/maximhq/bifrost/core"
 	"github.com/maximhq/bifrost/core/schemas"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // TestChatStreamingFinalChunkNoDeadlock tests that processing the final chunk doesn't deadlock
@@ -261,6 +263,76 @@ func TestGetLastChunkMethodsSafe(t *testing.T) {
 	if lastChunk.ChunkIndex != 0 {
 		t.Errorf("Expected chunk index 0, got %d", lastChunk.ChunkIndex)
 	}
+}
+
+func TestChatTimingSeparatesFirstByteAndFirstVisibleToken(t *testing.T) {
+	logger := bifrost.NewDefaultLogger(schemas.LogLevelDebug)
+	accumulator := NewAccumulator(nil, logger)
+
+	requestID := "test-chat-timing"
+	start := time.Now().UTC().Add(-5 * time.Second)
+	firstByte := start.Add(100 * time.Millisecond)
+	roleOnly := start.Add(200 * time.Millisecond)
+	firstToken := start.Add(900 * time.Millisecond)
+	accumulator.CreateStreamAccumulator(requestID, start)
+	accumulator.MarkFirstByte(requestID, firstByte)
+
+	role := string(schemas.ChatMessageRoleAssistant)
+	err := accumulator.addChatStreamChunk(requestID, StreamTypeChat, &ChatStreamChunk{
+		ChunkIndex: 0,
+		Timestamp:  roleOnly,
+		Delta: &schemas.ChatStreamResponseChoiceDelta{
+			Role: &role,
+		},
+	}, false)
+	require.NoError(t, err)
+
+	acc := accumulator.getOrCreateStreamAccumulator(requestID)
+	if !acc.FirstChunkTimestamp.IsZero() {
+		t.Fatalf("role-only chunk set TTFT timestamp: %v", acc.FirstChunkTimestamp)
+	}
+
+	content := "hello"
+	err = accumulator.addChatStreamChunk(requestID, StreamTypeChat, &ChatStreamChunk{
+		ChunkIndex: 1,
+		Timestamp:  firstToken,
+		Delta: &schemas.ChatStreamResponseChoiceDelta{
+			Content: &content,
+		},
+	}, true)
+	require.NoError(t, err)
+
+	data, err := accumulator.processAccumulatedChatStreamingChunks(requestID, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, data)
+	assert.Equal(t, int64(100), data.TimeToFirstByte)
+	assert.Equal(t, int64(900), data.TimeToFirstToken)
+}
+
+func TestChatTimingLeavesTTFTEmptyForMetadataOnlyStream(t *testing.T) {
+	logger := bifrost.NewDefaultLogger(schemas.LogLevelDebug)
+	accumulator := NewAccumulator(nil, logger)
+
+	requestID := "test-chat-metadata-only"
+	start := time.Now().UTC().Add(-5 * time.Second)
+	accumulator.CreateStreamAccumulator(requestID, start)
+	accumulator.MarkFirstByte(requestID, start.Add(120*time.Millisecond))
+
+	role := string(schemas.ChatMessageRoleAssistant)
+	err := accumulator.addChatStreamChunk(requestID, StreamTypeChat, &ChatStreamChunk{
+		ChunkIndex: 0,
+		Timestamp:  start.Add(200 * time.Millisecond),
+		Delta: &schemas.ChatStreamResponseChoiceDelta{
+			Role: &role,
+		},
+	}, true)
+	require.NoError(t, err)
+
+	data, err := accumulator.processAccumulatedChatStreamingChunks(requestID, nil, true)
+	require.NoError(t, err)
+	require.NotNil(t, data)
+	assert.Equal(t, int64(120), data.TimeToFirstByte)
+	assert.Zero(t, data.TimeToFirstToken)
 }
 
 func TestAccumulateToolCallsInterleavedParallel(t *testing.T) {

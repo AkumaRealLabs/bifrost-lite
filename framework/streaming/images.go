@@ -127,10 +127,8 @@ func (a *Accumulator) processAccumulatedImageStreamingChunks(requestID string, b
 	}()
 
 	// Initialize accumulated data
-	var ttft int64
-	if !acc.StartTimestamp.IsZero() && !acc.FirstChunkTimestamp.IsZero() {
-		ttft = acc.FirstChunkTimestamp.Sub(acc.StartTimestamp).Nanoseconds() / 1e6
-	}
+	ttfb := calculateMs(acc.StartTimestamp, acc.FirstByteTimestamp)
+	ttft := calculateMs(acc.StartTimestamp, acc.FirstChunkTimestamp)
 	data := &AccumulatedData{
 		RequestID:        requestID,
 		Status:           "success",
@@ -138,6 +136,7 @@ func (a *Accumulator) processAccumulatedImageStreamingChunks(requestID string, b
 		StartTimestamp:   acc.StartTimestamp,
 		EndTimestamp:     acc.FinalTimestamp,
 		Latency:          0,
+		TimeToFirstByte:  ttfb,
 		TimeToFirstToken: ttft,
 		OutputMessage:    nil,
 		ToolCalls:        nil,

@@ -470,17 +470,9 @@ export interface CompatConfig {
 	should_convert_params: boolean;
 }
 
-export interface TTFBRoutingConfig {
-	enabled: boolean;
-	window_seconds?: number;
-	min_samples?: number;
-	threshold_ms?: number;
-	min_penalty_factor?: number;
-}
-
 export interface ProviderScoringWeights {
 	availability: number;
-	ttfb: number;
+	ttft: number;
 	cost: number;
 }
 
@@ -491,7 +483,7 @@ export interface ProviderScoringConfig {
 	error_rate_threshold?: number;
 	consecutive_failures_threshold?: number;
 	cooldown_seconds?: number;
-	ttfb_threshold_ms?: number;
+	ttft_threshold_ms?: number;
 	weights?: ProviderScoringWeights;
 }
 
@@ -518,7 +510,6 @@ export interface CoreConfig {
 	whitelisted_routes: string[];
 	hide_deleted_virtual_keys_in_filters: boolean;
 	routing_chain_max_depth: number;
-	ttfb_routing?: TTFBRoutingConfig;
 	provider_scoring?: ProviderScoringConfig;
 	header_filter_config?: GlobalHeaderFilterConfig;
 }
@@ -545,13 +536,6 @@ export const DefaultCoreConfig: CoreConfig = {
 	whitelisted_routes: [],
 	hide_deleted_virtual_keys_in_filters: false,
 	routing_chain_max_depth: 10,
-	ttfb_routing: {
-		enabled: false,
-		window_seconds: 900,
-		min_samples: 20,
-		threshold_ms: 2500,
-		min_penalty_factor: 0.2,
-	},
 	provider_scoring: {
 		enabled: false,
 		window_seconds: 120,
@@ -559,8 +543,8 @@ export const DefaultCoreConfig: CoreConfig = {
 		error_rate_threshold: 0.3,
 		consecutive_failures_threshold: 3,
 		cooldown_seconds: 300,
-		ttfb_threshold_ms: 2500,
-		weights: { availability: 0.7, ttfb: 0.2, cost: 0.1 },
+		ttft_threshold_ms: 2500,
+		weights: { availability: 0.7, ttft: 0.2, cost: 0.1 },
 	},
 };
 

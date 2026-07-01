@@ -606,12 +606,21 @@ const providerBackedCacheConfigSchema = baseCacheConfigSchema
 export const cacheConfigSchema = z.union([directCacheConfigSchema, providerBackedCacheConfigSchema]);
 
 // Core config schema
-const ttfbRoutingConfigSchema = z.object({
+const providerScoringConfigSchema = z.object({
 	enabled: z.boolean().default(false),
 	window_seconds: z.number().int().min(1).optional(),
 	min_samples: z.number().int().min(1).optional(),
-	threshold_ms: z.number().positive().optional(),
-	min_penalty_factor: z.number().positive().max(1).optional(),
+	error_rate_threshold: z.number().min(0).max(1).optional(),
+	consecutive_failures_threshold: z.number().int().min(1).optional(),
+	cooldown_seconds: z.number().int().min(1).optional(),
+	ttft_threshold_ms: z.number().positive().optional(),
+	weights: z
+		.object({
+			availability: z.number().positive(),
+			ttft: z.number().min(0),
+			cost: z.number().min(0),
+		})
+		.optional(),
 });
 
 export const coreConfigSchema = z.object({
@@ -624,7 +633,7 @@ export const coreConfigSchema = z.object({
 	hide_deleted_virtual_keys_in_filters: z.boolean().default(false),
 	allowed_origins: z.array(z.string()).default(["*"]),
 	max_request_body_size_mb: z.number().min(1).default(100),
-	ttfb_routing: ttfbRoutingConfigSchema.optional(),
+	provider_scoring: providerScoringConfigSchema.optional(),
 });
 
 // Bifrost config schema

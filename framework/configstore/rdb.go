@@ -216,15 +216,7 @@ func tableKeyFromSchemaKey(provider tables.TableProvider, key schemas.Key) (tabl
 
 // UpdateClientConfig updates the client configuration in the database.
 func (s *RDBConfigStore) UpdateClientConfig(ctx context.Context, config *ClientConfig) error {
-	var ttfbRoutingJSON string
 	var providerScoringJSON string
-	if config.TTFBRouting != nil {
-		data, err := sonic.Marshal(config.TTFBRouting)
-		if err != nil {
-			return fmt.Errorf("failed to serialize ttfb routing config: %w", err)
-		}
-		ttfbRoutingJSON = string(data)
-	}
 	if config.ProviderScoring != nil {
 		data, err := sonic.Marshal(config.ProviderScoring)
 		if err != nil {
@@ -257,7 +249,6 @@ func (s *RDBConfigStore) UpdateClientConfig(ctx context.Context, config *ClientC
 		WhitelistedRoutes:                     config.WhitelistedRoutes,
 		HideDeletedVirtualKeysInFilters:       config.HideDeletedVirtualKeysInFilters,
 		RoutingChainMaxDepth:                  config.RoutingChainMaxDepth,
-		TTFBRoutingJSON:                       ttfbRoutingJSON,
 		ProviderScoringJSON:                   providerScoringJSON,
 		HeaderFilterConfig:                    config.HeaderFilterConfig,
 		AllowPerRequestContentStorageOverride: config.AllowPerRequestContentStorageOverride,
@@ -469,15 +460,7 @@ func (s *RDBConfigStore) GetClientConfig(ctx context.Context) (*ClientConfig, er
 		}
 		return nil, err
 	}
-	var ttfbRouting *TTFBRoutingConfig
 	var providerScoring *ProviderScoringConfig
-	if dbConfig.TTFBRoutingJSON != "" {
-		var config TTFBRoutingConfig
-		if err := sonic.Unmarshal([]byte(dbConfig.TTFBRoutingJSON), &config); err != nil {
-			return nil, fmt.Errorf("failed to parse ttfb routing config: %w", err)
-		}
-		ttfbRouting = &config
-	}
 	if dbConfig.ProviderScoringJSON != "" {
 		var config ProviderScoringConfig
 		if err := sonic.Unmarshal([]byte(dbConfig.ProviderScoringJSON), &config); err != nil {
@@ -512,7 +495,6 @@ func (s *RDBConfigStore) GetClientConfig(ctx context.Context) (*ClientConfig, er
 		WhitelistedRoutes:                     dbConfig.WhitelistedRoutes,
 		HideDeletedVirtualKeysInFilters:       dbConfig.HideDeletedVirtualKeysInFilters,
 		RoutingChainMaxDepth:                  dbConfig.RoutingChainMaxDepth,
-		TTFBRouting:                           ttfbRouting,
 		ProviderScoring:                       providerScoring,
 		HeaderFilterConfig:                    dbConfig.HeaderFilterConfig,
 		AllowPerRequestContentStorageOverride: dbConfig.AllowPerRequestContentStorageOverride,

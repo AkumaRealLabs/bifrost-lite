@@ -18,6 +18,7 @@ import {
 	RankingDimension,
 	RecalculateCostResponse,
 	TTFBStatsResponse,
+	TTFTStatsResponse,
 	TokenHistogramResponse,
 } from "@/lib/types/logs";
 import { baseApi } from "./baseApi";
@@ -63,6 +64,8 @@ function buildFilterParams(filters: LogFilters): Record<string, string | number>
 	if (filters.max_latency !== undefined) params.max_latency = filters.max_latency;
 	if (filters.min_ttfb_ms !== undefined) params.min_ttfb_ms = filters.min_ttfb_ms;
 	if (filters.max_ttfb_ms !== undefined) params.max_ttfb_ms = filters.max_ttfb_ms;
+	if (filters.min_ttft_ms !== undefined) params.min_ttft_ms = filters.min_ttft_ms;
+	if (filters.max_ttft_ms !== undefined) params.max_ttft_ms = filters.max_ttft_ms;
 	if (filters.min_tokens !== undefined) params.min_tokens = filters.min_tokens;
 	if (filters.max_tokens !== undefined) params.max_tokens = filters.max_tokens;
 	if (filters.missing_cost_only) params.missing_cost_only = "true";
@@ -230,6 +233,20 @@ export const logsApi = baseApi.injectEndpoints({
 			providesTags: ["Logs"],
 		}),
 
+		// Get streaming TTFT histogram with percentiles
+		getLogsTTFTHistogram: builder.query<
+			LatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttft",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
 		// Get provider cost histogram with provider breakdown
 		getLogsProviderCostHistogram: builder.query<
 			ProviderCostHistogramResponse,
@@ -286,6 +303,20 @@ export const logsApi = baseApi.injectEndpoints({
 			providesTags: ["Logs"],
 		}),
 
+		// Get provider streaming TTFT histogram with provider breakdown
+		getLogsProviderTTFTHistogram: builder.query<
+			ProviderLatencyHistogramResponse,
+			{
+				filters: LogFilters;
+			}
+		>({
+			query: ({ filters }) => ({
+				url: "/logs/histogram/ttft/by-provider",
+				params: buildFilterParams(filters),
+			}),
+			providesTags: ["Logs"],
+		}),
+
 		getLogsTTFBStats: builder.query<
 			TTFBStatsResponse,
 			{
@@ -296,6 +327,25 @@ export const logsApi = baseApi.injectEndpoints({
 		>({
 			query: ({ filters, window_seconds, min_samples }) => ({
 				url: "/logs/ttfb/stats",
+				params: {
+					...buildFilterParams(filters),
+					...(window_seconds ? { window_seconds } : {}),
+					...(min_samples ? { min_samples } : {}),
+				},
+			}),
+			providesTags: ["Logs"],
+		}),
+
+		getLogsTTFTStats: builder.query<
+			TTFTStatsResponse,
+			{
+				filters: LogFilters;
+				window_seconds?: number;
+				min_samples?: number;
+			}
+		>({
+			query: ({ filters, window_seconds, min_samples }) => ({
+				url: "/logs/ttft/stats",
 				params: {
 					...buildFilterParams(filters),
 					...(window_seconds ? { window_seconds } : {}),
@@ -407,11 +457,14 @@ export const {
 	useGetLogsModelHistogramQuery,
 	useGetLogsLatencyHistogramQuery,
 	useGetLogsTTFBHistogramQuery,
+	useGetLogsTTFTHistogramQuery,
 	useGetLogsProviderCostHistogramQuery,
 	useGetLogsProviderTokenHistogramQuery,
 	useGetLogsProviderLatencyHistogramQuery,
 	useGetLogsProviderTTFBHistogramQuery,
+	useGetLogsProviderTTFTHistogramQuery,
 	useGetLogsTTFBStatsQuery,
+	useGetLogsTTFTStatsQuery,
 	useGetLogSessionSummaryByIdQuery,
 	useGetDroppedRequestsQuery,
 	useGetAvailableFilterDataQuery,
@@ -424,11 +477,14 @@ export const {
 	useLazyGetLogsModelHistogramQuery,
 	useLazyGetLogsLatencyHistogramQuery,
 	useLazyGetLogsTTFBHistogramQuery,
+	useLazyGetLogsTTFTHistogramQuery,
 	useLazyGetLogsProviderCostHistogramQuery,
 	useLazyGetLogsProviderTokenHistogramQuery,
 	useLazyGetLogsProviderLatencyHistogramQuery,
 	useLazyGetLogsProviderTTFBHistogramQuery,
+	useLazyGetLogsProviderTTFTHistogramQuery,
 	useLazyGetLogsTTFBStatsQuery,
+	useLazyGetLogsTTFTStatsQuery,
 	useGetModelRankingsQuery,
 	useGetDimensionRankingsQuery,
 	useLazyGetModelRankingsQuery,

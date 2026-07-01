@@ -11,6 +11,13 @@ import (
 	"github.com/maximhq/bifrost/framework/modelcatalog"
 )
 
+func transcriptionDeltaHasVisibleOutput(delta *schemas.BifrostTranscriptionStreamResponse) bool {
+	return delta != nil &&
+		delta.Type == schemas.TranscriptionStreamResponseTypeDelta &&
+		delta.Delta != nil &&
+		strings.TrimSpace(*delta.Delta) != ""
+}
+
 // buildCompleteMessageFromTranscriptionStreamChunks builds a complete message from accumulated transcription chunks
 func (a *Accumulator) buildCompleteMessageFromTranscriptionStreamChunks(chunks []*TranscriptionStreamChunk) *schemas.BifrostTranscriptionResponse {
 	completeMessage := &schemas.BifrostTranscriptionResponse{}
@@ -40,11 +47,8 @@ func (a *Accumulator) processAccumulatedTranscriptionStreamingChunks(requestID s
 	// Note: Cleanup is handled by CleanupStreamAccumulator when refcount reaches 0
 	// This is called from completeDeferredSpan after streaming ends
 
-	// Calculate Time to First Token (TTFT) in milliseconds
-	var ttft int64
-	if !accumulator.StartTimestamp.IsZero() && !accumulator.FirstChunkTimestamp.IsZero() {
-		ttft = accumulator.FirstChunkTimestamp.Sub(accumulator.StartTimestamp).Nanoseconds() / 1e6
-	}
+	ttfb := calculateMs(accumulator.StartTimestamp, accumulator.FirstByteTimestamp)
+	ttft := calculateMs(accumulator.StartTimestamp, accumulator.FirstChunkTimestamp)
 
 	data := &AccumulatedData{
 		RequestID:        requestID,
@@ -53,6 +57,7 @@ func (a *Accumulator) processAccumulatedTranscriptionStreamingChunks(requestID s
 		StartTimestamp:   accumulator.StartTimestamp,
 		EndTimestamp:     accumulator.FinalTimestamp,
 		Latency:          0,
+		TimeToFirstByte:  ttfb,
 		TimeToFirstToken: ttft,
 		OutputMessage:    nil,
 		ToolCalls:        nil,

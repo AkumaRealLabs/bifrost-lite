@@ -159,7 +159,7 @@ export default function LogsPage() {
 		() => ({
 			limit: urlState.limit,
 			offset: urlState.offset,
-			sort_by: urlState.sort_by as "timestamp" | "latency" | "ttfb_ms" | "tokens" | "cost",
+			sort_by: urlState.sort_by as "timestamp" | "latency" | "ttfb_ms" | "ttft_ms" | "tokens" | "cost",
 			order: urlState.order as "asc" | "desc",
 		}),
 		[urlState.limit, urlState.offset, urlState.sort_by, urlState.order],
@@ -451,6 +451,7 @@ export default function LogsPage() {
 			model: "模型",
 			latency: "延迟",
 			ttfb_ms: "TTFB",
+			ttft_ms: "TTFT",
 			tokens: "Tokens",
 			cost: "成本",
 			virtual_key: "Virtual Key",

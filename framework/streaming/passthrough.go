@@ -99,6 +99,7 @@ func (a *Accumulator) processPassthroughStreamingResponse(ctx *schemas.BifrostCo
 		Stream:            true,
 		StartTimestamp:    accumulator.StartTimestamp,
 		EndTimestamp:      accumulator.FinalTimestamp,
+		TimeToFirstByte:   calculateMs(accumulator.StartTimestamp, accumulator.FirstByteTimestamp),
 		PassthroughOutput: passthroughResp,
 	}
 	if passthroughUsage != nil && passthroughUsage.LLMUsage != nil {

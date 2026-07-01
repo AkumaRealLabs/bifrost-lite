@@ -265,6 +265,7 @@ var logstoreMigrationSteps = []migrationStep{
 	{IDs: []string{"logs_recreate_filter_customers_matview_multivalue"}, run: migrationRecreateFilterCustomersMatView},
 	{IDs: []string{"logs_add_canonical_model_columns_v2"}, run: migrationAddCanonicalModelColumns},
 	{IDs: []string{"logs_add_ttfb_ms_column"}, run: migrationAddTTFBMsColumn},
+	{IDs: []string{"logs_add_ttft_ms_column_and_clear_ttfb"}, run: migrationAddTTFTMsColumnAndClearTTFB},
 }
 
 // areThereAnyPendingMigrations returns true if there are any pending migrations to be applied.
@@ -1968,6 +1969,11 @@ var performanceIndexes = []performanceIndexDef{
 	},
 	{
 		table: "logs",
+		name:  "idx_logs_ttft_ms",
+		sql:   "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_logs_ttft_ms ON logs(ttft_ms) WHERE ttft_ms IS NOT NULL",
+	},
+	{
+		table: "logs",
 		name:  "idx_logs_total_tokens",
 		sql:   "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_logs_total_tokens ON logs(total_tokens)",
 	},
@@ -2874,6 +2880,32 @@ func migrationAddTTFBMsColumn(ctx context.Context, db *gorm.DB, logger schemas.L
 	}})
 	if err := m.Migrate(); err != nil {
 		return fmt.Errorf("error while adding ttfb_ms column: %s", err.Error())
+	}
+	return nil
+}
+
+func migrationAddTTFTMsColumnAndClearTTFB(ctx context.Context, db *gorm.DB, logger schemas.Logger) error {
+	migrationName := "logs_add_ttft_ms_column_and_clear_ttfb"
+	logger.Info("[logstore] starting migration %s", migrationName)
+	defer logger.Info("[logstore] finished migration %s", migrationName)
+	opts := *migrator.DefaultOptions
+	opts.UseTransaction = true
+	m := migrator.New(db, &opts, []*migrator.Migration{{
+		ID: migrationName,
+		Migrate: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			if err := addColumnIfNotExists(tx, logger, &Log{}, "TTFTMs"); err != nil {
+				return err
+			}
+			return tx.Model(&Log{}).Where("ttfb_ms IS NOT NULL").Update("ttfb_ms", nil).Error
+		},
+		Rollback: func(tx *gorm.DB) error {
+			tx = tx.WithContext(ctx)
+			return dropColumnIfExists(tx, logger, &Log{}, "TTFTMs")
+		},
+	}})
+	if err := m.Migrate(); err != nil {
+		return fmt.Errorf("error while adding ttft_ms column: %s", err.Error())
 	}
 	return nil
 }

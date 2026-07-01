@@ -115,6 +115,18 @@ func deepCopyChatStreamDelta(original *schemas.ChatStreamResponseChoiceDelta) *s
 	return copy
 }
 
+func chatDeltaHasVisibleOutput(delta *schemas.ChatStreamResponseChoiceDelta) bool {
+	if delta == nil {
+		return false
+	}
+	return (delta.Content != nil && strings.TrimSpace(*delta.Content) != "") ||
+		(delta.Refusal != nil && strings.TrimSpace(*delta.Refusal) != "") ||
+		delta.Audio != nil ||
+		(delta.Reasoning != nil && strings.TrimSpace(*delta.Reasoning) != "") ||
+		len(delta.ReasoningDetails) > 0 ||
+		len(delta.ToolCalls) > 0
+}
+
 // buildCompleteMessageFromChunks builds a complete message from accumulated chunks.
 // Uses strings.Builder for O(n) accumulation instead of O(n²) string concatenation.
 func (a *Accumulator) buildCompleteMessageFromChatStreamChunks(chunks []*ChatStreamChunk) *schemas.ChatMessage {
@@ -372,11 +384,8 @@ func (a *Accumulator) processAccumulatedChatStreamingChunks(requestID string, re
 	// Note: Cleanup is handled by CleanupStreamAccumulator when refcount reaches 0
 	// This is called from completeDeferredSpan after streaming ends
 
-	// Calculate Time to First Token (TTFT) in milliseconds
-	var ttft int64
-	if !accumulator.StartTimestamp.IsZero() && !accumulator.FirstChunkTimestamp.IsZero() {
-		ttft = accumulator.FirstChunkTimestamp.Sub(accumulator.StartTimestamp).Nanoseconds() / 1e6
-	}
+	ttfb := calculateMs(accumulator.StartTimestamp, accumulator.FirstByteTimestamp)
+	ttft := calculateMs(accumulator.StartTimestamp, accumulator.FirstChunkTimestamp)
 
 	// Initialize accumulated data
 	data := &AccumulatedData{
@@ -386,6 +395,7 @@ func (a *Accumulator) processAccumulatedChatStreamingChunks(requestID string, re
 		StartTimestamp:   accumulator.StartTimestamp,
 		EndTimestamp:     accumulator.FinalTimestamp,
 		Latency:          0,
+		TimeToFirstByte:  ttfb,
 		TimeToFirstToken: ttft,
 		OutputMessage:    nil,
 		ToolCalls:        nil,

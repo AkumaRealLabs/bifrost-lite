@@ -15,7 +15,6 @@ type TableClientConfig struct {
 	AllowedOriginsJSON                    string `gorm:"type:text" json:"-"` // JSON serialized []string
 	AllowedHeadersJSON                    string `gorm:"type:text" json:"-"` // JSON serialized []string
 	HeaderFilterConfigJSON                string `gorm:"type:text" json:"-"` // JSON serialized GlobalHeaderFilterConfig
-	TTFBRoutingJSON                       string `gorm:"type:text" json:"-"` // JSON serialized TTFB routing config
 	ProviderScoringJSON                   string `gorm:"type:text" json:"-"` // JSON serialized provider scoring config
 	MetadataJSON                          string `gorm:"type:text" json:"-"` // JSON serialized map[string]any for UI/admin preferences (e.g. onboarding_dismissed). Bypasses config.json sync.
 	InitialPoolSize                       int    `gorm:"default:300" json:"initial_pool_size"`

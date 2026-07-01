@@ -17,12 +17,14 @@ export interface ProviderUsageTabProps {
 	providerTokenData: ProviderTokenHistogramResponse | null;
 	providerLatencyData: ProviderLatencyHistogramResponse | null;
 	providerTTFBData: ProviderLatencyHistogramResponse | null;
+	providerTTFTData: ProviderLatencyHistogramResponse | null;
 
 	// Loading states
 	loadingProviderCost: boolean;
 	loadingProviderTokens: boolean;
 	loadingProviderLatency: boolean;
 	loadingProviderTTFB: boolean;
+	loadingProviderTTFT: boolean;
 
 	// Time range
 	startTime: number;
@@ -44,6 +46,7 @@ export interface ProviderUsageTabProps {
 	providerTokenProviders: string[];
 	providerLatencyProviders: string[];
 	providerTTFBProviders: string[];
+	providerTTFTProviders: string[];
 
 	// Chart type toggle callbacks
 	onProviderCostChartToggle: (type: ChartType) => void;
@@ -61,10 +64,12 @@ function ProviderUsageTabImpl({
 	providerTokenData,
 	providerLatencyData,
 	providerTTFBData,
+	providerTTFTData,
 	loadingProviderCost,
 	loadingProviderTokens,
 	loadingProviderLatency,
 	loadingProviderTTFB,
+	loadingProviderTTFT,
 	startTime,
 	endTime,
 	providerCostChartType,
@@ -78,6 +83,7 @@ function ProviderUsageTabImpl({
 	providerTokenProviders,
 	providerLatencyProviders,
 	providerTTFBProviders,
+	providerTTFTProviders,
 	onProviderCostChartToggle,
 	onProviderTokenChartToggle,
 	onProviderLatencyChartToggle,
@@ -140,6 +146,23 @@ function ProviderUsageTabImpl({
 		}
 		return count > 0 ? weighted / count : null;
 	}, [providerTTFBData, providerLatencyProvider]);
+
+	const providerTTFTAvg = useMemo(() => {
+		if (!providerTTFTData?.buckets) return null;
+		let weighted = 0;
+		let count = 0;
+		for (const b of providerTTFTData.buckets) {
+			if (!b.by_provider) continue;
+			const providers = providerLatencyProvider === "all" ? providerTTFTData.providers : [providerLatencyProvider];
+			for (const p of providers) {
+				const s = b.by_provider[p];
+				if (!s || !s.total_requests) continue;
+				weighted += (s.avg_latency ?? 0) * s.total_requests;
+				count += s.total_requests;
+			}
+		}
+		return count > 0 ? weighted / count : null;
+	}, [providerTTFTData, providerLatencyProvider]);
 
 	return (
 		<div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
@@ -518,6 +541,105 @@ function ProviderUsageTabImpl({
 					endTime={endTime}
 					selectedProvider={providerLatencyProvider}
 					metricLabel="TTFB"
+				/>
+			</ChartCard>
+
+			{/* Provider TTFT Chart */}
+			<ChartCard
+				title="Provider TTFT"
+				loading={loadingProviderTTFT}
+				testId="chart-provider-ttft"
+				totalLabel="平均"
+				total={
+					providerTTFTAvg !== null ? (
+						<NumberFlow value={providerTTFTAvg} format={{ minimumFractionDigits: 2, maximumFractionDigits: 2 }} suffix="ms" />
+					) : undefined
+				}
+				totalTooltip={providerTTFTAvg !== null ? `${providerTTFTAvg.toLocaleString("en-US", { maximumFractionDigits: 6 })}ms` : undefined}
+				legend={
+					<div className={CHART_HEADER_LEGEND_CLASS}>
+						{providerLatencyProvider === "all" ? (
+							providerTTFTProviders.length > 0 && (
+								<>
+									<Tooltip>
+										<TooltipTrigger asChild>
+											<span data-testid="provider-ttft-legend-trigger" className="flex items-center gap-1">
+												<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getModelColor(0) }} />
+												<span className="text-muted-foreground max-w-[100px] truncate">{providerTTFTProviders[0]}</span>
+											</span>
+										</TooltipTrigger>
+										<TooltipContent>{providerTTFTProviders[0]}</TooltipContent>
+									</Tooltip>
+									{providerTTFTProviders.length > 1 && (
+										<Tooltip>
+											<TooltipTrigger asChild>
+												<button
+													type="button"
+													data-testid="provider-ttft-legend-more-trigger"
+													className="text-muted-foreground cursor-default"
+												>
+													+{providerTTFTProviders.length - 1} 个
+												</button>
+											</TooltipTrigger>
+											<TooltipContent>
+												<div className="flex flex-col gap-1">
+													{providerTTFTProviders.slice(1).map((provider, idx) => (
+														<span key={provider} className="flex items-center gap-1">
+															<span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: getModelColor(idx + 1) }} />
+															{provider}
+														</span>
+													))}
+												</div>
+											</TooltipContent>
+										</Tooltip>
+									)}
+								</>
+							)
+						) : (
+							<>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.avg }} />
+									<span className="text-muted-foreground">平均</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p90 }} />
+									<span className="text-muted-foreground">P90</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p95 }} />
+									<span className="text-muted-foreground">P95</span>
+								</span>
+								<span className="flex items-center gap-1">
+									<span className="h-2 w-2 rounded-full" style={{ backgroundColor: LATENCY_COLORS.p99 }} />
+									<span className="text-muted-foreground">P99</span>
+								</span>
+							</>
+						)}
+					</div>
+				}
+				controls={
+					<>
+						<ProviderFilterSelect
+							providers={availableProviders}
+							selectedProvider={providerLatencyProvider}
+							onProviderChange={onProviderLatencyProviderChange}
+							data-testid="dashboard-provider-ttft-filter"
+						/>
+						<ChartTypeToggle
+							chartType={providerLatencyChartType}
+							onToggle={onProviderLatencyChartToggle}
+							data-testid="dashboard-provider-ttft-chart-toggle"
+						/>
+					</>
+				}
+			>
+				<ProviderLatencyChart
+					data={providerTTFTData}
+					chartType={providerLatencyChartType}
+					startTime={startTime}
+					endTime={endTime}
+					selectedProvider={providerLatencyProvider}
+					metricLabel="TTFT"
 				/>
 			</ChartCard>
 		</div>

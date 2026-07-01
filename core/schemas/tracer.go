@@ -19,6 +19,7 @@ type StreamAccumulatorResult struct {
 	Provider              ModelProvider                   // Provider used
 	Status                string                          // Status of the stream
 	Latency               int64                           // Latency in milliseconds
+	TimeToFirstByte       int64                           // Time to first raw SSE/data byte in milliseconds
 	TimeToFirstToken      int64                           // Time to first token in milliseconds
 	OutputMessage         *ChatMessage                    // Accumulated output message
 	OutputMessages        []ResponsesMessage              // For responses API
@@ -108,6 +109,9 @@ type Tracer interface {
 	// CreateStreamAccumulator creates a new stream accumulator for the given trace ID.
 	// This should be called at the start of a streaming request.
 	CreateStreamAccumulator(traceID string, startTime time.Time)
+
+	// MarkStreamFirstByte records when the first raw streaming payload was received.
+	MarkStreamFirstByte(traceID string, timestamp time.Time)
 
 	// CleanupStreamAccumulator removes the stream accumulator for the given trace ID.
 	// This should be called after the streaming request is complete.
@@ -236,6 +240,9 @@ func (n *NoOpTracer) GetAccumulatedChunks(_ string) (*BifrostResponse, int64, in
 
 // CreateStreamAccumulator does nothing.
 func (n *NoOpTracer) CreateStreamAccumulator(_ string, _ time.Time) {}
+
+// MarkStreamFirstByte does nothing.
+func (n *NoOpTracer) MarkStreamFirstByte(_ string, _ time.Time) {}
 
 // CleanupStreamAccumulator does nothing.
 func (n *NoOpTracer) CleanupStreamAccumulator(_ string) {}
