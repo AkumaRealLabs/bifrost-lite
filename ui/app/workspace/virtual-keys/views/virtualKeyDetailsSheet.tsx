@@ -6,6 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { useSheetNavigation } from "@/hooks/useSheetNavigation";
 import { ProviderIconType, RenderProviderIcon } from "@/lib/constants/icons";
 import { ProviderLabels, ProviderName } from "@/lib/constants/logs";
+import { isSystemPoolVK, systemPoolLabel } from "@/lib/providerPools";
 import { VirtualKey } from "@/lib/types/governance";
 import { formatDistanceToNow } from "date-fns";
 
@@ -50,6 +51,8 @@ export default function VirtualKeyDetailSheet({
 		hasNext,
 		onNavigate: (direction) => onNavigate?.(direction),
 	});
+	const isSystemPool = isSystemPoolVK(virtualKey.system_pool || virtualKey.name);
+	const poolProviders = virtualKey.pool_providers || [];
 
 	return (
 		<Sheet open onOpenChange={onClose}>
@@ -82,6 +85,24 @@ export default function VirtualKeyDetailSheet({
 									<Badge variant={virtualKey.is_active ? "default" : "secondary"}>{virtualKey.is_active ? "启用" : "停用"}</Badge>
 								</div>
 							</div>
+							{isSystemPool && (
+								<>
+									<div className="grid grid-cols-3 items-center gap-4">
+										<span className="text-muted-foreground text-sm">系统池</span>
+										<div className="col-span-2">
+											<Badge variant="success">{systemPoolLabel(virtualKey.system_pool || virtualKey.name)}</Badge>
+										</div>
+									</div>
+									<div className="grid grid-cols-3 items-center gap-4">
+										<span className="text-muted-foreground text-sm">池规则</span>
+										<div className="col-span-2 font-mono text-sm">{virtualKey.pool_rule}</div>
+									</div>
+									<div className="grid grid-cols-3 items-center gap-4">
+										<span className="text-muted-foreground text-sm">Provider 数</span>
+										<div className="col-span-2 text-sm">{virtualKey.provider_count ?? poolProviders.length}</div>
+									</div>
+								</>
+							)}
 							<div className="grid grid-cols-3 items-center gap-4">
 								<span className="text-muted-foreground text-sm">创建时间</span>
 								<div className="col-span-2 text-sm">{formatDistanceToNow(new Date(virtualKey.created_at), { addSuffix: true })}</div>
@@ -96,8 +117,20 @@ export default function VirtualKeyDetailSheet({
 					<DottedSeparator />
 
 					<div className="space-y-4">
-						<h3 className="font-semibold">Provider 访问</h3>
-						{!virtualKey.provider_configs?.length ? (
+						<h3 className="font-semibold">{isSystemPool ? "自动池 Provider" : "Provider 访问"}</h3>
+						{isSystemPool ? (
+							poolProviders.length ? (
+								<div className="flex flex-wrap gap-2">
+									{poolProviders.map((provider) => (
+										<Badge key={provider} variant="outline" className="text-xs">
+											{provider}
+										</Badge>
+									))}
+								</div>
+							) : (
+								<p className="text-muted-foreground text-sm">当前没有 Provider 满足系统池规则。</p>
+							)
+						) : !virtualKey.provider_configs?.length ? (
 							<p className="text-muted-foreground text-sm">未配置 Provider，此 Key 将拒绝所有 Provider。</p>
 						) : (
 							<Table>

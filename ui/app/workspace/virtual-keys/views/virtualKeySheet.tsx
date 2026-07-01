@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { ProviderIconType, RenderProviderIcon } from "@/lib/constants/icons";
 import { ProviderLabels, ProviderName } from "@/lib/constants/logs";
+import { isSystemPoolVK, systemPoolLabel } from "@/lib/providerPools";
 import {
 	getErrorMessage,
 	useCreateVirtualKeyMutation,
@@ -129,6 +130,7 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 	const [providerConfigs, setProviderConfigs] = useState<LiteProviderConfig[]>(() => toProviderConfigs(virtualKey));
 	const [showRotateWarning, setShowRotateWarning] = useState(false);
 	const isEditing = !!virtualKey;
+	const isSystemPool = isSystemPoolVK(virtualKey?.system_pool || virtualKey?.name);
 
 	const hasCreateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Create);
 	const hasUpdateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Update);
@@ -192,14 +194,16 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 		try {
 			if (isEditing && virtualKey) {
 				const data: UpdateVirtualKeyRequest = {
-					name: trimmedName,
 					description,
 					is_active: isActive,
-					provider_configs: normalizeProviderConfigs(providerConfigs, true),
-					budgets: [],
-					rate_limit: {},
-					calendar_aligned: false,
 				};
+				if (!isSystemPool) {
+					data.name = trimmedName;
+					data.provider_configs = normalizeProviderConfigs(providerConfigs, true);
+					data.budgets = [];
+					data.rate_limit = {};
+					data.calendar_aligned = false;
+				}
 				await updateVirtualKey({ vkId: virtualKey.id, data }).unwrap();
 				toast.success("虚拟 Key 已更新");
 			} else {
@@ -247,7 +251,13 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 					<div className="space-y-4">
 						<div className="space-y-2">
 							<Label htmlFor="vk-name-input">名称 *</Label>
-							<Input id="vk-name-input" value={name} onChange={(event) => setName(event.target.value)} data-testid="vk-name-input" />
+							<Input
+								id="vk-name-input"
+								value={name}
+								onChange={(event) => setName(event.target.value)}
+								disabled={isSystemPool}
+								data-testid="vk-name-input"
+							/>
 						</div>
 						<div className="space-y-2">
 							<Label htmlFor="vk-description-input">描述</Label>
@@ -273,37 +283,59 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 					<div className="space-y-4">
 						<div className="flex items-center justify-between gap-3">
 							<div>
-								<Label className="text-sm font-medium">Provider 访问</Label>
-								<p className="text-muted-foreground text-xs">权重范围 0 到 1；留空表示不参加自动加权负载均衡。</p>
+								<Label className="text-sm font-medium">{isSystemPool ? "自动池 Provider" : "Provider 访问"}</Label>
+								<p className="text-muted-foreground text-xs">
+									{isSystemPool ? "Provider 归属由渠道成本自动计算。" : "权重范围 0 到 1；留空表示不参加自动加权负载均衡。"}
+								</p>
 							</div>
-							<Select
-								value={selectedProvider}
-								onValueChange={(provider) => {
-									addProvider(provider);
-									setSelectedProvider("");
-								}}
-							>
-								<SelectTrigger className="w-[240px]" data-testid="vk-provider-select">
-									<SelectValue placeholder="添加 Provider" />
-								</SelectTrigger>
-								<SelectContent>
-									{providers
-										.filter((provider) => provider.name && !providerConfigs.some((config) => config.provider === provider.name))
-										.map((provider) => (
-											<SelectItem key={provider.name} value={provider.name}>
-												<RenderProviderIcon
-													provider={provider.custom_provider_config?.base_provider_type || (provider.name as KnownProvider)}
-													size="sm"
-													className="h-4 w-4"
-												/>
-												{provider.custom_provider_config ? provider.name : providerLabel(provider.name)}
-											</SelectItem>
-										))}
-								</SelectContent>
-							</Select>
+							{!isSystemPool && (
+								<Select
+									value={selectedProvider}
+									onValueChange={(provider) => {
+										addProvider(provider);
+										setSelectedProvider("");
+									}}
+								>
+									<SelectTrigger className="w-[240px]" data-testid="vk-provider-select">
+										<SelectValue placeholder="添加 Provider" />
+									</SelectTrigger>
+									<SelectContent>
+										{providers
+											.filter((provider) => provider.name && !providerConfigs.some((config) => config.provider === provider.name))
+											.map((provider) => (
+												<SelectItem key={provider.name} value={provider.name}>
+													<RenderProviderIcon
+														provider={provider.custom_provider_config?.base_provider_type || (provider.name as KnownProvider)}
+														size="sm"
+														className="h-4 w-4"
+													/>
+													{provider.custom_provider_config ? provider.name : providerLabel(provider.name)}
+												</SelectItem>
+											))}
+									</SelectContent>
+								</Select>
+							)}
 						</div>
 
-						{providerConfigs.length === 0 ? (
+						{isSystemPool ? (
+							<div className="space-y-3 rounded-sm border p-4">
+								<div className="flex items-center gap-2">
+									<Badge variant="success">{systemPoolLabel(virtualKey?.system_pool || virtualKey?.name)}</Badge>
+									<span className="font-mono text-sm">{virtualKey?.pool_rule}</span>
+								</div>
+								<div className="flex flex-wrap gap-2">
+									{virtualKey?.pool_providers?.length ? (
+										virtualKey.pool_providers.map((provider) => (
+											<Badge key={provider} variant="outline" className="text-xs">
+												{provider}
+											</Badge>
+										))
+									) : (
+										<span className="text-muted-foreground text-sm">当前没有 Provider 满足系统池规则。</span>
+									)}
+								</div>
+							</div>
+						) : providerConfigs.length === 0 ? (
 							<p className="text-muted-foreground rounded-sm border p-3 text-sm">未配置 Provider，此 Key 将拒绝所有 Provider。</p>
 						) : (
 							<div className="space-y-3">

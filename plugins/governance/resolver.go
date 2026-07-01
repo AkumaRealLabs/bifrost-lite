@@ -269,6 +269,7 @@ func (r *BudgetResolver) EvaluateVirtualKeyRequest(ctx *schemas.BifrostContext, 
 			Reason:   "Virtual key is inactive",
 		}
 	}
+	vk = r.virtualKeyForEvaluation(vk)
 	// 2. Check provider filtering
 	if requestType != schemas.ListModelsRequest && !r.isProviderAllowed(vk, provider) {
 		return &EvaluationResult{

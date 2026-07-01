@@ -162,6 +162,9 @@ func Init(
 	if modelCatalog == nil {
 		logger.Warn("governance plugin requires model catalog to calculate cost, all LLM cost calculations will be skipped.")
 	}
+	if err := ensureSystemPoolVirtualKeys(ctx, configStore, governanceConfig); err != nil {
+		return nil, fmt.Errorf("failed to ensure system virtual keys: %w", err)
+	}
 	var ttftStats TTFTStatsProvider
 	var reliabilityStats ProviderReliabilityStatsProvider
 	if len(ttftStatsProviders) > 0 {
@@ -489,6 +492,7 @@ func (p *GovernancePlugin) HTTPTransportStreamChunkHook(ctx *schemas.BifrostCont
 // and mutates req.Provider/req.Model with the refined provider/model. Also populates req.Fallbacks
 // from the remaining weighted providers if no fallbacks were configured by the caller.
 func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req *schemas.BifrostRequest, virtualKey *configstoreTables.TableVirtualKey) error {
+	virtualKey = p.virtualKeyForRouting(virtualKey)
 	provider, modelStr, existingFallbacks := req.GetRequestFields()
 	if modelStr == "" {
 		return nil
@@ -505,6 +509,9 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	providerConfigs := virtualKey.ProviderConfigs
 	if len(providerConfigs) == 0 {
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, fmt.Sprintf("No provider configs on virtual key %s for model %s, skipping load balancing", virtualKey.Name, modelStr))
+		if IsSystemPoolVirtualKeyName(virtualKey.Name) {
+			setSystemPoolUnavailable(ctx, virtualKey.Name, modelStr)
+		}
 		// No provider configs, continue without modification
 		return nil
 	}
@@ -575,6 +582,9 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 
 	if len(allowedProviderConfigs) == 0 {
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("No eligible providers remaining after filtering for model %s, skipping load balancing", modelStr))
+		if IsSystemPoolVirtualKeyName(virtualKey.Name) {
+			setSystemPoolUnavailable(ctx, virtualKey.Name, modelStr)
+		}
 		// TODO: Send proper error if (overall VK budget/rate limit) or (all provider budgets/rate limits) are violated
 		// No allowed provider configs, continue without modification
 		return nil
@@ -588,6 +598,9 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 		// Emit an explicit log so the routing trail explains why governance stops here
 		// instead of trailing off after "Allowed providers after filtering: [...]".
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("No weighted configs for model %s — none of the allowed VK provider configs have a weight assigned; skipping load balancing", modelStr))
+		if IsSystemPoolVirtualKeyName(virtualKey.Name) {
+			setSystemPoolUnavailable(ctx, virtualKey.Name, modelStr)
+		}
 		return nil
 	}
 
@@ -718,6 +731,7 @@ func (p *GovernancePlugin) publishRoutingAllowlist(ctx *schemas.BifrostContext, 
 	if virtualKey == nil {
 		return
 	}
+	virtualKey = p.virtualKeyForRouting(virtualKey)
 	allowed := make([]schemas.ModelProvider, 0, len(virtualKey.ProviderConfigs))
 	for _, pc := range virtualKey.ProviderConfigs {
 		// No model to filter on → keep the provider so we don't over-restrict.
@@ -993,9 +1007,13 @@ func (p *GovernancePlugin) EvaluateGovernanceRequest(ctx *schemas.BifrostContext
 		return result, nil
 
 	case DecisionVirtualKeyNotFound, DecisionVirtualKeyBlocked, DecisionModelBlocked, DecisionProviderBlocked:
+		statusCode := 403
+		if result.VirtualKey != nil && IsSystemPoolVirtualKeyName(result.VirtualKey.Name) && (result.Decision == DecisionModelBlocked || result.Decision == DecisionProviderBlocked) {
+			statusCode = 503
+		}
 		return result, &schemas.BifrostError{
 			Type:       new(string(result.Decision)),
-			StatusCode: new(403),
+			StatusCode: &statusCode,
 			Error: &schemas.ErrorField{
 				Message: result.Reason,
 			},
@@ -1265,7 +1283,9 @@ func isAccountConcurrencyLimitError(err *schemas.BifrostError) bool {
 func isAccountConcurrencyLimitText(text string) bool {
 	lower := strings.ToLower(text)
 	return strings.Contains(lower, "concurrency limit exceeded for account") ||
-		strings.Contains(lower, "account_concurrency")
+		strings.Contains(lower, "account_concurrency") ||
+		strings.Contains(lower, "too many pending requests") ||
+		strings.Contains(lower, "upstream rate limit exceeded")
 }
 
 // Cleanup shuts down all components gracefully

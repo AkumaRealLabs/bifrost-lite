@@ -197,6 +197,26 @@ func TestPostLLMHook_CoolsProviderOnAccountConcurrencyLimit(t *testing.T) {
 			},
 			provider: "provider-beta",
 		},
+		{
+			name: "too_many_pending_requests",
+			err: &schemas.BifrostError{
+				Error: &schemas.ErrorField{Message: "Too many pending requests, please retry later"},
+				ExtraFields: schemas.BifrostErrorExtraFields{
+					Provider: "provider-gamma",
+				},
+			},
+			provider: "provider-gamma",
+		},
+		{
+			name: "upstream_rate_limit_exceeded",
+			err: &schemas.BifrostError{
+				Error: &schemas.ErrorField{Message: "Upstream rate limit exceeded, please retry later"},
+				ExtraFields: schemas.BifrostErrorExtraFields{
+					Provider: "provider-delta",
+				},
+			},
+			provider: "provider-delta",
+		},
 	}
 
 	for _, tt := range tests {

@@ -408,6 +408,8 @@ func TestIsRateLimitError_AllPatterns(t *testing.T) {
 		"usage limit",
 		"concurrency limit exceeded for account",
 		"concurrent requests limit",
+		"account_concurrency",
+		"too many pending requests",
 		"burst_rate",
 		"rate increased",
 	}
@@ -506,6 +508,58 @@ func TestIsRateLimitError_EdgeCases(t *testing.T) {
 			t.Error("DashScope error message should be detected as rate limit error")
 		}
 	})
+}
+
+func TestExecuteRequestWithRetries_ProviderCapacityLimitUsesFallbackBeforeRetry(t *testing.T) {
+	config := createTestConfig(3, time.Millisecond, time.Millisecond)
+	ctx := schemas.NewBifrostContext(context.Background(), schemas.NoDeadline)
+	ctx.SetValue(schemas.BifrostContextKeyTracer, &schemas.NoOpTracer{})
+	logger := NewDefaultLogger(schemas.LogLevelError)
+	req := &schemas.BifrostRequest{
+		RequestType: schemas.ChatCompletionRequest,
+		ChatRequest: &schemas.BifrostChatRequest{
+			Model:     "gpt-4",
+			Fallbacks: []schemas.Fallback{{Provider: schemas.OpenAI, Model: "gpt-4"}},
+		},
+	}
+	errType := "upstream_error"
+	errCode := "rate_limit_exceeded"
+	capacityErr := &schemas.BifrostError{
+		IsBifrostError: false,
+		StatusCode:     Ptr(429),
+		Error: &schemas.ErrorField{
+			Message: "Concurrency limit exceeded for account, please retry later",
+			Type:    &errType,
+			Code:    &errCode,
+		},
+	}
+	callCount := 0
+	handler := func(_ schemas.Key) (string, *schemas.BifrostError) {
+		callCount++
+		return "", capacityErr
+	}
+
+	result, gotErr := executeRequestWithRetries(
+		ctx,
+		config,
+		handler,
+		nil,
+		schemas.ChatCompletionRequest,
+		schemas.OpenAI,
+		"gpt-4",
+		req,
+		logger,
+	)
+
+	if callCount != 1 {
+		t.Fatalf("Expected provider capacity error to skip same-provider retries when fallbacks exist, got %d calls", callCount)
+	}
+	if result != "" {
+		t.Fatalf("Expected empty result, got %s", result)
+	}
+	if gotErr != capacityErr {
+		t.Fatal("Expected original capacity error to be returned to fallback orchestrator")
+	}
 }
 
 // Test retry logging and attempt counting

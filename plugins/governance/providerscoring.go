@@ -253,6 +253,11 @@ func (p *GovernancePlugin) applyProviderScoring(
 	}
 
 	if len(notCooled) == 0 && len(weighted) > 0 {
+		if virtualKey != nil && IsSystemPoolVirtualKeyName(virtualKey.Name) {
+			ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, "Provider scoring: all system pool providers cooled down; fail-closed")
+			setSystemPoolUnavailable(ctx, virtualKey.Name, model)
+			return nil
+		}
 		ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelWarn, "Provider scoring: all providers cooled down; fail-open using composite scores")
 		return weighted
 	}
