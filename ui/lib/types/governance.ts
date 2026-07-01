@@ -25,6 +25,11 @@ export interface VirtualKey {
 	created_at: string;
 	updated_at: string;
 	config_hash?: string;
+	system_pool?: string;
+	pool_rule?: string;
+	provider_count?: number;
+	healthy_provider_count?: number;
+	pool_providers?: string[];
 }
 
 export interface VirtualKeyProviderConfig {

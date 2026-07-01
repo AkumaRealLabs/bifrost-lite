@@ -41,16 +41,46 @@ type mockConfigStoreForVK struct {
 	configstore.ConfigStore
 	getVirtualKeysCalls          int
 	getVirtualKeysPaginatedCalls int
+	virtualKeys                  []configstoreTables.TableVirtualKey
+	modelConfigs                 []configstoreTables.TableModelConfig
+	providers                    map[schemas.ModelProvider]configstore.ProviderConfig
+	cooldowns                    []configstore.ProviderCooldownState
 }
 
 func (m *mockConfigStoreForVK) GetVirtualKeysPaginated(_ context.Context, _ configstore.VirtualKeyQueryParams) ([]configstoreTables.TableVirtualKey, int64, error) {
 	m.getVirtualKeysPaginatedCalls++
-	return nil, 0, nil
+	virtualKeys := append([]configstoreTables.TableVirtualKey(nil), m.virtualKeys...)
+	return virtualKeys, int64(len(virtualKeys)), nil
 }
 
 func (m *mockConfigStoreForVK) GetVirtualKeys(_ context.Context) ([]configstoreTables.TableVirtualKey, error) {
 	m.getVirtualKeysCalls++
-	return nil, nil
+	return append([]configstoreTables.TableVirtualKey(nil), m.virtualKeys...), nil
+}
+
+func (m *mockConfigStoreForVK) GetModelConfigs(_ context.Context) ([]configstoreTables.TableModelConfig, error) {
+	return append([]configstoreTables.TableModelConfig(nil), m.modelConfigs...), nil
+}
+
+func (m *mockConfigStoreForVK) GetProvidersConfig(_ context.Context) (map[schemas.ModelProvider]configstore.ProviderConfig, error) {
+	return m.providers, nil
+}
+
+func (m *mockConfigStoreForVK) GetActiveProviderCooldowns(_ context.Context, now time.Time) ([]configstore.ProviderCooldownState, error) {
+	out := make([]configstore.ProviderCooldownState, 0, len(m.cooldowns))
+	for _, cooldown := range m.cooldowns {
+		if cooldown.CooldownUntil.After(now) {
+			out = append(out, cooldown)
+		}
+	}
+	return out, nil
+}
+
+func handlerProviderWithPrice(price string) configstore.ProviderConfig {
+	return configstore.ProviderConfig{
+		Description: `{"price_rmb_per_dao":` + price + `}`,
+		Keys:        []schemas.Key{{ID: "key-" + price, Models: schemas.WhiteList{"*"}}},
+	}
 }
 
 type mockRotateConfigStore struct {
@@ -2190,6 +2220,165 @@ func TestGetVirtualKeys_FromMemoryWithLimitUsesPaginatedConfigStore(t *testing.T
 	}
 	if store.getVirtualKeysCalls != 0 {
 		t.Fatalf("unexpected non-paginated call count %d", store.getVirtualKeysCalls)
+	}
+}
+
+func TestGetVirtualKeys_DecoratesSystemPools(t *testing.T) {
+	SetLogger(&mockLogger{})
+
+	active := true
+	store := &mockConfigStoreForVK{
+		virtualKeys: []configstoreTables.TableVirtualKey{
+			{ID: "vk-low", Name: governance.SystemPoolLow, Value: "sk-bf-low", IsActive: &active},
+			{ID: "vk-stable", Name: governance.SystemPoolStable, Value: "sk-bf-stable", IsActive: &active},
+			{ID: "vk-normal", Name: "normal", Value: "sk-bf-normal", IsActive: &active},
+		},
+		providers: map[schemas.ModelProvider]configstore.ProviderConfig{
+			"p005":   handlerProviderWithPrice("0.05"),
+			"p010":   handlerProviderWithPrice("0.10"),
+			"p015":   handlerProviderWithPrice("0.15"),
+			"p025":   handlerProviderWithPrice("0.25"),
+			"p_high": handlerProviderWithPrice("0.30"),
+		},
+		cooldowns: []configstore.ProviderCooldownState{
+			{Provider: "p010", CooldownUntil: time.Now().Add(5 * time.Minute)},
+		},
+	}
+	h := &GovernanceHandler{configStore: store, governanceManager: &mockGovernanceManagerForVK{}}
+
+	ctx := &fasthttp.RequestCtx{}
+	ctx.Request.Header.SetMethod("GET")
+	ctx.Request.SetRequestURI("/api/governance/virtual-keys")
+
+	h.getVirtualKeys(ctx)
+
+	if ctx.Response.StatusCode() != 200 {
+		t.Fatalf("expected status 200, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+	}
+	var resp struct {
+		VirtualKeys []struct {
+			Name                 string   `json:"name"`
+			SystemPool           string   `json:"system_pool"`
+			PoolRule             string   `json:"pool_rule"`
+			ProviderCount        int      `json:"provider_count"`
+			HealthyProviderCount int      `json:"healthy_provider_count"`
+			PoolProviders        []string `json:"pool_providers"`
+		} `json:"virtual_keys"`
+	}
+	if err := json.Unmarshal(ctx.Response.Body(), &resp); err != nil {
+		t.Fatalf("failed to parse JSON response: %v", err)
+	}
+	byName := make(map[string]struct {
+		Name                 string   `json:"name"`
+		SystemPool           string   `json:"system_pool"`
+		PoolRule             string   `json:"pool_rule"`
+		ProviderCount        int      `json:"provider_count"`
+		HealthyProviderCount int      `json:"healthy_provider_count"`
+		PoolProviders        []string `json:"pool_providers"`
+	}, len(resp.VirtualKeys))
+	for _, vk := range resp.VirtualKeys {
+		byName[vk.Name] = vk
+	}
+	low := byName[governance.SystemPoolLow]
+	if low.SystemPool != governance.SystemPoolLow || low.PoolRule == "" {
+		t.Fatalf("low pool decoration missing: %#v", low)
+	}
+	if low.ProviderCount != 2 || low.HealthyProviderCount != 1 || strings.Join(low.PoolProviders, ",") != "p005,p010" {
+		t.Fatalf("low pool providers = %#v, count=%d healthy=%d", low.PoolProviders, low.ProviderCount, low.HealthyProviderCount)
+	}
+	stable := byName[governance.SystemPoolStable]
+	if stable.ProviderCount != 4 || stable.HealthyProviderCount != 3 || strings.Join(stable.PoolProviders, ",") != "p005,p010,p015,p025" {
+		t.Fatalf("stable pool providers = %#v, count=%d healthy=%d", stable.PoolProviders, stable.ProviderCount, stable.HealthyProviderCount)
+	}
+	if normal := byName["normal"]; normal.SystemPool != "" || normal.ProviderCount != 0 {
+		t.Fatalf("normal VK should not be decorated as system pool: %#v", normal)
+	}
+}
+
+func TestCreateVirtualKey_RejectsSystemPoolName(t *testing.T) {
+	h := &GovernanceHandler{}
+	ctx := newTestRequestCtx(`{"name":"gpt_low"}`)
+
+	h.createVirtualKey(ctx)
+
+	if ctx.Response.StatusCode() != fasthttp.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+	}
+}
+
+func TestUpdateVirtualKey_RejectsSystemPoolNameAndProviderConfigs(t *testing.T) {
+	SetLogger(&mockLogger{})
+
+	store := &mockRotateConfigStore{virtualKeys: map[string]*configstoreTables.TableVirtualKey{
+		"vk-low": {ID: "vk-low", Name: governance.SystemPoolLow, Value: "sk-bf-low"},
+	}}
+	h := &GovernanceHandler{configStore: store}
+
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{name: "rename", body: `{"name":"renamed"}`, want: "name cannot be changed"},
+		{name: "provider configs", body: `{"provider_configs":[]}`, want: "provider configs are managed automatically"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := newTestRequestCtx(tt.body)
+			ctx.SetUserValue("vk_id", "vk-low")
+
+			h.updateVirtualKey(ctx)
+
+			if ctx.Response.StatusCode() != fasthttp.StatusBadRequest {
+				t.Fatalf("expected status 400, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+			}
+			if !strings.Contains(string(ctx.Response.Body()), tt.want) {
+				t.Fatalf("expected response to contain %q, got %s", tt.want, string(ctx.Response.Body()))
+			}
+			if store.updates != 0 {
+				t.Fatalf("expected no updates, got %d", store.updates)
+			}
+		})
+	}
+}
+
+func TestUpdateVirtualKey_RejectsRenameToSystemPoolName(t *testing.T) {
+	SetLogger(&mockLogger{})
+
+	store := &mockRotateConfigStore{virtualKeys: map[string]*configstoreTables.TableVirtualKey{
+		"vk-normal": {ID: "vk-normal", Name: "normal", Value: "sk-bf-normal"},
+	}}
+	h := &GovernanceHandler{configStore: store}
+	ctx := newTestRequestCtx(`{"name":"gpt_stable"}`)
+	ctx.SetUserValue("vk_id", "vk-normal")
+
+	h.updateVirtualKey(ctx)
+
+	if ctx.Response.StatusCode() != fasthttp.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+	}
+	if store.updates != 0 {
+		t.Fatalf("expected no updates, got %d", store.updates)
+	}
+}
+
+func TestDeleteVirtualKey_RejectsSystemPool(t *testing.T) {
+	SetLogger(&mockLogger{})
+
+	store := &mockRotateConfigStore{virtualKeys: map[string]*configstoreTables.TableVirtualKey{
+		"vk-low": {ID: "vk-low", Name: governance.SystemPoolLow, Value: "sk-bf-low"},
+	}}
+	h := &GovernanceHandler{configStore: store}
+	ctx := &fasthttp.RequestCtx{}
+	ctx.SetUserValue("vk_id", "vk-low")
+
+	h.deleteVirtualKey(ctx)
+
+	if ctx.Response.StatusCode() != fasthttp.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", ctx.Response.StatusCode(), string(ctx.Response.Body()))
+	}
+	if !strings.Contains(string(ctx.Response.Body()), "System virtual keys cannot be deleted") {
+		t.Fatalf("unexpected response: %s", string(ctx.Response.Body()))
 	}
 }
 

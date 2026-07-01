@@ -13,6 +13,7 @@ import {
 	useGetProvidersQuery,
 	useLazyGetProviderQuery,
 } from "@/lib/store";
+import { getPriceRMBPerDao, systemPoolForPrice, systemPoolMembershipLabel } from "@/lib/providerPools";
 import { KnownProvider, ModelProviderName, ProviderStatus } from "@/lib/types/config";
 import { cn } from "@/lib/utils";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -177,6 +178,8 @@ export default function Providers() {
 									{configuredProviders.map((p) => {
 										const isCustom = !ProviderNames.includes(p.name as KnownProvider);
 										const label = isCustom ? p.name : ProviderLabels[p.name as keyof typeof ProviderLabels];
+										const price = getPriceRMBPerDao(p.description);
+										const pool = systemPoolForPrice(price);
 										return (
 											<div
 												key={p.name}
@@ -206,8 +209,14 @@ export default function Providers() {
 												<TruncatedName name={label} />
 												<KeyDiscoveryFailedBadge provider={p} />
 												<ProviderStatusBadge status={p.provider_status} />
+												<Badge
+													variant={pool ? "success" : "secondary"}
+													className="ml-auto shrink-0 px-1.5 py-0.5 text-[10px] font-bold"
+												>
+													{systemPoolMembershipLabel(price)}
+												</Badge>
 												{isCustom && (
-													<Badge variant="secondary" className="text-muted-foreground ml-auto shrink-0 px-1.5 py-0.5 text-[10px] font-bold">
+													<Badge variant="secondary" className="text-muted-foreground shrink-0 px-1.5 py-0.5 text-[10px] font-bold">
 														自定义
 													</Badge>
 												)}

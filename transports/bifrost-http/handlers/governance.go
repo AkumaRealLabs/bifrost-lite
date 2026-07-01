@@ -114,6 +114,15 @@ type GovernanceHandler struct {
 	logManager logging.LogManager
 }
 
+type systemPoolVirtualKeyView struct {
+	configstoreTables.TableVirtualKey
+	SystemPool           string   `json:"system_pool,omitempty"`
+	PoolRule             string   `json:"pool_rule,omitempty"`
+	ProviderCount        int      `json:"provider_count"`
+	HealthyProviderCount int      `json:"healthy_provider_count"`
+	PoolProviders        []string `json:"pool_providers,omitempty"`
+}
+
 // NewGovernanceHandler creates a new governance handler instance.
 // logManager is optional (may be nil); when supplied it powers the quota
 // endpoint's per-budget actual per-model usage breakdown.
@@ -139,6 +148,81 @@ func NewGovernanceHandler(manager GovernanceManager, configStore configstore.Con
 		configStore:       configStore,
 		logManager:        logManager,
 	}, nil
+}
+
+func (h *GovernanceHandler) decorateVirtualKeyWithProviders(vk configstoreTables.TableVirtualKey, providers map[schemas.ModelProvider]configstore.ProviderConfig, cooled map[string]bool) any {
+	if !governance.IsSystemPoolVirtualKeyName(vk.Name) {
+		return vk
+	}
+	poolConfigs := governance.BuildSystemPoolProviderConfigsForAPI(vk.Name, providers)
+	names := make([]string, 0, len(poolConfigs))
+	healthy := 0
+	for _, pc := range poolConfigs {
+		names = append(names, pc.Provider)
+		if !cooled[pc.Provider] {
+			healthy++
+		}
+	}
+	return systemPoolVirtualKeyView{
+		TableVirtualKey:      vk,
+		SystemPool:           vk.Name,
+		PoolRule:             governance.SystemPoolRule(vk.Name),
+		ProviderCount:        len(poolConfigs),
+		HealthyProviderCount: healthy,
+		PoolProviders:        names,
+	}
+}
+
+func (h *GovernanceHandler) decorateVirtualKey(ctx context.Context, vk configstoreTables.TableVirtualKey) any {
+	if !governance.IsSystemPoolVirtualKeyName(vk.Name) {
+		return vk
+	}
+	providers, err := h.configStore.GetProvidersConfig(ctx)
+	if err != nil {
+		return vk
+	}
+	cooled := h.activeCooldownProviders(ctx)
+	return h.decorateVirtualKeyWithProviders(vk, providers, cooled)
+}
+
+func (h *GovernanceHandler) decorateVirtualKeys(ctx context.Context, vks []configstoreTables.TableVirtualKey) []any {
+	hasSystemPool := false
+	for _, vk := range vks {
+		if governance.IsSystemPoolVirtualKeyName(vk.Name) {
+			hasSystemPool = true
+			break
+		}
+	}
+	var providers map[schemas.ModelProvider]configstore.ProviderConfig
+	var err error
+	if hasSystemPool {
+		providers, err = h.configStore.GetProvidersConfig(ctx)
+	}
+	cooled := map[string]bool{}
+	if hasSystemPool && err == nil {
+		cooled = h.activeCooldownProviders(ctx)
+	}
+	out := make([]any, len(vks))
+	for i, vk := range vks {
+		if err != nil {
+			out[i] = vk
+		} else {
+			out[i] = h.decorateVirtualKeyWithProviders(vk, providers, cooled)
+		}
+	}
+	return out
+}
+
+func (h *GovernanceHandler) activeCooldownProviders(ctx context.Context) map[string]bool {
+	cooled := map[string]bool{}
+	cooldowns, err := h.configStore.GetActiveProviderCooldowns(ctx, time.Now().UTC())
+	if err != nil {
+		return cooled
+	}
+	for _, cooldown := range cooldowns {
+		cooled[cooldown.Provider] = true
+	}
+	return cooled
 }
 
 // CreateVirtualKeyRequest represents the request body for creating a virtual key
@@ -1121,7 +1205,7 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 		// Reverse-map governance from VK-scoped model configs for display.
 		h.hydrateVKListGovernance(ctx, virtualKeys)
 		SendJSON(ctx, map[string]interface{}{
-			"virtual_keys": virtualKeys,
+			"virtual_keys": h.decorateVirtualKeys(ctx, virtualKeys),
 			"count":        len(virtualKeys),
 			"total_count":  totalCount,
 			"limit":        params.Limit,
@@ -1139,7 +1223,7 @@ func (h *GovernanceHandler) getVirtualKeys(ctx *fasthttp.RequestCtx) {
 	}
 	h.hydrateVKListGovernance(ctx, virtualKeys)
 	SendJSON(ctx, map[string]interface{}{
-		"virtual_keys": virtualKeys,
+		"virtual_keys": h.decorateVirtualKeys(ctx, virtualKeys),
 		"count":        len(virtualKeys),
 		"total_count":  len(virtualKeys),
 		"limit":        len(virtualKeys),
@@ -1157,6 +1241,10 @@ func (h *GovernanceHandler) createVirtualKey(ctx *fasthttp.RequestCtx) {
 	// Validate required fields
 	if req.Name == "" {
 		SendError(ctx, 400, "Virtual key name is required")
+		return
+	}
+	if governance.IsSystemPoolVirtualKeyName(req.Name) {
+		SendError(ctx, 400, "System virtual keys are managed automatically")
 		return
 	}
 	// Validate mutually exclusive TeamID and CustomerID
@@ -1342,7 +1430,7 @@ func (h *GovernanceHandler) getVirtualKey(ctx *fasthttp.RequestCtx) {
 				clone.ProviderConfigs = pcs
 				applyVKGovernanceFromModelConfigs(&clone, byKey)
 				SendJSON(ctx, map[string]interface{}{
-					"virtual_key": &clone,
+					"virtual_key": h.decorateVirtualKey(ctx, clone),
 				})
 				return
 			}
@@ -1363,7 +1451,7 @@ func (h *GovernanceHandler) getVirtualKey(ctx *fasthttp.RequestCtx) {
 	h.hydrateVKGovernance(ctx, vk)
 
 	SendJSON(ctx, map[string]interface{}{
-		"virtual_key": vk,
+		"virtual_key": h.decorateVirtualKey(ctx, *vk),
 	})
 }
 
@@ -1387,6 +1475,19 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		SendError(ctx, 500, "Failed to retrieve virtual key")
+		return
+	}
+	if governance.IsSystemPoolVirtualKeyName(vk.Name) {
+		if req.Name != nil && *req.Name != vk.Name {
+			SendError(ctx, 400, "System virtual key name cannot be changed")
+			return
+		}
+		if req.ProviderConfigs != nil {
+			SendError(ctx, 400, "System virtual key provider configs are managed automatically")
+			return
+		}
+	} else if req.Name != nil && governance.IsSystemPoolVirtualKeyName(*req.Name) {
+		SendError(ctx, 400, "System virtual keys are managed automatically")
 		return
 	}
 	providerSet := map[schemas.ModelProvider]struct{}{}
@@ -1688,7 +1789,7 @@ func (h *GovernanceHandler) updateVirtualKey(ctx *fasthttp.RequestCtx) {
 
 	SendJSON(ctx, map[string]interface{}{
 		"message":     "Virtual key updated successfully",
-		"virtual_key": preloadedVk,
+		"virtual_key": h.decorateVirtualKey(ctx, *preloadedVk),
 	})
 }
 
@@ -1728,7 +1829,7 @@ func (h *GovernanceHandler) rotateVirtualKey(ctx *fasthttp.RequestCtx) {
 	}
 	SendJSON(ctx, map[string]interface{}{
 		"message":     "Virtual key rotated successfully",
-		"virtual_key": preloadedVk,
+		"virtual_key": h.decorateVirtualKey(ctx, *preloadedVk),
 	})
 }
 
@@ -1760,6 +1861,7 @@ func (h *GovernanceHandler) rotateVirtualKeys(ctx *fasthttp.RequestCtx) {
 	}
 
 	rotated := make([]*configstoreTables.TableVirtualKey, 0, len(ids))
+	rotatedResponse := make([]any, 0, len(ids))
 	failures := make(map[string]string)
 	for _, id := range ids {
 		vk, err := h.rotateVirtualKeyByID(ctx, id)
@@ -1773,11 +1875,12 @@ func (h *GovernanceHandler) rotateVirtualKeys(ctx *fasthttp.RequestCtx) {
 			continue
 		}
 		rotated = append(rotated, vk)
+		rotatedResponse = append(rotatedResponse, h.decorateVirtualKey(ctx, *vk))
 	}
 
 	response := map[string]interface{}{
 		"message":      "Virtual keys rotated successfully",
-		"virtual_keys": rotated,
+		"virtual_keys": rotatedResponse,
 	}
 	if len(failures) > 0 {
 		response["errors"] = failures
@@ -1801,6 +1904,10 @@ func (h *GovernanceHandler) deleteVirtualKey(ctx *fasthttp.RequestCtx) {
 			return
 		}
 		SendError(ctx, 500, "Failed to retrieve virtual key")
+		return
+	}
+	if governance.IsSystemPoolVirtualKeyName(vk.Name) {
+		SendError(ctx, 400, "System virtual keys cannot be deleted")
 		return
 	}
 	// Deleting key from database

@@ -73,8 +73,17 @@ var rateLimitPatterns = []string{
 	"api rate limit",
 	"usage limit",
 	"concurrent requests limit",
+	"account_concurrency",
+	"too many pending requests",
 	"burst_rate",
 	"rate increased",
+}
+
+var providerCapacityLimitPatterns = []string{
+	"concurrency limit exceeded for account",
+	"account_concurrency",
+	"too many pending requests",
+	"upstream rate limit exceeded",
 }
 
 // dynamicallyConfigurableProviders is the list of providers that can be dynamically configured.
@@ -141,9 +150,14 @@ func calculateBackoff(attempt int, config *schemas.ProviderConfig) time.Duration
 }
 
 // validateRequestAfterPreRequestHooks validates the provider and model fields of the given request.
-func validateRequestAfterPreRequestHooks(req *schemas.BifrostRequest) *schemas.BifrostError {
+func validateRequestAfterPreRequestHooks(ctx *schemas.BifrostContext, req *schemas.BifrostRequest) *schemas.BifrostError {
 	if req == nil {
 		return newBifrostErrorFromMsg("bifrost request cannot be nil")
+	}
+	if ctx != nil {
+		if err, ok := ctx.Value(schemas.BifrostContextKeyPreRequestShortCircuitError).(*schemas.BifrostError); ok && err != nil {
+			return err
+		}
 	}
 	provider, model, _ := req.GetRequestFields()
 	if provider == "" {
@@ -217,6 +231,32 @@ func IsRateLimitErrorMessage(errorMessage string) bool {
 	}
 
 	return false
+}
+
+func isProviderCapacityLimitError(errorMessage string) bool {
+	if errorMessage == "" {
+		return false
+	}
+	lowerMessage := strings.ToLower(errorMessage)
+	for _, pattern := range providerCapacityLimitPatterns {
+		if strings.Contains(lowerMessage, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func shouldFallbackBeforeProviderRetry(err *schemas.BifrostError, req *schemas.BifrostRequest) bool {
+	if err == nil || err.Error == nil || req == nil {
+		return false
+	}
+	_, _, fallbacks := req.GetRequestFields()
+	if len(fallbacks) == 0 {
+		return false
+	}
+	return isProviderCapacityLimitError(err.Error.Message) ||
+		(err.Error.Type != nil && isProviderCapacityLimitError(*err.Error.Type)) ||
+		(err.Error.Code != nil && isProviderCapacityLimitError(*err.Error.Code))
 }
 
 // routingErrorSummary produces a sanitized, audit-safe one-line summary of a

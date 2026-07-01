@@ -27,6 +27,7 @@ import {
 	useLazyGetVirtualKeysQuery,
 	useUpdateVirtualKeyMutation,
 } from "@/lib/store";
+import { isSystemPoolVK, systemPoolLabel } from "@/lib/providerPools";
 import { VirtualKey } from "@/lib/types/governance";
 import { cn } from "@/lib/utils";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -44,7 +45,6 @@ import {
 	EyeOff,
 	Loader2,
 	MoreHorizontal,
-	Plus,
 	RotateCcw,
 	Search,
 	ShieldCheck,
@@ -98,6 +98,8 @@ function VKActiveSwitch({
 		/>
 	);
 }
+
+const vkIsSystemPool = (vk: VirtualKey) => isSystemPoolVK(vk.system_pool || vk.name);
 
 function VKActionsMenu({
 	vk,
@@ -154,7 +156,7 @@ function VKActionsMenu({
 					<DropdownMenuItem
 						variant="destructive"
 						className="cursor-pointer"
-						disabled={!hasDeleteAccess}
+						disabled={!hasDeleteAccess || vkIsSystemPool(vk)}
 						data-testid={`vk-delete-btn-${vk.name}`}
 						onSelect={(e) => {
 							e.preventDefault();
@@ -259,7 +261,6 @@ export default function VirtualKeysTable({
 		setVkParam(null); // consume the param; selection is held in parent state from here
 	}, [vkParam, setVkParam, onSelectedVkChange]);
 
-	const hasCreateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Create);
 	const hasUpdateAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Update);
 	const hasDeleteAccess = useRbac(RbacResource.VirtualKeys, RbacOperation.Delete);
 
@@ -353,11 +354,6 @@ export default function VirtualKeysTable({
 		} catch (error) {
 			toast.error(getErrorMessage(error));
 		}
-	};
-
-	const handleAddVirtualKey = () => {
-		setEditingVirtualKeyId(null);
-		setShowVirtualKeySheet(true);
 	};
 
 	const handleEditVirtualKey = (vk: VirtualKey) => {
@@ -520,7 +516,7 @@ export default function VirtualKeysTable({
 						onCancel={() => setShowVirtualKeySheet(false)}
 					/>
 				)}
-				<VirtualKeysEmptyState onAddClick={handleAddVirtualKey} canCreate={hasCreateAccess} />
+				<VirtualKeysEmptyState onAddClick={() => {}} canCreate={false} />
 			</>
 		);
 	}
@@ -660,7 +656,7 @@ export default function VirtualKeysTable({
 				<div className="mb-4 flex shrink-0 items-center justify-between">
 					<div>
 						<h2 className="text-lg font-semibold">虚拟 Key</h2>
-						<p className="text-muted-foreground text-sm">管理虚拟 Key 和 Provider 访问。</p>
+						<p className="text-muted-foreground text-sm">系统固定双池自动路由，Provider 归属由渠道成本决定。</p>
 					</div>
 					<div className="flex items-center gap-2">
 						{selectedCount > 0 && (
@@ -677,10 +673,6 @@ export default function VirtualKeysTable({
 						<Button variant="outline" onClick={openExportDialog} disabled={virtualKeys.length === 0} data-testid="vk-export-btn">
 							<Download className="h-4 w-4" />
 							导出 CSV
-						</Button>
-						<Button onClick={handleAddVirtualKey} disabled={!hasCreateAccess} data-testid="create-vk-btn">
-							<Plus className="h-4 w-4" />
-							添加虚拟 Key
 						</Button>
 					</div>
 				</div>
@@ -750,7 +742,14 @@ export default function VirtualKeysTable({
 												/>
 											</TableCell>
 											<TableCell className="max-w-[200px]">
-												<div className="truncate font-medium">{vk.name}</div>
+												<div className="flex min-w-0 items-center gap-2">
+													<div className="truncate font-medium">{vk.name}</div>
+													{vkIsSystemPool(vk) && (
+														<Badge variant="success" className="shrink-0 text-[10px]">
+															{systemPoolLabel(vk.system_pool || vk.name)}
+														</Badge>
+													)}
+												</div>
 											</TableCell>
 											<TableCell onClick={(e) => e.stopPropagation()}>
 												<div className="flex items-center gap-2">
@@ -779,7 +778,17 @@ export default function VirtualKeysTable({
 											</TableCell>
 											<TableCell>
 												<div className="flex flex-wrap gap-1">
-													{vk.provider_configs?.length ? (
+													{vkIsSystemPool(vk) ? (
+														vk.pool_providers?.length ? (
+															vk.pool_providers.slice(0, 3).map((provider) => (
+																<Badge key={`${vk.id}-${provider}`} variant="outline" className="text-xs">
+																	{provider}
+																</Badge>
+															))
+														) : (
+															<span className="text-muted-foreground text-sm">未入池</span>
+														)
+													) : vk.provider_configs?.length ? (
 														vk.provider_configs.slice(0, 3).map((config) => (
 															<Badge key={`${vk.id}-${config.provider}`} variant="outline" className="text-xs">
 																{config.provider}
@@ -788,7 +797,12 @@ export default function VirtualKeysTable({
 													) : (
 														<span className="text-muted-foreground text-sm">无</span>
 													)}
-													{vk.provider_configs && vk.provider_configs.length > 3 && (
+													{vkIsSystemPool(vk) && vk.pool_providers && vk.pool_providers.length > 3 && (
+														<Badge variant="secondary" className="text-xs">
+															+{vk.pool_providers.length - 3}
+														</Badge>
+													)}
+													{!vkIsSystemPool(vk) && vk.provider_configs && vk.provider_configs.length > 3 && (
 														<Badge variant="secondary" className="text-xs">
 															+{vk.provider_configs.length - 3}
 														</Badge>

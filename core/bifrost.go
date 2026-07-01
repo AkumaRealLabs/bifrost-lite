@@ -3854,7 +3854,7 @@ func (bifrost *Bifrost) handleRequest(ctx *schemas.BifrostContext, req *schemas.
 	provider, model, fallbacks = req.GetRequestFields()
 	// Empty provider/model after PreRequestHook means no plugin
 	// could pick a provider for this model — the caller's input is unresolvable.
-	if err := validateRequestAfterPreRequestHooks(req); err != nil {
+	if err := validateRequestAfterPreRequestHooks(ctx, req); err != nil {
 		// Returning before tryRequest skips the downstream log drain, so flush
 		// any PreRequestHook-emitted plugin logs here.
 		flushPluginLogs(ctx)
@@ -3982,7 +3982,7 @@ func (bifrost *Bifrost) handleStreamRequest(ctx *schemas.BifrostContext, req *sc
 	provider, model, fallbacks = req.GetRequestFields()
 	// Empty provider after PreRequestHook means no plugin
 	// could pick a provider for this model — the caller's input is unresolvable.
-	if err := validateRequestAfterPreRequestHooks(req); err != nil {
+	if err := validateRequestAfterPreRequestHooks(ctx, req); err != nil {
 		// Returning before tryStreamRequest skips the downstream log drain, so
 		// flush any PreRequestHook-emitted plugin logs here.
 		flushPluginLogs(ctx)
@@ -5062,6 +5062,10 @@ func executeRequestWithRetries[T any](
 		} else if (bifrostError.StatusCode != nil && transientServerStatusCodes[*bifrostError.StatusCode]) || isPerKeyFailure {
 			shouldRetry = true
 			logger.Debug("encountered error that should be retried: %s", errMessage)
+		}
+		if shouldRetry && shouldFallbackBeforeProviderRetry(bifrostError, req) {
+			shouldRetry = false
+			logger.Debug("provider capacity limit encountered; deferring to configured fallbacks: %s", errMessage)
 		}
 
 		// Fill FailReason on any failed attempt (retryable or terminal). The trail field

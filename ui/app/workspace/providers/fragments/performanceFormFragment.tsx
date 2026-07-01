@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { DefaultPerformanceConfig } from "@/lib/constants/config";
 import { getErrorMessage, setProviderFormDirtyState, useAppDispatch } from "@/lib/store";
 import { useUpdateProviderMutation } from "@/lib/store/apis/providersApi";
+import { getPriceRMBPerDao, setPriceRMBPerDao } from "@/lib/providerPools";
 import { ModelProvider } from "@/lib/types/config";
 import { performanceFormSchema, type PerformanceFormSchema } from "@/lib/types/schemas";
 import { RbacOperation, RbacResource, useRbac } from "@enterprise/lib";
@@ -15,29 +16,6 @@ import { buildProviderUpdatePayload } from "../views/utils";
 
 interface PerformanceFormFragmentProps {
 	provider: ModelProvider;
-}
-
-function getPriceRMBPerDao(description?: string): number | undefined {
-	if (!description) return undefined;
-	try {
-		const value = JSON.parse(description).price_rmb_per_dao;
-		return typeof value === "number" && Number.isFinite(value) ? value : undefined;
-	} catch {
-		return undefined;
-	}
-}
-
-function setPriceRMBPerDao(description: string | undefined, price: number | undefined): string {
-	let metadata: Record<string, unknown> = {};
-	if (description) {
-		try {
-			const parsed = JSON.parse(description);
-			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed;
-		} catch {}
-	}
-	if (price == null) delete metadata.price_rmb_per_dao;
-	else metadata.price_rmb_per_dao = price;
-	return Object.keys(metadata).length ? JSON.stringify(metadata) : "";
 }
 
 export function PerformanceFormFragment({ provider }: PerformanceFormFragmentProps) {

@@ -20,11 +20,13 @@ export function VirtualKeysEmptyState({ onAddClick, canCreate = true }: VirtualK
 				<div className="text-muted-foreground mx-auto mt-2 max-w-[600px] text-sm font-normal">
 					为客户端创建虚拟 Key，并通过 Provider 权限控制路由访问。
 				</div>
-				<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
-					<Button aria-label="添加第一个虚拟 Key" onClick={onAddClick} disabled={!canCreate} data-testid="create-vk-btn">
-						添加虚拟 Key
-					</Button>
-				</div>
+				{canCreate && (
+					<div className="mx-auto mt-6 flex flex-row flex-wrap items-center justify-center gap-2">
+						<Button aria-label="添加第一个虚拟 Key" onClick={onAddClick} data-testid="create-vk-btn">
+							添加虚拟 Key
+						</Button>
+					</div>
+				)}
 			</div>
 		</div>
 	);
