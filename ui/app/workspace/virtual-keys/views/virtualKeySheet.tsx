@@ -107,9 +107,7 @@ function ProviderKeySelector({
 								<Checkbox
 									checked={config.keyIds.includes(key.key_id)}
 									onCheckedChange={(checked) => {
-										const next = checked
-											? [...config.keyIds, key.key_id]
-											: config.keyIds.filter((keyID) => keyID !== key.key_id);
+										const next = checked ? [...config.keyIds, key.key_id] : config.keyIds.filter((keyID) => keyID !== key.key_id);
 										onChange(next);
 									}}
 								/>
@@ -242,9 +240,7 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 			>
 				<SheetHeader className="flex flex-col items-start px-0 py-4" headerClassName="mb-0 sticky -top-4 bg-card z-10 px-8">
 					<SheetTitle>{isEditing ? virtualKey?.name : "创建虚拟 Key"}</SheetTitle>
-					<SheetDescription>
-						{isEditing ? "更新网关访问和 Provider 路由。" : "创建用于网关访问的虚拟 Key。"}
-					</SheetDescription>
+					<SheetDescription>{isEditing ? "更新网关访问和 Provider 路由。" : "创建用于网关访问的虚拟 Key。"}</SheetDescription>
 				</SheetHeader>
 
 				<div className="grow space-y-6 overflow-y-auto px-8">
@@ -296,9 +292,7 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 										.map((provider) => (
 											<SelectItem key={provider.name} value={provider.name}>
 												<RenderProviderIcon
-													provider={
-														provider.custom_provider_config?.base_provider_type || (provider.name as KnownProvider)
-													}
+													provider={provider.custom_provider_config?.base_provider_type || (provider.name as KnownProvider)}
 													size="sm"
 													className="h-4 w-4"
 												/>
@@ -321,13 +315,13 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 											<div className="flex items-center justify-between gap-3">
 												<div className="flex min-w-0 items-center gap-2">
 													<RenderProviderIcon
-														provider={
-															provider?.custom_provider_config?.base_provider_type || (config.provider as ProviderIconType)
-														}
+														provider={provider?.custom_provider_config?.base_provider_type || (config.provider as ProviderIconType)}
 														size="sm"
 														className="h-4 w-4"
 													/>
-													<span className="truncate font-medium">{provider?.custom_provider_config ? config.provider : providerLabel(config.provider)}</span>
+													<span className="truncate font-medium">
+														{provider?.custom_provider_config ? config.provider : providerLabel(config.provider)}
+													</span>
 												</div>
 												<Button
 													type="button"
@@ -355,6 +349,9 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 														onChange={(event) => updateProviderConfig(index, { weight: event.target.value })}
 														data-testid={`vk-weight-input-${index}`}
 													/>
+													<p className="text-muted-foreground text-xs">
+														建议填 1；留空表示不参加自动均衡。智能评分不会回写此值，每次请求临时计算有效权重。
+													</p>
 												</div>
 												<div className="space-y-2">
 													<Label htmlFor={`vk-allowed-models-${index}`}>允许模型</Label>
@@ -393,7 +390,7 @@ export default function VirtualKeySheet({ virtualKey, onSave, onCancel }: Virtua
 				</div>
 
 				{showRotateWarning && (
-					<div className="mx-8 rounded-sm border border-destructive/40 p-3">
+					<div className="border-destructive/40 mx-8 rounded-sm border p-3">
 						<div className="mb-3 text-sm">
 							确定轮换 <span className="font-medium">{virtualKey?.name}</span> 的密钥值？Key ID 和 Provider 访问保持不变。
 						</div>

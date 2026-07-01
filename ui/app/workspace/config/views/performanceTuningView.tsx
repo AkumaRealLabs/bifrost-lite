@@ -301,6 +301,9 @@ export default function PerformanceTuningView() {
 								优先级：高可用 &gt; TTFB &gt; 成本。仅影响 VK 自动路由。统计窗口、阈值、权重等请通过 API 配置
 								client_config.provider_scoring。
 							</p>
+							<p className="text-muted-foreground text-xs">
+								评分过程、临时停调和最终选择在请求日志 Routing tab 查看。成本分来自 Provider 的渠道成本（RMB / 1刀额度），不是模型价格覆盖。
+							</p>
 						</div>
 						<Switch
 							id="provider-scoring-enabled"

@@ -659,9 +659,17 @@ func (p *GovernancePlugin) loadBalanceProvider(ctx *schemas.BifrostContext, req 
 	if selectedProvider == "" {
 		selectedProvider = schemas.ModelProvider(weightedConfigs[0].config.Provider)
 	}
+	var selectedBaseWeight, selectedEffectiveWeight float64
+	for _, config := range weightedConfigs {
+		if config.config.Provider == string(selectedProvider) {
+			selectedBaseWeight = config.originalWeight
+			selectedEffectiveWeight = config.effectiveWeight
+			break
+		}
+	}
 
 	p.logger.Debug("[governance] Selected provider: %s", selectedProvider)
-	ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Selected provider %s for model %s (from %d eligible: %v)", selectedProvider, modelStr, len(allowedProviderConfigs), allowedProviders))
+	ctx.AppendRoutingEngineLog(schemas.RoutingEngineGovernance, schemas.LogLevelInfo, fmt.Sprintf("Selected provider %s for model %s (base_weight=%.2f effective_weight=%.2f from %d eligible: %v)", selectedProvider, modelStr, selectedBaseWeight, selectedEffectiveWeight, len(allowedProviderConfigs), allowedProviders))
 
 	refinedModel := modelStr
 	// Refine the model for the selected provider

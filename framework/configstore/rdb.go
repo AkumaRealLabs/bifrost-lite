@@ -861,6 +861,7 @@ func (s *RDBConfigStore) UpdateProvider(ctx context.Context, provider schemas.Mo
 	dbProvider.CustomProviderConfig = configCopy.CustomProviderConfig
 	dbProvider.OpenAIConfig = configCopy.OpenAIConfig
 	dbProvider.ConfigHash = configCopy.ConfigHash
+	dbProvider.Description = configCopy.Description
 
 	// Save the updated provider
 	if err := txDB.WithContext(ctx).Save(&dbProvider).Error; err != nil {
