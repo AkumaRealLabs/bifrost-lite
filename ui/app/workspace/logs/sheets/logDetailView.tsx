@@ -47,6 +47,7 @@ import PluginLogsView from "../views/pluginLogsView";
 import SpeechView from "../views/speechView";
 import TranscriptionView from "../views/transcriptionView";
 import VideoView from "../views/videoView";
+import { parseProviderScoringLogs, type ProviderScoringRow } from "./routingScoring";
 
 const extractResponsesText = (msg: ResponsesMessage): string => {
 	if (msg.type === "reasoning") {
@@ -357,45 +358,95 @@ const messageRoleLabel: Record<MessageRole, string> = {
 
 function RoutingDecisionLogs({ logs }: { logs: string }) {
 	const { copy } = useCopyToClipboard({ successMessage: "Copied" });
+	const scoring = parseProviderScoringLogs(logs);
 	return (
-		<div className="w-full rounded-sm border">
-			<div className="flex items-center justify-between border-b py-2 pl-6">
-				<div className="text-sm font-medium">Routing Decision Logs</div>
-				<button
-					type="button"
-					onClick={() => copy(logs)}
-					className="text-muted-foreground mx-2 flex h-6 items-center rounded px-1 py-1 hover:text-black dark:hover:text-white"
-				>
-					<Copy className="h-3 w-3" />
-				</button>
+		<div className="space-y-3">
+			{scoring.rows.length > 0 ? <ProviderScoringTable rows={scoring.rows} failOpen={scoring.failOpen} /> : null}
+			<div className="w-full rounded-sm border">
+				<div className="flex items-center justify-between border-b py-2 pl-6">
+					<div className="text-sm font-medium">Routing Decision Logs</div>
+					<button
+						type="button"
+						onClick={() => copy(logs)}
+						className="text-muted-foreground mx-2 flex h-6 items-center rounded px-1 py-1 hover:text-black dark:hover:text-white"
+					>
+						<Copy className="h-3 w-3" />
+					</button>
+				</div>
+				<div>
+					{logs
+						.split("\n")
+						.filter((l) => l.trim())
+						.map((line, i) => {
+							const m = line.match(/^\[(\d+)\]\s+\[([^\]]+)\]\s+-\s+(.*)$/);
+							const ts = m ? Number(m[1]) : null;
+							const scope = m ? m[2] : null;
+							const message = m ? m[3] : line;
+							return (
+								<div key={i} className="flex items-start gap-3 border-b px-4 py-1.5 font-mono text-xs last:border-b-0">
+									{ts != null ? <span className="text-muted-foreground shrink-0">{format(new Date(ts), "HH:mm:ss.SSS")}</span> : null}
+									{scope ? (
+										<span
+											className={cn(
+												"inline-block w-24 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold uppercase",
+												RoutingEngineUsedColors[scope as keyof typeof RoutingEngineUsedColors] ??
+													"bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
+											)}
+										>
+											{RoutingEngineUsedLabels[scope as keyof typeof RoutingEngineUsedLabels] ?? scope}
+										</span>
+									) : null}
+									<span className="break-words whitespace-pre-wrap">{message}</span>
+								</div>
+							);
+						})}
+				</div>
 			</div>
-			<div>
-				{logs
-					.split("\n")
-					.filter((l) => l.trim())
-					.map((line, i) => {
-						const m = line.match(/^\[(\d+)\]\s+\[([^\]]+)\]\s+-\s+(.*)$/);
-						const ts = m ? Number(m[1]) : null;
-						const scope = m ? m[2] : null;
-						const message = m ? m[3] : line;
-						return (
-							<div key={i} className="flex items-start gap-3 border-b px-4 py-1.5 font-mono text-xs last:border-b-0">
-								{ts != null ? <span className="text-muted-foreground shrink-0">{format(new Date(ts), "HH:mm:ss.SSS")}</span> : null}
-								{scope ? (
-									<span
-										className={cn(
-											"inline-block w-24 shrink-0 rounded px-1.5 py-0.5 text-center text-[10px] font-semibold uppercase",
-											RoutingEngineUsedColors[scope as keyof typeof RoutingEngineUsedColors] ??
-												"bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300",
-										)}
-									>
-										{RoutingEngineUsedLabels[scope as keyof typeof RoutingEngineUsedLabels] ?? scope}
-									</span>
-								) : null}
-								<span className="break-words whitespace-pre-wrap">{message}</span>
-							</div>
-						);
-					})}
+		</div>
+	);
+}
+
+function ProviderScoringTable({ rows, failOpen }: { rows: ProviderScoringRow[]; failOpen: boolean }) {
+	const formatScore = (value: number) => value.toFixed(2);
+	return (
+		<div className="w-full overflow-hidden rounded-sm border">
+			<div className="flex items-center justify-between border-b px-4 py-2">
+				<div className="text-sm font-medium">Provider Scoring</div>
+				{failOpen ? <Badge variant="outline">fail-open</Badge> : null}
+			</div>
+			<div className="overflow-x-auto">
+				<table className="w-full min-w-[860px] text-xs">
+					<thead>
+						<tr className="bg-muted/40 text-muted-foreground border-b">
+							<th className="px-3 py-2 text-left font-medium">Provider</th>
+							<th className="px-3 py-2 text-left font-medium">Model</th>
+							<th className="px-3 py-2 text-right font-medium">Availability</th>
+							<th className="px-3 py-2 text-right font-medium">TTFB</th>
+							<th className="px-3 py-2 text-right font-medium">Cost</th>
+							<th className="px-3 py-2 text-right font-medium">Final</th>
+							<th className="px-3 py-2 text-right font-medium">Base Weight</th>
+							<th className="px-3 py-2 text-right font-medium">Effective Weight</th>
+							<th className="px-3 py-2 text-left font-medium">Status</th>
+						</tr>
+					</thead>
+					<tbody>
+						{rows.map((row) => (
+							<tr key={`${row.provider}-${row.model}`} className="border-b last:border-b-0">
+								<td className="px-3 py-2 font-mono">{row.provider}</td>
+								<td className="px-3 py-2 font-mono">{row.model}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.availabilityScore)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.ttfbScore)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.costScore)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.finalMultiplier)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.baseWeight)}</td>
+								<td className="px-3 py-2 text-right tabular-nums">{formatScore(row.effectiveWeight)}</td>
+								<td className="px-3 py-2">
+									<Badge variant={row.status === "selected" ? "default" : "outline"}>{row.status}</Badge>
+								</td>
+							</tr>
+						))}
+					</tbody>
+				</table>
 			</div>
 		</div>
 	);

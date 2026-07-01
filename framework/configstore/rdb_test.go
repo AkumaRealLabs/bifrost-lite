@@ -1215,6 +1215,30 @@ func TestUpdateProvider_RemovesStaleVirtualKeyProviderConfigKeyAssociations(t *t
 	assert.Empty(t, result.ProviderConfigs[0].Keys)
 }
 
+func TestUpdateProvider_PersistsDescriptionMetadata(t *testing.T) {
+	store := setupRDBTestStore(t)
+	ctx := context.Background()
+
+	providers := map[schemas.ModelProvider]ProviderConfig{
+		"provider-alpha": {
+			Keys:              []schemas.Key{{ID: "key-alpha", Name: "provider-alpha-key", Value: *schemas.NewSecretVar("sk-alpha"), Weight: 1.0}},
+			StatusDescription: "preview missing model",
+		},
+	}
+	require.NoError(t, store.UpdateProvidersConfig(ctx, providers))
+
+	updatedProviderConfig := ProviderConfig{
+		Keys:        providers["provider-alpha"].Keys,
+		Description: `{"price_rmb_per_dao":0.123}`,
+	}
+	require.NoError(t, store.UpdateProvider(ctx, "provider-alpha", updatedProviderConfig))
+
+	got, err := store.GetProvider(ctx, "provider-alpha")
+	require.NoError(t, err)
+	assert.Equal(t, `{"price_rmb_per_dao":0.123}`, got.Description)
+	assert.Equal(t, "preview missing model", got.StatusDescription)
+}
+
 func TestDeleteProvider_RemovesVirtualKeyProviderConfigs(t *testing.T) {
 	store := setupRDBTestStore(t)
 	ctx := context.Background()
