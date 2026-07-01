@@ -62,6 +62,7 @@ var rateLimitPatterns = []string{
 	"throttled",
 	"throttling",
 	"rate exceeded",
+	"concurrency limit exceeded for account",
 	"limit exceeded",
 	"requests per",
 	"rpm exceeded",

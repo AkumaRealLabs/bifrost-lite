@@ -29,6 +29,9 @@ const (
 	governanceRejectedContextKey schemas.BifrostContextKey = "bf-governance-rejected"
 
 	VirtualKeyPrefix = "sk-bf-"
+
+	accountConcurrencyCooldownReason  = "account_concurrency_limit"
+	accountConcurrencyCooldownSeconds = 30
 )
 
 // Config is the configuration for the governance plugin
@@ -1259,6 +1262,7 @@ func (p *GovernancePlugin) PostLLMHook(ctx *schemas.BifrostContext, result *sche
 
 	// Extract request type, provider, and model
 	requestType, provider, requestedModel, _ := bifrost.GetResponseFields(result, err)
+	p.cooldownProviderOnAccountConcurrencyLimit(ctx, provider, err)
 
 	// Extract governance information
 	virtualKey := bifrost.GetStringFromContext(ctx, schemas.BifrostContextKeyVirtualKey)
@@ -1319,6 +1323,53 @@ func (p *GovernancePlugin) PostLLMHook(ctx *schemas.BifrostContext, result *sche
 	}
 
 	return result, err, nil
+}
+
+func (p *GovernancePlugin) cooldownProviderOnAccountConcurrencyLimit(ctx *schemas.BifrostContext, provider schemas.ModelProvider, err *schemas.BifrostError) {
+	if ctx == nil || err == nil || err.Error == nil || !isAccountConcurrencyLimitError(err) {
+		return
+	}
+	if provider == "" {
+		provider = err.ExtraFields.RoutingInfo.Provider
+	}
+	if provider == "" {
+		return
+	}
+
+	now := time.Now().UTC()
+	state := configstore.ProviderCooldownState{
+		Provider:      string(provider),
+		CooldownUntil: now.Add(accountConcurrencyCooldownSeconds * time.Second),
+		Reason:        accountConcurrencyCooldownReason,
+		WindowSeconds: accountConcurrencyCooldownSeconds,
+		UpdatedAt:     now,
+	}
+	if p.testCooldownUpsert != nil {
+		if err := p.testCooldownUpsert(ctx, state); err != nil {
+			p.logger.Warn("failed to record provider account concurrency cooldown: %v", err)
+		}
+		return
+	}
+	if p.configStore != nil {
+		if err := p.configStore.UpsertProviderCooldown(ctx, state); err != nil {
+			p.logger.Warn("failed to record provider account concurrency cooldown: %v", err)
+		}
+	}
+}
+
+func isAccountConcurrencyLimitError(err *schemas.BifrostError) bool {
+	if err == nil || err.Error == nil {
+		return false
+	}
+	return isAccountConcurrencyLimitText(err.Error.Message) ||
+		(err.Error.Type != nil && isAccountConcurrencyLimitText(*err.Error.Type)) ||
+		(err.Error.Code != nil && isAccountConcurrencyLimitText(*err.Error.Code))
+}
+
+func isAccountConcurrencyLimitText(text string) bool {
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "concurrency limit exceeded for account") ||
+		strings.Contains(lower, "account_concurrency")
 }
 
 // Cleanup shuts down all components gracefully

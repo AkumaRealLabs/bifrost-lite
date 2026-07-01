@@ -406,6 +406,7 @@ func TestIsRateLimitError_AllPatterns(t *testing.T) {
 		"requests per second",
 		"api rate limit",
 		"usage limit",
+		"concurrency limit exceeded for account",
 		"concurrent requests limit",
 		"burst_rate",
 		"rate increased",
