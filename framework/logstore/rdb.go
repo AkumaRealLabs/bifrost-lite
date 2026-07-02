@@ -2900,6 +2900,7 @@ func (s *RDBLogStore) getTimingStats(ctx context.Context, filters SearchFilters,
 	query = query.Where(column + " IS NOT NULL")
 	query = query.Where("provider IS NOT NULL AND provider != ''")
 	query = query.Where("model IS NOT NULL AND model != ''")
+	groupByVirtualKey := len(filters.VirtualKeyIDs) > 0
 
 	switch s.db.Dialector.Name() {
 	case "postgres":
@@ -2913,19 +2914,25 @@ func (s *RDBLogStore) getTimingStats(ctx context.Context, filters SearchFilters,
 			P95Ms        sql.NullFloat64 `gorm:"column:p95_ms"`
 			P99Ms        sql.NullFloat64 `gorm:"column:p99_ms"`
 		}
+		virtualKeySelect := "'' as virtual_key_id"
+		virtualKeyGroup := ""
+		if groupByVirtualKey {
+			virtualKeySelect = "COALESCE(virtual_key_id, '') as virtual_key_id"
+			virtualKeyGroup = ", COALESCE(virtual_key_id, '')"
+		}
 		selectClause := fmt.Sprintf(`
 			provider,
 			model,
-			COALESCE(virtual_key_id, '') as virtual_key_id,
+			%[2]s,
 			COUNT(*) as sample_count,
 			AVG(%[1]s) as avg_ms,
 			percentile_cont(0.90) WITHIN GROUP (ORDER BY %[1]s) as p90_ms,
 			percentile_cont(0.95) WITHIN GROUP (ORDER BY %[1]s) as p95_ms,
 			percentile_cont(0.99) WITHIN GROUP (ORDER BY %[1]s) as p99_ms
-		`, column)
+		`, column, virtualKeySelect)
 		if err := query.
 			Select(selectClause).
-			Group("provider, model, COALESCE(virtual_key_id, '')").
+			Group("provider, model" + virtualKeyGroup).
 			Order("sample_count DESC, provider ASC, model ASC").
 			Find(&rows).Error; err != nil {
 			return 0, 0, nil, fmt.Errorf("failed to get %s stats: %w", label, err)
@@ -2965,6 +2972,9 @@ func (s *RDBLogStore) getTimingStats(ctx context.Context, filters SearchFilters,
 		}
 		grouped := make(map[statsKey][]float64)
 		for _, row := range rows {
+			if !groupByVirtualKey {
+				row.VirtualKeyID = ""
+			}
 			key := statsKey{provider: row.Provider, model: row.Model, virtualKeyID: row.VirtualKeyID}
 			grouped[key] = append(grouped[key], row.ValueMs)
 		}

@@ -17,6 +17,11 @@ func createTimingLog(t *testing.T, store *RDBLogStore, id, provider, model strin
 	t.Helper()
 	latency := 1000.0
 	virtualKeyID := "vk-gpt"
+	createTimingLogWithVK(t, store, id, provider, model, virtualKeyID, ts, ttfb, ttft, latency)
+}
+
+func createTimingLogWithVK(t *testing.T, store *RDBLogStore, id, provider, model, virtualKeyID string, ts time.Time, ttfb, ttft *float64, latency float64) {
+	t.Helper()
 	err := store.Create(context.Background(), &Log{
 		ID:           id,
 		Timestamp:    ts,
@@ -178,6 +183,49 @@ func TestTTFTHistogramsAndStatsSQLite(t *testing.T) {
 	assert.True(t, byProviderStats["openai"].HasMinSamples)
 	assert.Equal(t, int64(1), byProviderStats["anthropic"].SampleCount)
 	assert.False(t, byProviderStats["anthropic"].HasMinSamples)
+}
+
+func TestTTFTStatsAggregateAcrossVirtualKeysWhenUnfiltered(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	start := now.Add(-10 * time.Minute)
+	end := now.Add(time.Minute)
+
+	createTimingLogWithVK(t, store, "openai-vk-a", "openai", "gpt-4o", "vk-a", now.Add(-8*time.Minute), floatPtr(50), floatPtr(1000), 1000)
+	createTimingLogWithVK(t, store, "openai-vk-b", "openai", "gpt-4o", "vk-b", now.Add(-7*time.Minute), floatPtr(60), floatPtr(5000), 1000)
+	createTimingLogWithVK(t, store, "anthropic-vk-a", "anthropic", "gpt-4o", "vk-c", now.Add(-6*time.Minute), floatPtr(70), floatPtr(4000), 1000)
+
+	stats, err := store.GetTTFTStats(context.Background(), SearchFilters{StartTime: &start, EndTime: &end}, 15*time.Minute, 2)
+	require.NoError(t, err)
+	require.Len(t, stats.Stats, 2)
+
+	byProviderStats := map[string]TTFTStatsEntry{}
+	for _, entry := range stats.Stats {
+		byProviderStats[entry.Provider] = entry
+	}
+
+	require.Contains(t, byProviderStats, "openai")
+	assert.Empty(t, byProviderStats["openai"].VirtualKeyID)
+	assert.Equal(t, int64(2), byProviderStats["openai"].SampleCount)
+	assert.True(t, byProviderStats["openai"].HasMinSamples)
+	assert.InDelta(t, 4800, byProviderStats["openai"].P95TTFTMs, 0.1)
+}
+
+func TestTTFTStatsKeepVirtualKeySplitWhenFiltered(t *testing.T) {
+	store := newTestSQLiteStore(t)
+	now := time.Now().UTC().Truncate(time.Second)
+	start := now.Add(-10 * time.Minute)
+	end := now.Add(time.Minute)
+
+	createTimingLogWithVK(t, store, "openai-vk-a", "openai", "gpt-4o", "vk-a", now.Add(-8*time.Minute), floatPtr(50), floatPtr(1000), 1000)
+	createTimingLogWithVK(t, store, "openai-vk-b", "openai", "gpt-4o", "vk-b", now.Add(-7*time.Minute), floatPtr(60), floatPtr(5000), 1000)
+
+	stats, err := store.GetTTFTStats(context.Background(), SearchFilters{StartTime: &start, EndTime: &end, VirtualKeyIDs: []string{"vk-b"}}, 15*time.Minute, 1)
+	require.NoError(t, err)
+	require.Len(t, stats.Stats, 1)
+	assert.Equal(t, "vk-b", stats.Stats[0].VirtualKeyID)
+	assert.Equal(t, int64(1), stats.Stats[0].SampleCount)
+	assert.InDelta(t, 5000, stats.Stats[0].P95TTFTMs, 0.1)
 }
 
 func floatPtr(v float64) *float64 {
